@@ -7,13 +7,17 @@ joystick / cursor keys (joystick 1 = NUM_KEYPAD).
 A script with a '# draw after death' line is followed after the kid's death until it ends (the others stop 8 ticks
 after it, as the logic tests do). Every tick also checks the flash the Z80 showed (FL_SHOWN) against SDLPoP's
 flash_if_hurt.
+The tick ends are taken by a tracepoint (tools/emu.py Hits) that captures the state memory and the CRC-32s of the VRAM
+planes without stopping the emulator; a checked screen compares the planes' hashes with the hashes of the reference
+render's planes, and where one differs the script runs again the old way (a breakpoint stop per tick, the full screen
+read and compared: the diff report and its PNGs). POP800_EMU_TRACE=0: the old way only.
 usage: m4_game.py [--gui] [--level N] [--every N] [script.txt ...]"""
 import base64, os, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
 from m3_test import syms, load_assets, LEVEL_ADDR, RV, rebase_dir, write_pack
-from m4_test import z80_state, KV, norm, guard_opts_bytes, ev_opts_bytes, encode
-from emu import Emu
+from m4_test import z80_state, KV, KV_SNAP, TR_SNAP, norm, guard_opts_bytes, ev_opts_bytes, encode
+from emu import Emu, Hits, PALETTE, image_planes, planes_crc
 from popdata import Level, RoomRenderer, B_TRANSP, B_NOTRANSP, B_OR, B_BLACK, B_MONO, MZ, EGA2MZ, T
 import build_assets as BA
 import kidsim
@@ -546,6 +550,77 @@ def reference(sim, rr, kp, kidset):
         draw_text(px, text, FONT)
     return im
 
+def run_script(e, sp, args, every, kp, kidset, fast):
+    """one control script against the references; returns the number of differences (state diffs + differing pixels),
+    or None when fast and a screen's VRAM hash differs from the reference's (the caller runs it again, fast=False).
+    fast: the tick ends by a tracepoint (tools/emu.py Hits) that captures the state memory and the VRAM planes' CRC-32s,
+    compared with the hash of the reference render's planes; else (the old way) a breakpoint stop per tick, the state
+    read from the memory and the full screen read where it is checked."""
+    moves, patches = kidsim.read_script(sp); keys = kidsim.read_keys(sp)
+    lv = int(args[args.index('--level') + 1]) if '--level' in args else kidsim.script_level(sp)
+    o = kidsim.script_opts(sp)
+    after_death = any(l.startswith('# draw after death') for l in open(sp))   # (no SDLPoP comparison there: its
+    sim = kidsim.KidSim(Level(lv), patches=patches, guards=o['guards'], place=o['place'], sword=o['sword'],   # death
+                        time=o['time'], start=o['start'], multi_level=True)                  # timer waits on sounds)
+    ghp_instrument(sim); fx_instrument(sim)
+    sim.objt = 0; objtile_frame(sim)               # (the level start's first draw: draw_level_first)
+    rr = RoomRenderer(sim.level, ega=True)
+    S = setup(e, lv, opts=o)
+    write_pack(e, encode(moves, keys), 5, SCRIPT)
+    e.call('mem_write', addr=SCRIPT_PTR, data_hex='%02x%02x' % (SCRIPT & 255, SCRIPT >> 8))
+    e.call('bp_clear'); e.call('bp_add', addr=S['guards_off_chk'])
+    r = e.run(400); assert r['stopped_by'] == 'breakpoint', r
+    for (rm, p, t, m) in patches:                  # patches go in where SDLPoP's hook applies them: at the first
+        e.call('mem_write', addr=LEVEL_ADDR + (rm - 1) * 30 + p, data_hex='%02x' % t)      # tick's control step
+        e.call('mem_write', addr=LEVEL_ADDR + 720 + (rm - 1) * 30 + p, data_hex='%02x' % m)
+    ranges = [(KV_SNAP, 16), (TR_SNAP, 6), (S['FL_SHOWN'], 1), (S['level_number'], 1)]
+    hits = Hits(e, S['tick_done'], ranges, 400, vram_hash=True, fast=fast)
+    frames_out = []; bad_state = 0; bad_px = 0; first = None; t0 = time.time(); stop = None
+    for t, ((x, y, sh), k) in enumerate(zip(moves, keys)):
+        m = hits.next((sp, t))
+        ref = fx_step(sim, x, y, sh, k)
+        if ref is None or sim.game_over:        # (M5 scenes: a restart tick has no state; game over: the end)
+            if sim.game_over: break
+            continue
+        got = z80_state(m, int(ref.split()[0]))
+        fl = m.mem(S['FL_SHOWN'], 1)[0]         # the flash the tick showed (flash_if_hurt), MZ colour
+        want = EGA2MZ[sim.flash_shown & 15] if sim.flash_shown else 0
+        if fl != want:
+            bad_state += 1
+            if first is None: first = ('flash', t, want, fl)
+        if sim.level_done:          # the exit: the Z80 is on the level kidsim is on now, then stop (M7 step 5: the
+            lvl = m.mem(S['level_number'], 1)[0]        # stairs of levels 1-12 wait for the end music, which
+            print('   exit reached at tick %d; the program is on level %d now (kidsim %d)' % (t, lvl, sim.level.number))
+            if lvl != sim.level.number: bad_state += 1  # never ends in the silent mode: the level stays)
+            break
+        if norm(ref) != norm(got):
+            bad_state += 1
+            if first is None: first = ('state', t, ref, got)
+        if t % every == 0 or t == len(moves) - 1:
+            if rr.level is not sim.level: rr = RoomRenderer(sim.level, ega=True)     # (M5: a new level)
+            refim = reference(sim, rr, kp, kidset)
+            if fast:        # the reference's planes hashed as the emulator hashed the VRAM at this tick's end
+                if refim.getextrema()[1] > 15 or planes_crc(image_planes(refim)) != m.rec['vram']:
+                    hits.close(); return None
+                im = refim.copy(); im.putpalette(PALETTE + [0] * (768 - 48))     # (= the VRAM picture)
+            else:
+                im = e.vram_image()
+                pm, pr = im.load(), refim.load()
+                bad = [(xx, yy, pm[xx, yy], pr[xx, yy]) for yy in range(200) for xx in range(320) if pm[xx, yy] != pr[xx, yy]]
+                if bad:
+                    bad_px += len(bad)
+                    if first is None: first = ('screen', t, bad[:4])
+                    tag = os.path.basename(sp)[:-4]
+                    im.save(os.path.join(ROOT, 'build', 'm4_%s_t%d_z80.png' % (tag, t))); refim.save(os.path.join(ROOT, 'build', 'm4_%s_t%d_ref.png' % (tag, t)))
+            frames_out.append(im.convert('RGB'))
+        if stop is None and ((sim.Kid.alive >= 0 and not after_death) or sim.level_done): stop = t + (1 if sim.level_done else 8)
+        if stop is not None and t >= stop: break          # after a death (restart) or the exit (next level) the simulator stops
+    hits.close()
+    gif = os.path.join(ROOT, 'build', 'm4_%s.gif' % os.path.basename(sp)[:-4])
+    if frames_out: frames_out[0].save(gif, save_all=True, append_images=frames_out[1:], duration=80 * every, loop=0)
+    print('%-20s %4d ticks: %d state diffs, %d differing pixels%s  (%.0fs)' % (os.path.basename(sp), t + 1, bad_state, bad_px, '' if first is None else '; first: %s' % (first,), time.time() - t0))
+    return bad_state + bad_px
+
 def main():
     args = sys.argv[1:]
     gui = '--gui' in args
@@ -564,62 +639,11 @@ def main():
     kp = KidPack(); kidset = KidSet(kp); total_bad = 0
     with Emu() as e:
         for sp in scripts:
-            moves, patches = kidsim.read_script(sp); keys = kidsim.read_keys(sp)
-            lv = int(args[args.index('--level') + 1]) if '--level' in args else kidsim.script_level(sp)
-            o = kidsim.script_opts(sp)
-            after_death = any(l.startswith('# draw after death') for l in open(sp))   # (no SDLPoP comparison there: its
-            sim = kidsim.KidSim(Level(lv), patches=patches, guards=o['guards'], place=o['place'], sword=o['sword'],   # death
-                                time=o['time'], start=o['start'], multi_level=True)                  # timer waits on sounds)
-            ghp_instrument(sim); fx_instrument(sim)
-            sim.objt = 0; objtile_frame(sim)               # (the level start's first draw: draw_level_first)
-            rr = RoomRenderer(sim.level, ega=True)
-            S = setup(e, lv, opts=o)
-            write_pack(e, encode(moves, keys), 5, SCRIPT)
-            e.call('mem_write', addr=SCRIPT_PTR, data_hex='%02x%02x' % (SCRIPT & 255, SCRIPT >> 8))
-            e.call('bp_clear'); e.call('bp_add', addr=S['guards_off_chk'])
-            r = e.run(400); assert r['stopped_by'] == 'breakpoint', r
-            for (rm, p, t, m) in patches:                  # patches go in where SDLPoP's hook applies them: at the first
-                e.call('mem_write', addr=LEVEL_ADDR + (rm - 1) * 30 + p, data_hex='%02x' % t)      # tick's control step
-                e.call('mem_write', addr=LEVEL_ADDR + 720 + (rm - 1) * 30 + p, data_hex='%02x' % m)
-            e.call('bp_clear'); e.call('bp_add', addr=S['tick_done'])
-            frames_out = []; bad_state = 0; bad_px = 0; first = None; t0 = time.time(); stop = None
-            for t, ((x, y, sh), k) in enumerate(zip(moves, keys)):
-                r = e.run(400); assert r['stopped_by'] == 'breakpoint', (sp, t, r)
-                ref = fx_step(sim, x, y, sh, k)
-                if ref is None or sim.game_over:        # (M5 scenes: a restart tick has no state; game over: the end)
-                    if sim.game_over: break
-                    continue
-                got = z80_state(e, int(ref.split()[0]))
-                fl = e.mem(S['FL_SHOWN'], 1)[0]         # the flash the tick showed (flash_if_hurt), MZ colour
-                want = EGA2MZ[sim.flash_shown & 15] if sim.flash_shown else 0
-                if fl != want:
-                    bad_state += 1
-                    if first is None: first = ('flash', t, want, fl)
-                if sim.level_done:          # the exit: the Z80 is on the level kidsim is on now, then stop (M7 step 5: the
-                    lvl = e.mem(S['level_number'], 1)[0]        # stairs of levels 1-12 wait for the end music, which
-                    print('   exit reached at tick %d; the program is on level %d now (kidsim %d)' % (t, lvl, sim.level.number))
-                    if lvl != sim.level.number: bad_state += 1  # never ends in the silent mode: the level stays)
-                    break
-                if norm(ref) != norm(got):
-                    bad_state += 1
-                    if first is None: first = ('state', t, ref, got)
-                if t % every == 0 or t == len(moves) - 1:
-                    if rr.level is not sim.level: rr = RoomRenderer(sim.level, ega=True)     # (M5: a new level)
-                    im = e.vram_image(); refim = reference(sim, rr, kp, kidset)
-                    pm, pr = im.load(), refim.load()
-                    bad = [(xx, yy, pm[xx, yy], pr[xx, yy]) for yy in range(200) for xx in range(320) if pm[xx, yy] != pr[xx, yy]]
-                    if bad:
-                        bad_px += len(bad)
-                        if first is None: first = ('screen', t, bad[:4])
-                        tag = os.path.basename(sp)[:-4]
-                        im.save(os.path.join(ROOT, 'build', 'm4_%s_t%d_z80.png' % (tag, t))); refim.save(os.path.join(ROOT, 'build', 'm4_%s_t%d_ref.png' % (tag, t)))
-                    frames_out.append(im.convert('RGB'))
-                if stop is None and ((sim.Kid.alive >= 0 and not after_death) or sim.level_done): stop = t + (1 if sim.level_done else 8)
-                if stop is not None and t >= stop: break          # after a death (restart) or the exit (next level) the simulator stops
-            total_bad += bad_state + bad_px
-            gif = os.path.join(ROOT, 'build', 'm4_%s.gif' % os.path.basename(sp)[:-4])
-            if frames_out: frames_out[0].save(gif, save_all=True, append_images=frames_out[1:], duration=80 * every, loop=0)
-            print('%-20s %4d ticks: %d state diffs, %d differing pixels%s  (%.0fs)' % (os.path.basename(sp), t + 1, bad_state, bad_px, '' if first is None else '; first: %s' % (first,), time.time() - t0))
+            res = run_script(e, sp, args, every, kp, kidset, fast=e.tracing)
+            if res is None:                     # a screen hash differed: the old way again, for the full diff report
+                print('   %s: a screen differs (VRAM hash): the script again with full screen reads' % os.path.basename(sp))
+                res = run_script(e, sp, args, every, kp, kidset, fast=False)
+            total_bad += res
     print('total:', total_bad)
     sys.exit(1 if total_bad else 0)
 

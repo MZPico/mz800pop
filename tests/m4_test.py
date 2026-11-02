@@ -8,6 +8,8 @@ the snapshot guard.asm takes where SDLPoP's hook writes it (after check_guard_fa
 playing stops', kidsim sound_line in the silent sound mode, every script) from m4test.asm's snd_snap (src/m4/sound.asm
 snd_next), and the EXPIRED / END points.
 A tick that restarts the level (Ctrl+A) has no lines: the Z80 runs through it without stopping.
+The snapshots are taken at every tick's end (tick_done) by a tracepoint that captures their memory without stopping
+the emulator (tools/emu.py Hits; POP800_EMU_TRACE=0: a breakpoint stop and memory reads per tick, the old way).
 Level patches ('# patch') are written where SDLPoP's hook applies them: at the first tick's control step (a
 breakpoint at guards_off_chk), after that tick's animated tiles. Script options go to the Z80 through guard.asm's guard_opts and ev_opts blocks (see guard_opts_bytes, ev_opts_bytes);
 until a guard has entered (Guard.direction none on both sides) only the global fields of the G line are compared:
@@ -23,7 +25,7 @@ import glob, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
 from m3_test import syms, LEVEL_ADDR, RV, write_pack
-from emu import Emu
+from emu import Emu, Hits
 from popdata import Level, T
 import kidsim
 KV = 0x0a00; SCRIPT = 0xE400; DIR_KID = 0xF600      # SCRIPT: m4test.asm
@@ -106,6 +108,12 @@ def setup(e, S, lv, o):
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(o).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(o).hex())
 
+def snap_ranges(S, o):
+    """what the tick loop reads at a tick's end (z80_state, z80_guard, z80_state_line, z80_sound_line, GAME_OVER)"""
+    r = [(KV_SNAP, 16), (TR_SNAP, 6), (S_SNAP, S_N + 1), (LEVEL_ADDR, 1440), (N_SNAP, 5), (S['GAME_OVER'], 1)]
+    if o['guards']: r.append((S['G_SNAP'], 30))
+    return r
+
 TABLES_CHECKED = False
 def main():
     scripts = sys.argv[1:] or (sorted(glob.glob(os.path.join(ROOT, 'tests', 'm4_scripts', '*.txt'))) +
@@ -139,34 +147,35 @@ def main():
             for (rm, p, t, m) in patches:                                        # (as SDLPoP's pop800_control hook)
                 e.call('mem_write', addr=LEVEL_ADDR + (rm - 1) * 30 + p, data_hex='%02x' % t)
                 e.call('mem_write', addr=LEVEL_ADDR + 720 + (rm - 1) * 30 + p, data_hex='%02x' % m)
-            e.call('bp_clear'); e.call('bp_add', addr=S['tick_done'])
+            # every tick's end (tick_done): a tracepoint capturing the snapshots (tools/emu.py Hits), or the old breakpoint
+            snaps_at = Hits(e, S['tick_done'], snap_ranges(S, o), 50)
             bad = 0; first = None; dead_at = None; entered = False; gbad = sbad = 0; ticks = 0; marker = ''
             snaps = e.mem(S_SNAP + S_N, 1)[0]; nsnaps = e.mem(N_SNAP + 4, 1)[0]; nbad = 0
             for t, ((x, y, sh), k) in enumerate(zip(moves, keys)):
                 ref = sim.step(x, y, sh, k)
                 if ref is None and not sim.game_over: continue          # a restart tick: no lines, the Z80 runs on
                 if ref is None:                                         # Ctrl+R: no lines, GAME_OVER at the tick's end
-                    r = e.run(50); assert r['stopped_by'] == 'breakpoint', (sp, t, r)
-                    go = GAME_OVER.get(e.mem(S['GAME_OVER'], 1)[0])
+                    m = snaps_at.next((sp, t))
+                    go = GAME_OVER.get(m.mem(S['GAME_OVER'], 1)[0])
                     if go != sim.game_over:
                         bad += 1; first = first or (t, 'game over %s' % sim.game_over, 'game over %s' % go)
                     marker = ' ' + sim.game_over
                     break
-                r = e.run(50); assert r['stopped_by'] == 'breakpoint', (sp, t, r)
+                m = snaps_at.next((sp, t))
                 ticks += 1
-                got = z80_state(e, int(ref.split()[0]))
+                got = z80_state(m, int(ref.split()[0]))
                 ok = ref == got if exact else norm(ref) == norm(got)
                 if o['guards'] and sim.guard_line is not None:
-                    gref = sim.guard_line; ggot = z80_guard(e, S['G_SNAP'])
+                    gref = sim.guard_line; ggot = z80_guard(m, S['G_SNAP'])
                     entered = entered or gref.split()[4] != '86' or ggot.split()[4] != '86'
                     gok = gref == ggot if entered else gref.split()[15:] == ggot.split()[15:]
                     if not gok:
                         gbad += 1
                         ref += '\n   sim ' + gref; got += '\n   z80 ' + ggot
                     ok = ok and gok
-                n = e.mem(S_SNAP + S_N, 1)[0]
+                n = m.mem(S_SNAP + S_N, 1)[0]
                 if sim.state_line is not None:
-                    sref = sim.state_line; sgot = z80_state_line(e) if n != snaps else 'S (no snapshot)'
+                    sref = sim.state_line; sgot = z80_state_line(m) if n != snaps else 'S (no snapshot)'
                     if sref != sgot:
                         sbad += 1
                         ref += '\n   sim ' + sref; got += '\n   z80 ' + sgot
@@ -174,9 +183,9 @@ def main():
                 elif n != snaps:
                     ok = False; ref += '\n   sim (no S line)'; got += '\n   z80 S snapshot taken'
                 snaps = n
-                n = e.mem(N_SNAP + 4, 1)[0]
+                n = m.mem(N_SNAP + 4, 1)[0]
                 if sim.sound_line is not None:
-                    nref = sim.sound_line; ngot = z80_sound_line(e) if n != nsnaps else 'N (no snapshot)'
+                    nref = sim.sound_line; ngot = z80_sound_line(m) if n != nsnaps else 'N (no snapshot)'
                     if nref != ngot:
                         nbad += 1
                         ref += '\n   sim ' + nref; got += '\n   z80 ' + ngot
@@ -184,7 +193,7 @@ def main():
                 elif n != nsnaps:
                     ok = False; ref += '\n   sim (no N line)'; got += '\n   z80 N snapshot taken'
                 nsnaps = n
-                go = GAME_OVER.get(e.mem(S['GAME_OVER'], 1)[0])
+                go = GAME_OVER.get(m.mem(S['GAME_OVER'], 1)[0])
                 if go != sim.game_over and (go or sim.game_over in ('EXPIRED', 'END')):
                     ok = False; ref += '\n   sim game over %s' % sim.game_over; got += '\n   z80 game over %s' % go
                 if not ok:
@@ -195,6 +204,7 @@ def main():
                     break
                 if dead_at is None and int(ref.split()[12]) >= 0: dead_at = ticks
                 if dead_at is not None and ticks >= dead_at + 8 and not exact: break
+            snaps_at.close()
             total_bad += bad
             print('%-28s %4d ticks, %d differing%s%s%s%s' % (os.path.basename(sp), t + 1, bad, ' [ticks]' if exact else '',
                   ' (guard lines: %d, state lines: %d, sound lines: %d)' % (gbad, sbad, nbad) if o['guards'] else

@@ -107,19 +107,16 @@ def tracker(e):
     tr.addr = {PS['spi_done']: 'act', PS['snh_di']: 'halt', PS['snd_arm']: 'arm', PS['snd_start']: 'start', PS['sf_x']: 'fill',
                PS['tc_mute']: 'mute', PS['tc_bank']: 'bank'}
     tr.banks = []
-    ev = tr.event
-    def event(pc):
-        if tr.addr.get(pc) == 'mute':                 # (do_load: psg_mute, the stream pauses: sndsim's chip muted too)
-            tr.sync(frames(e)); st = m7_sound.psg(e); tr.sim.p.psg.load(st); tr.states.append((frames(e), st)); return 'mute'
-        if tr.addr.get(pc) == 'bank':
-            cur = e.mem(PS['bank_cur'], 1)[0]; name = {PS[k]: k for k in BANKS}[cur]
-            nb = bank(name); tr.banks.append((frames(e), name))
-            if tr.cur is not None:                    # (the stream playing must be the same bytes at the same place)
-                sid = tr.cur[0]
-                assert nb.get(sid) == tr.sim.p.bank.get(sid) and nb.loops.get(sid) == tr.sim.p.loop, ('the playing stream differs in the new bank', sid, name)
-            tr.sim.p.bank = nb; return 'bank'
-        return ev(pc)
-    tr.event = event
+    def mute(f, m, R, P):                             # (do_load: psg_mute, the stream pauses: sndsim's chip muted too)
+        st = P(); tr.sim.p.psg.load(st); tr.states.append((f, st))
+    def bank_load(f, m, R, P):
+        cur = m.mem(PS['bank_cur'], 1)[0]; name = {PS[k]: k for k in BANKS}[cur]
+        nb = bank(name); tr.banks.append((f, name))
+        if tr.cur is not None:                        # (the stream playing must be the same bytes at the same place)
+            sid = tr.cur[0]
+            assert nb.get(sid) == tr.sim.p.bank.get(sid) and nb.loops.get(sid) == tr.sim.p.loop, ('the playing stream differs in the new bank', sid, name)
+        tr.sim.p.bank = nb
+    tr.extra = {'mute': mute, 'bank': bank_load}
     return tr
 
 def write_wav(tr, name, f0=None, f1=None):
@@ -140,16 +137,15 @@ def scene_run(e, cs, tr, F0=None, T0=0, stop=('tc_end', ), last=None, at_start=N
     mine = ['tcf_pass', 'tfo_pass', 'tc_fstart', 'tc_frame', 'tc_drawn', 'tc_abort', 'tc_flash', 'tc_unpz'] + list(stop)
     if F0 is None: mine.append('ts_sync')
     for a in mine: e.call('bp_add', addr=PS[a])
-    for a in tr.addr: e.call('bp_add', addr=a)
+    tr.bps()                            # (tracepoints, or breakpoints without tracing: tests/m7_sound.py Tracker)
     m = dict(bad_c=[], bad_v=[], bad_t=[], bad_p=[], bad_o=[], skipped=0, drawn=0, costs=[], lags=[], music=[], load=None, flashes=[], unpz=0, skips=[])
     n = 0; c_start = None; shown = None; addr = {PS[a]: a for a in mine}
+    tr.hooks['start'] = lambda f: m['music'].append((tr.pending, n, f - (F0 if F0 is not None else 0)))
     while True:
         r = e.run(1000)
-        if r['stopped_by'] != 'breakpoint': continue
+        if r['stopped_by'] != 'breakpoint': tr.poll(); continue
         pc = e.call('get_registers')['PC']
-        what = tr.event(pc)
-        if what == 'start' or pc == PS['snd_start']:
-            m['music'].append((e.call('get_registers')['AF'] >> 8, n, frames(e) - (F0 if F0 is not None else 0)))
+        tr.event(pc)
         a = addr.get(pc)
         if a is None: continue
         if a == 'tc_fstart':
@@ -201,6 +197,7 @@ def scene_run(e, cs, tr, F0=None, T0=0, stop=('tc_end', ), last=None, at_start=N
             m['end_tick'] = word(e, PS['ct_tick']); m['end_frame'] = frames(e) - F0; m['F0'] = F0
             m['end_black'] = e.vram_planes() == [bytes(8000)] * 4
             break
+    del tr.hooks['start']
     m['n'] = n; m['want_n'] = len(want); m['W'] = cs.lines[-1].split(); m['screens'] = screens; m['shown'] = shown
     return m
 

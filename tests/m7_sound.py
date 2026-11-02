@@ -25,11 +25,13 @@ snd_next's end (snn_x: B started, C queued, E playing).
      so the ring is refilled once a tick (play_next_sound) and must survive the full room draws (the largest gap
      between two refills is printed).
 Renders build/sound/scene_<script>_<mode>.wav from the emulator's PSG states (tools/sndsim.py render).
+The events and the ISR's cost come from tracepoints and the emulator's PSG write log, the emulation does not stop for
+them (Tracker; POP800_EMU_TRACE=0: a breakpoint stop at each, the old way).
 usage: m7_sound.py [--quick] [script.txt ...]"""
-import os, subprocess, sys, tempfile, time
+import collections, os, subprocess, sys, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
-from emu import Emu
+from emu import Emu, Snap
 from m3_test import syms, write_pack
 from m4_game import setup, SCRIPT, SCRIPT_PTR, LEVEL_ADDR
 from m4_test import encode
@@ -47,6 +49,7 @@ def check(what, ok, detail=''):
 
 def regs(e): return e.call('get_registers')
 def frames(e):
+    """FRAMES (e: the Emu or a tracepoint's Snap)"""
     b = e.mem(FRAMES, 2); return b[0] | (b[1] << 8)
 def psg(e): return sndsim.emu_state(e.call('get_periph_sn76489'))
 def cyc(e): return e.call('get_raster_pos')['total_cycles']
@@ -56,23 +59,45 @@ class Tracker:
     The PSG's registers change only through writes, and the game writes it only in the player (snd_isr: the envelope
     steps and the group; psg_mute in snd_halt and at a stream's end), so the state is sampled at the end of every
     active interrupt (spi_done), and sndsim, stepped to the same interrupt (FRAMES), must have been active there too;
-    snd_halt, the fills and the decisions are checked where they happen. Between those points the state is constant."""
-    def __init__(self, e, S, mode, bank):
+    snd_halt, the fills and the decisions are checked where they happen. Between those points the state is constant.
+    The events come from tracepoints (trace mode, tools/emu.py: the emulator does not stop for them; each records the
+    memory and registers the event needs; poll() feeds the buffered records in order) and the PSG state at an event from
+    the emulator's PSG write log replayed on sndsim.Psg from the state at the start (every write up to the event's
+    instruction; at finish() the replayed state must equal the emulator's PSG, get_periph_sn76489); without trace mode
+    (POP800_EMU_TRACE=0, an older emulator) from breakpoints, the memory, the registers and get_periph_sn76489 at each
+    stop (event(pc)), the old way. hooks {event: fn(frame)} are called after an event is handled (both ways); extra
+    {event: fn(frame, mem, regs, psg)} handles event kinds the caller added to addr (mem.mem(a, n); regs() and psg()
+    return the registers and the PSG state at the event)."""
+    def __init__(self, e, S, mode, bank, trace=None):
         self.e, self.S, self.mode = e, S, mode
         self.sim = sndsim.Sim(mode, bank)
         self.samples = 0; self.bad = 0; self.first = []; self.states = []
         self.decisions = 0; self.bad_dec = 0; self.expect = None; self.starts = {}; self.writes = []
         self.pending = None; self.loaded = False; self.armed_at = {}; self.lengths = []; self.cur = None
         self.underruns = 0; self.fill_frames = []; self.gap = 0; self.last_fill = None; self.wraps = {}
+        self.addr = None; self.hooks = {}; self.extra = {}
+        self.trace = e.tracing if trace is None else trace; self.traced = False; self.end = None
         f = frames(e); st = psg(e)
         assert e.mem(S['SP_WAIT'], 1)[0] == 0
         self.sim.frame = f; self.sim.p.psg.load(st); self.states.append((f, st)); self.f0 = f
-    def bps(self):
+        if self.trace:                  # (one tracker at a time: a new one restarts the tracepoints and the log)
+            e.trace_clear(); e.psg_log_start()
+            self.chip = sndsim.Psg(); self.chip.load(st); self.plog = collections.deque()
+            self.ranges = [(FRAMES, 2)] + [(S[k], n) for k, n in (('MF_W', 1), ('MF_LEFT', 2), ('SND', 3), ('bank_cur', 1)) if k in S]
+            if 'SND' in S: self.ranges.append((TICKS, 2))
+    def default_addr(self):
         S = self.S
         self.addr = {S['spi_done']: 'act', S['snh_di']: 'halt', S['snd_arm']: 'arm', S['snd_start']: 'start',
                      S['sf_x']: 'fill', S['snd_playing']: 'playing', S['snn_x']: 'decided'}
         if self.mode == 'live': self.addr[S['snp_rd']] = 'playing'; del self.addr[S['snd_playing']]
-        for a in self.addr: self.e.call('bp_add', addr=a)
+    def bps(self):
+        """the event points: breakpoints, or (trace mode) tracepoints, set once (bp_clear does not remove them)"""
+        if self.addr is None: self.default_addr()
+        if not self.trace:
+            for a in self.addr: self.e.call('bp_add', addr=a)
+        elif not self.traced:
+            for a in self.addr: self.e.trace_add(a, regs=('AF', 'BC', 'DE'), mem=self.ranges)
+            self.traced = True
     def sync(self, f):
         while self.sim.frame < f:
             was = self.sim.p.playing()
@@ -86,17 +111,40 @@ class Tracker:
         self.bad += 1
         if len(self.first) < 5: self.first.append(what)
     def event(self, pc):
-        e, S, sim = self.e, self.S, self.sim
+        """a breakpoint stop at pc: the event there (the old way); in trace mode the buffered records instead"""
+        if self.trace: self.poll(); return None
         what = self.addr.get(pc)
         if what is None: return None
-        f = frames(e); self.sync(f)
-        if what == 'act':
-            st = psg(e); self.samples += 1; self.states.append((f, st))
+        e = self.e
+        return self.handle(what, e, lambda: regs(e), lambda: psg(e))
+    def poll(self, stop=None):
+        """trace mode: the records so far, in order (the PSG writes up to each record's instruction applied first);
+        stop(what) true after a record: the run's end there (finish compares there, later records are ignored).
+        Returns True when stopped."""
+        if not self.trace or self.end is not None: return self.end is not None
+        recs = self.e.trace_read(); self.plog.extend(self.e.psg_log_read())
+        for rec in recs:
+            while self.plog and self.plog[0][0] <= rec['ticks']: self.chip.write(self.plog.popleft()[3])
+            what = self.addr.get(rec['addr'])
+            if what is None: continue
+            m = Snap(self.ranges, rec); st = self.chip.state()
+            self.handle(what, m, lambda: rec['regs'], lambda: st)
+            if stop and stop(what, m):
+                self.end = (frames(m), st); return True
+        return False
+    def handle(self, what, m, R, P):
+        """one event: m.mem(addr, n), R() the registers, P() the PSG state at the event"""
+        S, sim = self.S, self.sim
+        f = frames(m); self.sync(f)
+        if what in self.extra:
+            self.extra[what](f, m, R, P)
+        elif what == 'act':
+            st = P(); self.samples += 1; self.states.append((f, st))
             if sim.p.last not in ('step', 'end'): self.bad_one(f, 'z80 player active, sndsim', sim.p.last)
             if st != sim.p.psg.state():
                 self.bad_one(f, 'emu', st, 'sndsim', sim.p.psg.state())
                 sim.p.psg.load(st)                       # (resynchronise: count each difference once)
-        elif what == 'start': self.pending = regs(e)['AF'] >> 8; self.loaded = False
+        elif what == 'start': self.pending = R()['AF'] >> 8; self.loaded = False
         elif what == 'halt':
             if self.cur is not None and sim.p.loops: self.wraps[self.cur[0]] = self.wraps.get(self.cur[0], 0) + sim.p.loops
             sim.p.halt(); self.cur = None; self.states.append((f, sim.p.psg.state()))
@@ -105,8 +153,8 @@ class Tracker:
                 sim.p.load(self.pending, fill=False); self.loaded = True
             # the bytes copied: the ring's write position moved (254 places); MF_LEFT after a loop command (sf_x comes
             # before snd_fill wraps to the loop point, then again for the loop point's bytes) is 0 while the model wrapped
-            n = (e.mem(S['MF_W'], 1)[0] - sim.p.w) % 254
-            m = e.mem(S['MF_LEFT'], 2); left = m[0] | (m[1] << 8)
+            n = (m.mem(S['MF_W'], 1)[0] - sim.p.w) % 254
+            mm = m.mem(S['MF_LEFT'], 2); left = mm[0] | (mm[1] << 8)
             try:
                 sim.fill(n)
                 if not (left == sim.p.left or (left == 0 and sim.p.loop is not None)): self.bad_one(f, 'fill left', left, sim.p.left)
@@ -119,23 +167,39 @@ class Tracker:
         elif what == 'playing':
             if self.last_fill is not None and sim.p.playing() and sim.p.left: self.gap = max(self.gap, f - self.last_fill)
             self.last_fill = f
-            if self.inject and frames_tick(e) == self.inject[0] and not self.injected:
-                e.call('mem_write', addr=S['SND_NEXT'], data_hex='%02x' % self.inject[1]); self.injected = True
-            m = e.mem(S['SND'], 3)                     # SND_NEXT, SND_CUR, SND_INT15
-            q = -1 if m[0] == 0xFF else m[0]; cur = m[1]; p = sim.playing()
-            self.expect = (q, p, sim.decide(q, p, cur, m[2]))
+            if self.inject and frames_tick(m) == self.inject[0] and not self.injected:
+                if self.trace:                      # (written at the conditional breakpoint's stop, before this record)
+                    assert self.inject_written, 'the injection breakpoint did not stop here'
+                else:
+                    self.e.call('mem_write', addr=S['SND_NEXT'], data_hex='%02x' % self.inject[1])
+                self.injected = True
+            mm = m.mem(S['SND'], 3)                     # SND_NEXT, SND_CUR, SND_INT15
+            q = -1 if mm[0] == 0xFF else mm[0]; cur = mm[1]; p = sim.playing()
+            self.expect = (q, p, sim.decide(q, p, cur, mm[2]))
         elif what == 'decided':
-            r = regs(e); b, c, ee = (r['BC'] >> 8) & 255, r['BC'] & 255, r['DE'] & 255
+            r = R(); b, c, ee = (r['BC'] >> 8) & 255, r['BC'] & 255, r['DE'] & 255
             got = (-1 if c == 0xFF else c, ee, -1 if b == 0xFF else b)
             self.decisions += 1
             if got != self.expect:
                 self.bad_dec += 1
                 if len(self.first) < 5: self.first.append((f, 'decision z80', got, 'sndsim', self.expect))
+        hook = self.hooks.get(what)
+        if hook: hook(f)
         return what
-    inject = None; injected = False
+    inject = None; injected = False; inject_written = False
     def finish(self):
-        """the end of the run: sndsim stepped to the emulator's frame, the states compared once more"""
-        f = frames(self.e); self.sync(f); st = psg(self.e)
+        """the end of the run: sndsim stepped to the emulator's frame (trace mode: the stop record's, or now), the states
+        compared once more; trace mode: the PSG log replayed to now must give the emulator's PSG state"""
+        if self.trace:
+            self.poll()
+            self.e.trace_read(); self.plog.extend(self.e.psg_log_read())      # (after a stop record: the run's rest)
+            while self.plog: self.chip.write(self.plog.popleft()[3])     # (the writes after the last record)
+            emu = psg(self.e)
+            if self.chip.state() != emu: self.bad_one('the PSG write log replayed', self.chip.state(), 'the emulator\'s PSG', emu)
+            f, st = self.end if self.end is not None else (frames(self.e), emu)
+        else:
+            f = frames(self.e); st = psg(self.e)
+        self.sync(f)
         if st != self.sim.p.psg.state(): self.bad_one(f, 'end: emu', st, 'sndsim', self.sim.p.psg.state())
         self.states.append((f, st)); return f
     def per_frame(self, f1):
@@ -150,11 +214,23 @@ def frames_tick(e):
     b = e.mem(TICKS, 2); return b[0] | (b[1] << 8)
 
 def run_until(e, tr, stop):
-    """run, handling the breakpoints, until stop() is true (asked after each sound decision: one per tick)"""
+    """run, handling the events, until stop(mem) is true (asked after each sound decision: one per tick; mem: the
+    Emu stopped there, or the record's Snap in trace mode). Trace mode: the injection (tr.inject) by a conditional
+    breakpoint at the 'playing' point of its tick: the id is written there, before the record of that instruction"""
+    if not tr.trace:
+        while True:
+            r = e.run(1000)
+            if r['stopped_by'] != 'breakpoint': continue
+            if tr.event(regs(e)['PC']) == 'decided' and stop(e): return
+    if tr.inject:
+        play = [a for a, w in tr.addr.items() if w == 'playing'][0]
+        e.call('bp_create_with_init', addr=play, fields=['addr', 'expr'], expr='{0x%04x} == %d' % (TICKS, tr.inject[0]))
     while True:
-        r = e.run(1000)
-        if r['stopped_by'] != 'breakpoint': continue
-        if tr.event(regs(e)['PC']) == 'decided' and stop(): return
+        r = e.run(200)
+        if tr.poll(lambda what, m: what == 'decided' and stop(m)): return
+        if r['stopped_by'] == 'breakpoint':
+            e.call('mem_write', addr=tr.S['SND_NEXT'], data_hex='%02x' % tr.inject[1]); tr.inject_written = True
+            e.call('bp_clear')
 
 DRIVER = """
                 org     0xa000
@@ -226,7 +302,7 @@ def drive(e, bank, items, test_bank=None):
     tr = Tracker(e, S, 'silent', bank); tr.bps(); e.call('bp_add', addr=D['done'])
     while True:
         r = e.run(1000)
-        if r['stopped_by'] != 'breakpoint': continue
+        if r['stopped_by'] != 'breakpoint': tr.poll(); continue
         pc = regs(e)['PC']
         if pc == D['done']: break
         tr.event(pc)
@@ -258,8 +334,18 @@ def part_a(e, bank, quick):
     # the ISR's cost: COST_FRAMES interrupts with breakpoints at isr and the player's reti (the first effects, then
     # music 24 from frame ~300)
     cost = {'idle': [], 'playing': []}; t0 = time.time()
-    e.call('bp_add', addr=S['isr']); e.call('bp_add', addr=S['spi_reti'])
     t_isr = None; was = None; n = 0
+    if e.tracing:                       # (tracepoints: the cycle counter at both points, SP_WAIT at isr; then a stop at
+        e.trace_clear()                 # the player's reti, where the breakpoints leave it)
+        e.trace_add(S['isr'], mem=[(S['SP_WAIT'], 1)]); e.trace_add(S['spi_reti'])
+        for r in e.collect(200, stop=lambda r: n >= COST_FRAMES):
+            if r['addr'] == S['isr']:
+                t_isr = r['cycles']; was = r['mem'][0][0]
+            elif r['addr'] == S['spi_reti'] and t_isr is not None:
+                cost['playing' if was else 'idle'].append((r['cycles'] - t_isr) & 0xFFFFFFFF); n += 1
+        e.trace_clear(); e.call('bp_add', addr=S['spi_reti']); e.run(1000)
+    else:
+        e.call('bp_add', addr=S['isr']); e.call('bp_add', addr=S['spi_reti'])
     while n < COST_FRAMES:
         r = e.run(1000)
         if r['stopped_by'] != 'breakpoint': continue
@@ -321,8 +407,8 @@ def part_b(e, bank, sp, mode, max_ticks=None, inject=None, test_bank=None, tag='
     e.call('bp_clear')
     tr = Tracker(e, S, mode, bank); tr.bps(); tr.inject = inject
     n = min(len(moves), max_ticks or len(moves))
-    def stop():
-        b = e.mem(TICKS, 2); return (b[0] | (b[1] << 8)) >= n
+    def stop(m):
+        b = m.mem(TICKS, 2); return (b[0] | (b[1] << 8)) >= n
     t0 = time.time()
     run_until(e, tr, stop)
     f1 = tr.finish()

@@ -5,10 +5,30 @@
     with Emu() as e:
         e.run_mzf('build/colorbars.mzf'); e.run(50); e.screenshot('out.png')
 
+Non-stopping tracing (mz800emu trace_add / trace_read / psg_log_* / vram_hash): `e.tracing` is true when the emulator
+has the commands and POP800_EMU_TRACE is not 0 (POP800_EMU_TRACE=0 makes the tests take their old breakpoint paths,
+to compare the two). A tracepoint records the requested registers / memory / VRAM hash every time the instruction at
+its address is about to execute, without stopping; `collect` runs the emulation and returns the records as they come.
+
 CLI: emu.py <file.mzf> <frames> <out.png>
 """
-import base64, json, os, struct, subprocess, sys
+import base64, collections, json, os, struct, subprocess, sys, zlib
 EXE = os.environ.get('MZ800EMU_EXE', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu', 'mz800emu-pop.sh'))
+
+# the MZ-800 IGRB colours (vram_image's palette)
+PALETTE = [0,0,0,0x40,0x40,0xAC,0xD0,0x34,0,0xB4,0x0C,0x8C,0x40,0x6C,0,0x24,0xCC,0xFF,0xE8,0xD4,0x30,0xD0,0xD0,0xD0,
+           0x84,0x84,0x84,0,0x8C,0xE8,0xFF,0,0,0xF0,0x54,0xCC,0x54,0xFF,0x54,0x80,0xFF,0xFF,0xFF,0xFF,0x28,0xFF,0xFF,0xFF]
+
+def image_planes(im):
+    """the four 8000-byte VRAM planes (I, II, III, IV) of a 320x200 image of colour numbers 0-15 (bit 0 of a byte =
+    its leftmost pixel; plane k holds bit k of the colour), as the Z80 leaves them for that picture"""
+    import numpy as np
+    a = np.frombuffer(im.tobytes(), np.uint8).reshape(200, 40, 8)
+    return [np.packbits((a >> k) & 1, axis=2, bitorder='little').tobytes() for k in range(4)]
+
+def planes_crc(planes):
+    """mz800emu vram_hash: zlib's CRC-32 of each plane"""
+    return tuple(zlib.crc32(p) for p in planes)
 
 class Emu:
     def __init__(self, exe=EXE):
@@ -50,6 +70,52 @@ class Emu:
         return r.get('data', r)
     # helpers
     def run(self, frames): return self.call('run', frames=frames)
+    # ---- non-stopping tracing
+    @property
+    def tracing(self):
+        return 'trace_add' in self.commands and os.environ.get('POP800_EMU_TRACE', '1') != '0'
+    def trace_add(self, addr, regs=(), mem=(), vram_hash=False):
+        """a tracepoint at addr: each record has 'regs' {name: value} (names as get_registers), 'mem' [bytes per
+        (addr, len) range], 'vram' (the four planes' CRC-32s, planes_crc) with vram_hash, and 'addr', 'cycles' (the CPU's
+        total_cycles, as get_raster_pos), 'ticks' (GDG clock, 5 per T-state), 'frame'. Returns its id."""
+        return self.call('trace_add', addr=addr, regs=list(regs), mem=[list(m) for m in mem], vram_hash=bool(vram_hash))['id']
+    def trace_clear(self, id=None):
+        return self.call('trace_clear', **({'id': id} if id else {}))['cleared']
+    def trace_read(self):
+        """all buffered records (oldest first); a lost record is an error"""
+        out = []
+        while True:
+            d = self.call('trace_read', max=20000)
+            if d['overflow'] or d['dropped']: raise RuntimeError('trace buffer overflow: %d records lost' % d['dropped'])
+            for r in d['records']:
+                r['mem'] = [bytes.fromhex(h) for h in r.get('mem', ())]
+                if 'vram_crc32' in r: r['vram'] = tuple(r.pop('vram_crc32'))
+                out.append(r)
+            if not d['pending']: return out
+    def collect(self, frames=200, stop=None):
+        """run the emulation in steps of `frames` frames, yielding the tracepoint records as they come, until the
+        generator is closed or stop(record) is true for a record (the run stops at the end of that step). A breakpoint
+        stop ends the step early (yields its records, then the generator returns: the caller handles the breakpoint)."""
+        while True:
+            r = self.run(frames)
+            recs = self.trace_read()
+            for x in recs:
+                yield x
+                if stop and stop(x): return
+            if r['stopped_by'] == 'breakpoint': return
+    def psg_log_start(self): return self.call('psg_log_start')
+    def psg_log_stop(self): return self.call('psg_log_stop')
+    def psg_log_read(self):
+        """all logged PSG writes [(ticks, cycles, frame, value, channel)], oldest first; a lost write is an error"""
+        out = []
+        while True:
+            d = self.call('psg_log_read', max=200000)
+            if d['overflow'] or d['dropped']: raise RuntimeError('PSG log overflow: %d writes lost' % d['dropped'])
+            out += [tuple(w) for w in d['writes']]
+            if not d['pending']: return out
+    def vram_hash(self):
+        """the CRC-32s of the four 8000-byte planes (I, II, III, IV), as planes_crc computes them"""
+        return tuple(self.call('vram_hash')['crc32'])
     def mem(self, addr, n): return base64.b64decode(self.call('mem_read', addr=addr, len=n)['data_b64'])
     def run_mzf(self, path):
         hdr = open(path, 'rb').read(128); exec_ = struct.unpack_from('<H', hdr, 0x16)[0]
@@ -67,19 +133,17 @@ class Emu:
     def vram_planes(self):
         """Return the four 8000-byte planes (I,II,III,IV) of the 320x200 modes."""
         return [self.region(i) for i in (8, 9, 10, 11)]
-    def vram_image(self, out=None):
+    def vram_image(self, out=None, planes=None):
         """Decode the planes to an indexed 320x200 PIL image (MZ IGRB colours)."""
         from PIL import Image
-        pl = self.vram_planes(); im = Image.new('P', (320, 200)); px = im.load()
+        pl = planes or self.vram_planes(); im = Image.new('P', (320, 200)); px = im.load()
         for y in range(200):
             for xb in range(40):
                 b = [p[y*40+xb] for p in pl]
                 for bit in range(8):
                     m = 1 << bit          # MZ-800: bit 0 = leftmost pixel
                     px[xb*8+bit, y] = (1 if b[0]&m else 0)|(2 if b[1]&m else 0)|(4 if b[2]&m else 0)|(8 if b[3]&m else 0)
-        pal=[0,0,0,0x40,0x40,0xAC,0xD0,0x34,0,0xB4,0x0C,0x8C,0x40,0x6C,0,0x24,0xCC,0xFF,0xE8,0xD4,0x30,0xD0,0xD0,0xD0,
-             0x84,0x84,0x84,0,0x8C,0xE8,0xFF,0,0,0xF0,0x54,0xCC,0x54,0xFF,0x54,0x80,0xFF,0xFF,0xFF,0xFF,0x28,0xFF,0xFF,0xFF]
-        im.putpalette(pal + [0]*(768-48))
+        im.putpalette(PALETTE + [0]*(768-48))
         if out: im.save(out)
         return im
     def screenshot(self, out):
@@ -99,6 +163,50 @@ class Emu:
         except Exception: self.p.kill()
     def __enter__(self): return self
     def __exit__(self, *a): self.close()
+
+class Snap:
+    """the memory a tracepoint record captured: mem(addr, n) as Emu.mem, from the record's ranges only (a read outside
+    them is an error, never a read of the live memory)"""
+    def __init__(self, ranges, rec):
+        self.rec = rec; self.parts = list(zip(ranges, rec['mem']))
+    def mem(self, addr, n):
+        for (a, l), d in self.parts:
+            if a <= addr and addr + n <= a + l: return d[addr - a:addr - a + n]
+        raise KeyError('not captured by the tracepoint: 0x%04x+%d' % (addr, n))
+
+class Hits:
+    """the machine at each execution of an address, for a loop that reads memory there (e.g. every tick's end).
+    next() returns an object with mem(addr, n): with tracing a Snap of the ranges a tracepoint captured (the emulation
+    runs on in steps, no stops), else the Emu itself stopped at a breakpoint there (the old way). Either way a hit must
+    come within `limit` frames of the previous one (the breakpoint way: run(limit) must stop at the breakpoint).
+    close() ends at a hit (a breakpoint stop), as the breakpoint way leaves the emulator. fast: tracing or not (default
+    e.tracing)."""
+    def __init__(self, e, addr, ranges, limit, vram_hash=False, fast=None):
+        self.e, self.addr, self.ranges, self.limit = e, addr, list(ranges), limit
+        self.fast = e.tracing if fast is None else fast; self.buf = collections.deque(); self.last = None
+        e.call('bp_clear')
+        if self.fast:
+            self.prev = e.call('get_raster_pos')['frame_number']
+            e.trace_add(addr, mem=self.ranges, vram_hash=vram_hash)
+        else:
+            e.call('bp_add', addr=addr)
+    def next(self, what=()):
+        e = self.e
+        if not self.fast:
+            r = e.run(self.limit); assert r['stopped_by'] == 'breakpoint', tuple(what) + (r,)
+            return e
+        while not self.buf:
+            e.run(200); self.buf.extend(e.trace_read())
+            if not self.buf:
+                f = e.call('get_raster_pos')['frame_number']
+                assert f - self.prev < self.limit, tuple(what) + ('no hit at 0x%04x within %d frames' % (self.addr, self.limit),)
+        r = self.buf.popleft()
+        assert r['frame'] - self.prev < self.limit, tuple(what) + ('no hit at 0x%04x within %d frames' % (self.addr, self.limit), r)
+        self.prev = r['frame']; self.last = r
+        return Snap(self.ranges, r)
+    def close(self):
+        if self.fast:
+            self.e.trace_clear(); self.e.call('bp_add', addr=self.addr); self.e.run(self.limit)
 
 if __name__ == '__main__':
     mzf, frames, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]

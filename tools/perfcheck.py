@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Speed regression check for the M4 game: run fixed stretches of the test scripts in the emulator, measure
-frames per tick (1 frame = 71136 T) and compare with tests/perf_baseline.json. A stretch more than the
+frames per tick (1 frame = 71136 T) and compare with tests/perf_baseline.json. The cycle counts come from a
+tracepoint at tick_done (tools/emu.py collect; POP800_EMU_TRACE=0: a breakpoint stop per tick, the old way). A stretch more than the
 tolerance slower than its baseline fails the check.
 usage: perfcheck.py [--root DIR] [--update] [--tol PCT]
   --update  write the measured values as the new baseline (after an intended change)"""
@@ -44,14 +45,22 @@ def measure(script, spans):
         for (rm, p, t, m) in patches:
             e.call('mem_write', addr=G.LEVEL_ADDR + (rm - 1) * 30 + p, data_hex='%02x' % t)
             e.call('mem_write', addr=G.LEVEL_ADDR + 720 + (rm - 1) * 30 + p, data_hex='%02x' % m)
-        e.call('bp_clear'); e.call('bp_add', addr=S['tick_done'])
+        e.call('bp_clear')
         marks = {}
         last = max(t1 for _, t1 in spans)
         cyc = lambda: e.call('get_raster_pos')['total_cycles']
-        for t in range(last + 1):
-            marks[t] = cyc()
-            if t < last: e.run(400)
-        for t0, t1 in spans: out[(t0, t1)] = (marks[t1] - marks[t0]) / (t1 - t0) / FRAME
+        if e.tracing:               # a tracepoint at tick_done: the CPU cycle counter of every tick's end, no stops
+            e.trace_add(S['tick_done']); marks[0] = cyc(); n = 0
+            for r in e.collect(200, stop=lambda r: n >= last):
+                n += 1; marks[n] = r['cycles']
+            e.trace_clear()
+        else:                       # (POP800_EMU_TRACE=0 or an older emulator: a breakpoint stop per tick)
+            e.call('bp_add', addr=S['tick_done'])
+            for t in range(last + 1):
+                marks[t] = cyc()
+                if t < last: e.run(400)
+        # (the counter is 32 bits: differences modulo 2^32)
+        for t0, t1 in spans: out[(t0, t1)] = ((marks[t1] - marks[t0]) & 0xFFFFFFFF) / (t1 - t0) / FRAME
     return out
 
 by_script = {}
