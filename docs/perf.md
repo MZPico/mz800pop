@@ -692,3 +692,83 @@ the best separate cover (the kid's box and the guard's bands outside it), ~0.035
   list item 2) address it.
 - The background's per-row cost (~640-1,010 T a row a chunk: RAM-disk seeks per row) is M8a item 3 (the shadow stored
   chunk-major).
+
+## M8a part 5: the fore layer (measured) (2026-11-02)
+
+Status: **measured, not built.** The M8a list item 2 (compose each room's fore layer once at room entry into the RAM
+disk as mask + data and apply it in one masked pass per chunk instead of laying the fore ops every tick) fails all three
+budgets: it gains under 0.1 frames a tick walking, needs up to ~31-38 KB of RAM disk for the largest room (the largest
+free piece is 11.1 KB) and would add ~10-30 frames to a room change. Its only sizeable gain, in fights and in chunks
+without fore pieces, is the op scan, which a faster scan gets without a precomposed layer (below).
+
+What lay_fore_rect does today (room.asm, called by obj_chunk after the people): the candidate tile columns C0..C1 from
+the chunk (CRX - 6 .. CRX + CRW - 1, in tiles), then rr_table's walk over 4 tile rows (rows 2, 1, 0 and the row above) x
+those columns: per cell the tag, its slice count in SL_CNT, the slice's row range against the chunk, then rec_lay on
+each op of the slice (reject by box, else lay_piece16: mode 0 copy, mode 1 masked).
+
+### Measured (tracepoints at oc_fore, lay_fore_rect's return, the end of the OV_FORE list, rec_lay, rl_lay,
+lay_piece16 and its return in rl_lay, tick_done with the fore op list; a scratch tool in the worktree's build/)
+
+Frames per tick over the chunks that run lay_fore_rect (the torch chunks from the cache do not):
+
+| Stretch | chunks a tick | lay_fore_rect | of it the scan | of it laying (rl_lay .. ret) | ops tested / laid a chunk | chunks laying 0 / 1 / 2 / 3 ops |
+|---|---:|---:|---:|---:|---:|---|
+| walk_level1 30-60 | 1.93 | 0.658 | 0.147 | 0.511 | 2.0 / 0.91 | 23 / 22 / 8 / 5 |
+| fight1 60-160 | 2.79 | 1.073 | 0.246 | 0.827 | 1.6 / 0.62 | 105 / 174 / 0 / 0 |
+| traps_b1 0-300 | 1.81 | 0.282 | 0.116 | 0.166 | 1.1 / 0.35 | 405 / 85 / 51 / 1 |
+| walk_level1 190-260 | 3.47 | 0.228 | 0.215 | 0.013 | 0.1 / 0.02 | 239 / 4 / 0 / 0 |
+
+(the kid's own fore overlays, OV_FORE, cost 0.002-0.006 frames a tick.)
+
+- **The scan** costs ~4.4-6.3 K T a chunk: ~450-1,000 T of setup + ~280-340 T per cell visited (10.7-14.0 cells a chunk:
+  all 4 tile rows x 3-4 columns, whatever the chunk's rows) + ~360-760 T per op tested. A chunk that lays nothing still
+  pays ~3.7-5.4 K.
+- **The laying** is per op, and per row: copy mode (pillar fronts 95, dungeon walls, floor fronts) ~4.0 K + 470 T a row
+  + 55-90 T a byte (an op ~22-24 K T); masked (the fight room's pillar 2 x 60, palace pieces, 100) ~6.0 K + 660-690 T a
+  row + 150-195 T a byte (~11-34 K T). The pieces laid: the pillar front 95 (73 % of the ops), the wall face (wall 10),
+  floor fronts 43 / 73 / 74, the potion's 100.
+- Fore ops of one chunk barely overlap: in the chunks with 2-3 ops the ops' clipped areas add up to 995 bytes x rows for
+  a union of 900 (walk 30-60) and 4,256 for 3,940 (traps). A precomposed layer would lay the same bytes once more or less.
+
+Per room (tools/popdata.py's renderer over the 340 rooms of levels 0-14, the fore ops and the palace's fore wipes, the
+covered screen bytes = bytes x rows with any fore pixel): largest level 6 room 8 with 7,680 of the screen's 8,000 (the
+palace walls), level 10 room 13 7,560; per level the largest 5,289-7,680; 94 % of the covered bytes are fully opaque.
+Stored as 4 plane bytes (+ a mask byte where not opaque): 30.7-38 KB for the largest room; 105 (with masks) to 145 (opaque
+without) of the 340 rooms would fit the largest free RAM-disk piece (page 4, 11.1 KB).
+
+In a room change the room draw lays the room's fore ops in its own pass: 17.3-30.1 frames of the 91-107 (walk_level1:
+46-86 fore ops laid, some twice across cells).
+
+### Estimate and decision
+
+- **Gain** (the cost model above; a lookup of the chunk's part of the layer at 1-2 K T in place of the scan, then one
+  masked pass over the union of the chunk's fore bytes): walk 30-60 -0.02 to +0.01 frames a tick all masked, +0.07 to
+  +0.10 if the format kept opaque bytes on the copy path; fight1 60-160 +0.18 to +0.22; traps_b1 0-300 +0.02 to +0.08;
+  walk_level1 190-260 +0.12 to +0.17. Merging the ops is worth ~0.02-0.03; the rest is the scan replaced by the lookup.
+  A masked pass over today's copy-mode pieces (pillars, walls: 150-195 instead of 55-90 T a byte) loses what merging
+  wins, so the layer would need an opaque/masked run format per row.
+- **Resident**: the lookup (per-room index by chunk position) and the run-format apply: ~180-250 bytes in main.
+  **Overlay**: the compose at room entry (lay every fore op into a mask + data buffer, write it out): ~250-350 bytes in
+  W1 (the room overlay has 86 free, i.e. a W1 overlay of its own).
+- **RAM disk**: up to ~31-38 KB for one room (one room's layer, overwritten at the next room): does not fit the free
+  pieces (~38 KB in total, 11.1 KB the largest); "not precomposed" would be the case for 195-235 of 340 rooms.
+- **Room change**: the compose is the fore pass of the room draw once more into separate buffers (17-30 frames) plus
+  writing ~3,000-7,700 bytes x 4-5 out (~4-11 frames); capturing the fore pieces during the room draw instead (laying
+  into the separate buffers, then applying them to the compose chunk) still adds the apply and the write (~10-25 frames).
+  Far over 5 frames.
+- And the fore layer changes inside a room: spikes, chompers, loose floors, potions (their bubbles every tick) have fore
+  ops that tile_regen replaces; each change would recompose that part.
+- Decision: not built (rule: >= 0.2 frames a tick walking or fighting for < 250 resident bytes, fits the RAM disk, < 5
+  frames per room change: fails all of the walking gain, the RAM disk and the room change).
+
+### What the numbers point to instead
+
+- **A faster fore scan** (the 0.12-0.25 frames a tick that are not laying): restrict the tile rows to those the chunk's
+  rows can reach (a chunk of <= 64 rows meets at most 2-3 of the 4 rows' slices: about half the cells), and walk SL_CNT
+  by pointer in the column loop (the tag and the count without the two tab_get calls) so an empty cell costs ~50 T
+  instead of ~300. Estimated scan 4.4-6.3 K -> ~1.5-2 K T a chunk: walk 30-60 -0.08, fight -0.15, traps -0.06, walk
+  190-260 -0.13 frames a tick, for ~40-80 bytes in main; rr_table also serves run_rect (tile redraws: door, gate,
+  loose floor steps), which would gain the same per cell. Under the 0.2 rule on walks alone, but cheap; a candidate
+  together with item 3 below.
+- **The laying's per-row cost** (470 T a row copying, 660-690 masked: a chunk with the fight room's pillar pays ~21 K of
+  its 34 K in per-row work): M8a list item 3 (per-row overheads of the piece layers).
