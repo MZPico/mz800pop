@@ -1,0 +1,4 @@
+# Python packages the build and test tools import (tools/*.py, tests/*.py); the versions of Ubuntu 24.04's
+# python3-numpy / python3-pil the port was developed with. (scipy: only tools/midi2psg_exp.py, an experiment.)
+numpy==1.26.4
+Pillow==10.2.0

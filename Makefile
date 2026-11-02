@@ -53,7 +53,7 @@ $(BUILD)/assets/sound_pres.bin: tools/presbank.py tools/vgm2psg.py tools/sndsim.
 $(BUILD)/assets/title.inc $(BUILD)/assets/title.pack: tools/build_assets.py tools/titleref.py tools/kidsim.py tools/datfile.py
 	$(PY) tools/build_assets.py --title
 # M7 step 7: the cutscene engine (src/pres/cut.asm: the room entry of POP800.PRS) and its tables (tools/cutart.py)
-$(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/build_assets.py
+$(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/build_assets.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
 	$(PY) tools/cutart.py
 $(BUILD)/pres.bin: src/pres/pres.asm src/boot/launch.inc src/boot/unpz.asm src/boot/fdc.asm src/m1/far.asm src/m4/psg.asm src/m4/save.asm $(BUILD)/assets/title.inc src/pres/cut.asm $(BUILD)/assets/cut.inc | $(BUILD)
 	cd src/pres && $(PASMO) --bin pres.asm ../../$(BUILD)/pres.bin ../../$(BUILD)/pres.sym
@@ -130,8 +130,14 @@ m1: $(BUILD)/m1test.mzf $(BUILD)/m1.pack
 .PHONY: m1
 
 # M2 assets: packs for every image set, level blueprints, tables
-assets:
+assets: $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
 	$(PY) tools/build_assets.py
+# SDLPoP's sequence table (external/SDLPoP/src/seqtbl.c) as data: build/assets/seqtbl.bin, seqtbl_offsets.txt (tools/seqdump.c)
+SDL2_CFLAGS ?= $(shell pkg-config --cflags sdl2 2>/dev/null || echo -I/usr/include/SDL2)
+$(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt &: tools/seqdump.c external/SDLPoP/src/seqtbl.c
+	mkdir -p $(BUILD)/seqdump $(BUILD)/assets
+	$(CC) -O2 -I external/SDLPoP/src $(SDL2_CFLAGS) tools/seqdump.c -o $(BUILD)/seqdump/dump
+	$(BUILD)/seqdump/dump
 m2: assets
 	$(PY) tests/m2_oracle.py 1
 	$(PY) tests/m2_oracle.py 4
@@ -213,3 +219,18 @@ m4: $(BUILD)/m4test.mzf $(BUILD)/m4game.mzf
 perf: $(BUILD)/m4game.mzf
 	$(PY) tools/perfcheck.py
 .PHONY: m4 perf m4game m4test
+
+# CI (docs/ci.md, .github/workflows/pr-checks.yml). ci-build: the assets, then everything `all` builds; the game disk
+# (build/pop800.dsk) only when the Master System logs PRES's sound banks are made from are there (build/sound/sms/*.vgm,
+# made locally from the ROM with MAME: tools/sms/; not available on a hosted runner)
+SMS_VGM = $(wildcard $(BUILD)/sound/sms/*.vgm)
+CI_TARGETS = $(BUILD)/colorbars.mzf $(BUILD)/m0.dsk $(BUILD)/m1test.mzf $(BUILD)/m1.pack $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin \
+             $(BUILD)/m4test.mzf $(BUILD)/boot.mzf $(BUILD)/pres.bin $(if $(SMS_VGM),$(BUILD)/pop800.dsk)
+ci-build:
+	$(MAKE) assets
+	$(MAKE) $(CI_TARGETS)
+# the PR test tier, exactly what the PR jobs run (tools/ci/check_pr.py; PART=a or PART=b: one job's part, default both)
+PART ?= all
+check-pr: $(BUILD)/m4game.mzf $(BUILD)/m4test.mzf
+	$(PY) tools/ci/check_pr.py $(PART)
+.PHONY: ci-build check-pr
