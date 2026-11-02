@@ -12,9 +12,9 @@ PRINCE.DAT resource 1 as the instrument bank (src/midi.c); its rules are kept he
   - loudness: per note the OPL carrier level from the instrument and the velocity.
 The loudness of every note over time (attack, decay, sustain, release) is measured, not modelled: SDLPoP's own OPL
 code (external/SDLPoP/src/opl3.c, Nuked OPL3) renders each (instrument, velocity, key) once, held as long as its
-longest note, and the RMS per 20 ms frame gives its level curve in dB (assets/opl/levels.json, see its README;
-new ones cached in build/sound/opl/levels.json); the
-same helper renders whole pieces for listening (build/sound/music/<id>_<name>_midi.wav).
+longest note, and the RMS per 20 ms frame gives its level curve in dB (committed: assets/opl/levels.json, see its
+README; new ones are cached in build/sound/opl/levels.json); the same helper renders whole pieces for listening
+(build/sound/music/<id>_<name>_midi.wav).
 
 Arrangement (per piece; PIECES below has the per-piece choices and notes):
   1. the notes, pitches folded up by octaves into the PSG's range (>= 108.3 Hz: D5, notes below an octave up, again

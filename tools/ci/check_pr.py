@@ -8,7 +8,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PY = sys.executable
 
 # Sized by the runs on GitHub's 2-vCPU runner: m4_test ~0.25 s a tick, the oracle (SDLPoP + kidsim) ~0.09 s a tick, so
-# the full sets (m4_test ~75 min, oracle_suite ~33 min) stay local (docs/ci.md). Part a ~14 min, b ~18 min, + ~2.5 min setup.
+# the full sets (m4_test ~75 min, oracle_suite ~33 min) stay local (docs/ci.md). Parts (measured on the runner): a ~15 min,
+# b ~18 min, c ~17 min, d ~14.5 min, + ~3 min setup and build each.
 M7 = sorted(os.path.relpath(p, ROOT) for p in glob.glob(os.path.join(ROOT, 'tests', 'm7_scripts', '*.txt')))
 # a few scripts of each earlier set: a level walk, jumps, a fight, the kill push, the shadow, the feather, Jaffar
 EARLY = ['tests/m4_scripts/walk_level1.txt', 'tests/m4_scripts/jumps_climbs.txt',
