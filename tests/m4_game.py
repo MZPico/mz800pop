@@ -621,5 +621,6 @@ def main():
             if frames_out: frames_out[0].save(gif, save_all=True, append_images=frames_out[1:], duration=80 * every, loop=0)
             print('%-20s %4d ticks: %d state diffs, %d differing pixels%s  (%.0fs)' % (os.path.basename(sp), t + 1, bad_state, bad_px, '' if first is None else '; first: %s' % (first,), time.time() - t0))
     print('total:', total_bad)
+    sys.exit(1 if total_bad else 0)
 
 if __name__ == '__main__': main()
