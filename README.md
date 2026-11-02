@@ -43,5 +43,4 @@ The port's code, tools and documentation are licensed under the GNU General Publ
 derived from [SDLPoP](https://github.com/NagyD/SDLPoP), itself GPL-3.
 
 The licence does not cover the original game. Prince of Persia's graphics, levels, sound and music remain the
-property of their owners: the repository contains none of the DOS game data, and the build reads them from your
-own copy (`external/dos/PRINCE`).
+property of their owners.
