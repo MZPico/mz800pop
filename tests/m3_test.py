@@ -75,7 +75,7 @@ def main():
         e.call('mem_write', addr=LEVEL_TYPE, data_hex='%02x' % level.type)
         e.call('mem_write', addr=ROOM_REQ, data_hex='%02x' % rooms[0])
         e.call('bp_add', addr=S['draw_done'])
-        first = True; total_bad = 0
+        first = True; total_bad = 0; ops_bad = 0
         for room in rooms:
             if not first:
                 e.call('mem_write', addr=ROOM_REQ, data_hex='%02x' % room)
@@ -85,6 +85,7 @@ def main():
             rr.draw_room(room); ref_ops = room_oplist(rr, variants); got_ops = z80_ops(e)
             same = sum(1 for a, b in zip(ref_ops, got_ops) if a == b)
             if ref_ops != got_ops:
+                ops_bad += 1
                 print('room %d: OPS DIFFER: z80 %d ops, python %d ops, %d equal in sequence' % (room, len(got_ops), len(ref_ops), same))
                 for i, (a, b) in enumerate(zip(ref_ops, got_ops)):
                     if a != b: print('   first diff at %d: python %s  z80 %s' % (i, a, b)); break
@@ -98,5 +99,7 @@ def main():
             if bad:
                 im.save(os.path.join(ROOT, 'build', 'm3_room%d_z80.png' % room)); ref.save(os.path.join(ROOT, 'build', 'm3_room%d_ref.png' % room))
     print('total differing pixels:', total_bad)
+    if ops_bad: print('rooms whose op lists differ:', ops_bad)
+    sys.exit(1 if total_bad or ops_bad else 0)
 
 if __name__ == '__main__': main()

@@ -21,11 +21,12 @@ writes a mounted image back on eject) with the RAM disk filled with a pattern (t
   4. Ctrl+L without a valid save (POP800.SAV empty): the title goes on (the next step comes, its screen right, no
      handover), and a key then still starts the game.
 Prints the steps' frames (expected / measured) and the loading times.
-usage: m7_title.py [--quick]   (--quick: part 1 only)"""
+usage: m7_title.py [--quick | --rest]   (--quick: part 1 only; --rest: parts 2-4 only)"""
 import os, shutil, sys, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
 QUICK = '--quick' in sys.argv
+REST = '--rest' in sys.argv
 sys.argv = sys.argv[:1]
 from emu import Emu
 from m3_test import syms
@@ -300,7 +301,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix='m7title')
     try:
         dsk = os.path.join(tmp, 'pop800.dsk'); shutil.copy(M5.DSK, dsk)
-        title_run(dsk)
+        if not REST: title_run(dsk)
         if not QUICK:
             keys_run(dsk)
             ctrl_l_run(tmp)

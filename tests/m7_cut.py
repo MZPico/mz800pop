@@ -17,7 +17,8 @@ PRES's start the handoff is turned into ACT_CUTSCENE for the case's level and ti
   3. a key during the scene: the level starts at once (the sound stopped, the screen black).
   4. Ctrl+L at the title with a save (as tests/m5_save.py makes it) on cutscene levels 4 and 9: the scene before the level
      plays (frames exact), then the level starts with the saved time; a save on level 5 (no cutscene): the level at once.
-usage: m7_cut.py [--quick] [level:rem_min ...]   (--quick: part 1 for levels 2 and 8 only)"""
+usage: m7_cut.py [--quick | --rest] [level:rem_min ...]   (--quick: part 1 for levels 2 and 8 only; --rest: parts 3 and 4
+only; part 1 of one case alone: level:rem_min. All cases one by one + --rest = the whole run: tools/testrun.py)"""
 import os, shutil, sys, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
@@ -320,16 +321,17 @@ def part4(tmp, level=4):
         check('   then level %d with the saved time and hit points' % level, got == (level, st['rem_min'], st['rem_tick'], st['hitp']), got)
 
 def main():
-    quick = '--quick' in ARGS
+    quick = '--quick' in ARGS; rest = '--rest' in ARGS
     cases = [tuple(int(v) for v in a.split(':')) for a in ARGS if ':' in a] or ([(2, 60), (8, 60)] if quick else CASES)
+    if rest: cases = []
     tmp = tempfile.mkdtemp(prefix='m7cut')
     try:
         dsk = os.path.join(tmp, 'pop800.dsk'); shutil.copy(M5.DSK, dsk)
-        costs = part1(dsk, cases)
+        costs = part1(dsk, cases) if cases else []
         if costs:
             c = sorted(costs)
             print('   all frames: cost min %.2f, median %.2f, max %.2f MZ frames (budget 5)' % (c[0], c[len(c) // 2], c[-1]))
-        if not quick and not any(':' in a for a in ARGS):
+        if rest or (not quick and not any(':' in a for a in ARGS)):
             part3(dsk)
             part4(tmp, 4)
             part4(tmp, 9)

@@ -17,7 +17,7 @@ def main():
     level = Level(lv); rr = RoomRenderer(level, ega=True)
     rooms = [int(r) for r in sys.argv[2:]] or list(range(1, level.used_rooms + 1))
     S = syms(os.path.join(ROOT, 'build', 'm3test.sym'))
-    total_bad = 0; costs = []
+    total_bad = 0; costs = []; ops_bad = 0
     with Emu() as e:
         e.run_mzf(os.path.join(ROOT, 'build', 'm3test.mzf'))
         variants = load_assets(e, level.type)
@@ -57,6 +57,7 @@ def main():
                     im = e.vram_image(); pm, pr = im.load(), ref.load()
                     bad = [(x, y, pm[x, y], pr[x, y]) for y in range(192) for x in range(320) if pm[x, y] != pr[x, y]]
                     total_bad += len(bad)
+                    ops_bad += ref_ops != got_ops
                     if ref_ops != got_ops or bad:
                         print('room %d tile %d (type %d) mod %d: ops %s, pixels differing %d %s, %d T' % (room, pos, t, m, 'ok' if ref_ops == got_ops else 'DIFF', len(bad), bad[:3], cost))
                         if ref_ops != got_ops:
@@ -76,5 +77,7 @@ def main():
         for c, t, pos, m in costs: by_type.setdefault(t, []).append(c)
         for t, cs in sorted(by_type.items(), key=lambda kv: str(kv[0])): print('type %s: %d redraws, avg %6d T (%.2f frames), max %d' % (t, len(cs), sum(cs) // len(cs), sum(cs) / len(cs) / 70886, max(cs)))
     print('total differing pixels:', total_bad)
+    if ops_bad: print('redraws whose op lists differ:', ops_bad)
+    sys.exit(1 if total_bad or ops_bad else 0)
 
 if __name__ == '__main__': main()

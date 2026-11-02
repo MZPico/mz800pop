@@ -35,7 +35,7 @@ src/pres/pres.asm, the level-start overlay src/m4/ovl_level.asm). Every run boot
 M7 step 3: every game run is set to the silent sound mode at level_ready (psg.asm SND_MODE 0, as the harness): the
 launched game is live (checked), and live decisions change only which sounds start, i.e. the timing.
 Prints the transitions' times in frames (50 per second; the emulator's floppy has no rotation: a real drive is slower).
-usage: m7_launch.py [ticks]"""
+usage: m7_launch.py [ticks]   (M7_ONLY=round_trip, level_end or game_over: step 0 and that part only)"""
 import os, shutil, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
@@ -321,11 +321,12 @@ def main():
             check('the game starts from the launcher: handoff ACT_PLAY level 1 at HO_MAIN', ho[:4] == bytes([0x50, 0x37, 0, 1]), ho.hex())
             _, times['game start -> level_ready (level 1)'] = run_to(e, G['level_ready'])
             check('the launched game\'s sound is live (psg.asm SND_MODE 1; then silent for the comparisons)', LIVE[-1:] == [1], LIVE)
-        if os.environ.get('M7_ONLY') != 'level_end': round_trip(dsk, times)
-        level_end(dsk, times)
-        level_end(dsk, times, n_after=1, extra=60)
-        if os.environ.get('M7_ONLY') == 'level_end': return
-        game_over(dsk, times)
+        only = os.environ.get('M7_ONLY') or None              # (one part: round_trip, level_end or game_over)
+        if only in (None, 'round_trip'): round_trip(dsk, times)
+        if only in (None, 'level_end'):
+            level_end(dsk, times)
+            level_end(dsk, times, n_after=1, extra=60)
+        if only in (None, 'game_over'): game_over(dsk, times)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print('times (frames, 50 per second):')

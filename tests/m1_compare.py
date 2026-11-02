@@ -33,6 +33,7 @@ def main():
     pack = open(os.path.join(ROOT, 'build', 'm1.pack'), 'rb').read()
     dirb = open(os.path.join(ROOT, 'build', 'm1.dir'), 'rb').read()
     pk = Pack(pack, dirb)
+    total = 0
     with Emu() as e:
         e.run_mzf(os.path.join(ROOT, 'build', 'm1test.mzf'))
         for off in range(0, len(pack), 4096):
@@ -40,15 +41,17 @@ def main():
         e.call('mem_write', addr=0x7800, data_hex=dirb.hex())
         e.call('bp_add', addr=S['ph_tick']); e.run(1000)
         got = e.vram_image(); ref = render(pk, [])
-        n, first = diff(got, ref, os.path.join(ROOT, 'build', 'cmp_room.png'))
+        n, first = diff(got, ref, os.path.join(ROOT, 'build', 'cmp_room.png')); total += n
         print('room: %d differing pixels' % n, first or '')
         for t in range(3):
             e.run(100)   # to the next ph_tick breakpoint: one full tick has been composed and blitted
             a, b = sprite_state(e, 0x0840), sprite_state(e, 0x0860)
             got = e.vram_image()
             ref = render(pk, [(a['frame'], a['x'], a['y'], a['mirror']), (b['frame'], b['x'], b['y'], b['mirror'])])
-            n, first = diff(got, ref, os.path.join(ROOT, 'build', 'cmp_tick%d.png' % t))
+            n, first = diff(got, ref, os.path.join(ROOT, 'build', 'cmp_tick%d.png' % t)); total += n
             print('tick %d: A=%s B=%s -> %d differing pixels %s' % (t, a, b, n, first or ''))
         ref.save(os.path.join(ROOT, 'build', 'cmp_ref.png')); got.save(os.path.join(ROOT, 'build', 'cmp_got.png'))
+    print('total differing pixels:', total)
+    sys.exit(1 if total else 0)
 
 if __name__ == '__main__': main()
