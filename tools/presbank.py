@@ -27,7 +27,8 @@ whose entry is empty starts nothing in PRES: cut.asm play_next_sound):
 Writes build/assets/sound_pres.txt (the layout) and with --wav build/sound/pres/model_<piece>.wav (the model: the
 piece and one loop more, tools/sndsim.py render).
 usage: presbank.py [--wav]
-       presbank.py --from-vgm DIR      (remakes assets/sms/ from DIR/<piece>.vgm; then the banks)"""
+       presbank.py --from-vgm DIR      (remakes assets/sms/ from DIR/<piece>.vgm only: the banks are `make
+                                       build/assets/sound_pres.bin`, which needs build/assets/sound.bin)"""
 import hashlib, json, os, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
 import sndconv as SC
@@ -144,5 +145,8 @@ def build(verbose=True, wav=False):
 
 
 if __name__ == '__main__':
-    if '--from-vgm' in sys.argv: from_vgm(sys.argv[sys.argv.index('--from-vgm') + 1])
-    build(wav='--wav' in sys.argv)
+    if '--from-vgm' in sys.argv:
+        from_vgm(sys.argv[sys.argv.index('--from-vgm') + 1])
+        print('assets/sms remade; build the banks with: make build/assets/sound_pres.bin')
+    else:
+        build(wav='--wav' in sys.argv)

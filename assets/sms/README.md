@@ -51,6 +51,7 @@ for n in 1 3 5 7 11; do python3 tools/sms/run_song.py --rom /path/to/pop_e.sms -
 python3 tools/vgm2psg.py --logs /tmp/sms/logs --only 1,3,5,7,11
 python3 tools/presbank.py --from-vgm build/sound/sms
 git diff --stat assets/sms     # nothing, if the ROM, MAME and the tools are the same
+make build/assets/sound_pres.bin   # the banks (they need the in-game bank, so the DOS data: tools/ci/fetch_dos_data.py)
 ```
 
 The banks made from the committed streams are byte-identical to those of the original build from the VGMs

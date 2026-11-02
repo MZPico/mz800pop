@@ -266,9 +266,15 @@ def level_curves(combos):
     fixed = json.load(open(LEVELS)) if os.path.exists(LEVELS) else {}
     path = os.path.join(OPLDIR, 'levels.json')
     cache = json.load(open(path)) if os.path.exists(path) else {}
+    from_ref = set()
     for c in combos:
         k = key(c)
-        if k in fixed and len(fixed[k][0]) >= combos[c]: cache[k] = fixed[k]
+        if k in fixed and len(fixed[k][0]) >= combos[c]: cache[k] = fixed[k]; from_ref.add(c)
+    stale = [c for c in combos if c not in from_ref and key(c) in cache and len(cache[key(c)][0]) >= combos[c]]
+    if stale:
+        print('midi2psg: %d level curves come from %s, not from %s (measured in an earlier run: the bank differs from '
+              'the reference build: docs/ci.md)' % (len(stale), os.path.relpath(path, ROOT), os.path.relpath(LEVELS, ROOT)),
+              file=sys.stderr)
     if DUMP_USED is not None: DUMP_USED.update({key(c): cache[key(c)] for c in combos if key(c) in cache})
     todo = [c for c in combos if key(c) not in cache or len(cache[key(c)][0]) < combos[c]]
     if todo:
