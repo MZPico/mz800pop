@@ -273,8 +273,11 @@ def part_late(dsk):
             C.boot_pres(e, dsk, lv, rm)
             M5.run_to(e, PS['ts_sync'], 2000)
             F0 = C.frames(e)
-            class NoTr:
-                addr = {}
+            class NoTr:                 # (no PSG tracking here: scene_run's tracker interface as no-ops, m7_cut.scene_run)
+                addr = {}; pending = None
+                def __init__(self): self.hooks = {}
+                def bps(self): pass
+                def poll(self, stop=None): return None
                 def event(self, pc): return None
             def push(e, n):
                 if n in late:
