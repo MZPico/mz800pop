@@ -602,7 +602,8 @@ pso_n:          ld      de, 6
                 jp      nz, pso_p
                 ret
 pf_f0:          dw      0
-pf_t:           dw      0
+pf_e:           dw      0               ; (flush.asm pf_seq: the frame of the character chunks, low byte)
+pf_t:           dw      0               ; (also flush.asm's pf_st; pf_beam resets it for the one-at-a-time copy)
 pf_need:        dw      0
 pf_dur:         dw      0
 pf_s:           dw      0

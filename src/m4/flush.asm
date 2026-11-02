@@ -335,8 +335,9 @@ pf_ords3:       db      0, 0, 6, 12,  4, 0, 12, 6,  1, 6, 0, 12,  3, 6, 12, 0,  
                 if PEND_MAX > 3
                 .error pf_ords: PEND_MAX > 3
                 endif
-pf_e:           db      0
-pf_st:          dw      0
+; pf_e and pf_st (= pf_t) are in sprite.asm: pend_flush's raster scratch pf_f0..pf_s stays one block of 12 bytes
+; (tests/m5_boot.py leaves it out of its RAM comparison)
+pf_st           equ     pf_t
 pf_t0:          dw      0
 pf_ord:         dw      0
 pf_nord:        db      0
