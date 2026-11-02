@@ -132,9 +132,9 @@ def part_title(dsk):
         check('after m\'s fade-out (screen black) the title again (step 9 puts the demo here)', e.vram_planes() == BLACK)
         C.psg_report(tr, 'the title from h to m (music 55 on, 50, 54, 42)')
         check('   the music: g\'s piece (55) on through h\'s black and fade-in, Jaffar\'s piece (50) from pv_scene\'s first cue, the title theme (54) at j, '
-              'the credits (42) at k; the cues 4, 51, 53, 52 start nothing; banks B at h, C before j: %s' % tr.banks,
+              'the credits (42) at k; the cues 4, 51, 53, 52 start nothing; banks A at the title\'s start, B at h, C before j: %s' % tr.banks,
               all(s in tr.starts for s in (50, 54, 42)) and not any(s in tr.starts for s in (4, 51, 53, 52)) and tr.starts.get(55) == 1 and
-              [b for _, b in tr.banks] == ['PRS_SND_B', 'PRS_SND_C'], (tr.starts, tr.banks))
+              [b for _, b in tr.banks] == ['PRS_SOUND', 'PRS_SND_B', 'PRS_SND_C'], (tr.starts, tr.banks))
         check('   Jaffar\'s piece looped %s times through pv_scene and i (24.4 s a loop)' % tr.wraps.get(50), tr.wraps.get(50, 0) >= 1, tr.wraps)
         C.write_wav(tr, 'title_h-i', f1=fj); C.write_wav(tr, 'title_j-m', f0=fj)
         print('   the whole run took %.0f s of host time' % (time.time() - t0))
