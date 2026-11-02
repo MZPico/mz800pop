@@ -1,0 +1,47 @@
+{
+ "title": {
+  "file": "01_title.psg",
+  "sms_song": 1,
+  "frames": 570,
+  "loop_frame": 0,
+  "loop_offset": 0,
+  "bytes": 3436,
+  "md5": "18f175a8c895adff2f565d18f924b2a7"
+ },
+ "hourglass": {
+  "file": "11_hourglass.psg",
+  "sms_song": 11,
+  "frames": 985,
+  "loop_frame": 25,
+  "loop_offset": 56,
+  "bytes": 3480,
+  "md5": "d839cecfa31ed0bf2c7b0e35d537ae34"
+ },
+ "jaffar": {
+  "file": "05_story_jaffar.psg",
+  "sms_song": 5,
+  "frames": 1220,
+  "loop_frame": 0,
+  "loop_offset": 0,
+  "bytes": 5331,
+  "md5": "4de8c3a0c34ac91b28ef56095d4e1fab"
+ },
+ "credits": {
+  "file": "03_story_credits.psg",
+  "sms_song": 3,
+  "frames": 501,
+  "loop_frame": null,
+  "loop_offset": null,
+  "bytes": 3039,
+  "md5": "1fabe85b3ef24331a7d95acc1b9fb892"
+ },
+ "cutscene": {
+  "file": "07_cutscene.psg",
+  "sms_song": 7,
+  "frames": 432,
+  "loop_frame": null,
+  "loop_offset": null,
+  "bytes": 2046,
+  "md5": "985b56fa887fd0e122de968f0d5f6134"
+ }
+}

@@ -12,8 +12,9 @@ PRINCE.DAT resource 1 as the instrument bank (src/midi.c); its rules are kept he
   - loudness: per note the OPL carrier level from the instrument and the velocity.
 The loudness of every note over time (attack, decay, sustain, release) is measured, not modelled: SDLPoP's own OPL
 code (external/SDLPoP/src/opl3.c, Nuked OPL3) renders each (instrument, velocity, key) once, held as long as its
-longest note, and the RMS per 20 ms frame gives its level curve in dB (cached in build/sound/opl/levels.json); the
-same helper renders whole pieces for listening (build/sound/music/<id>_<name>_midi.wav).
+longest note, and the RMS per 20 ms frame gives its level curve in dB (committed: assets/opl/levels.json, see its
+README; new ones are cached in build/sound/opl/levels.json); the same helper renders whole pieces for listening
+(build/sound/music/<id>_<name>_midi.wav).
 
 Arrangement (per piece; PIECES below has the per-piece choices and notes):
   1. the notes, pitches folded up by octaves into the PSG's range (>= 108.3 Hz: D5, notes below an octave up, again
@@ -36,6 +37,10 @@ ROOT = os.path.join(HERE, '..')
 DOS = os.path.join(ROOT, 'external', 'dos', 'PRINCE')
 SDLPOP_SRC = os.path.join(ROOT, 'external', 'SDLPoP', 'src')
 OPLDIR = os.path.join(ROOT, 'build', 'sound', 'opl')
+# the reference level curves the in-game bank is built from (committed: assets/opl/README.md); curves missing there are
+# measured into OPLDIR's levels.json (a measurement depends on the run's order, so it is kept out of the normal build)
+LEVELS = os.path.join(ROOT, 'assets', 'opl', 'levels.json')
+DUMP_USED = None                                # a dict: level_curves records every curve it hands out (--prune-levels)
 CPU = 3546895
 FRAME = 0.02
 TONE_MIN = CPU / (32 * 1023)
@@ -257,10 +262,24 @@ def _frames_db(x, rate):
 def level_curves(combos):
     """{(prog, vel, key): (on dB per frame for `hold` frames, release dB per frame from the note-off)} for combos
     {(prog, vel, key): hold frames}; each measured alone (one note at a time on channel 0), cached"""
+    key = lambda c: '%d,%d,%d' % c
+    fixed = json.load(open(LEVELS)) if os.path.exists(LEVELS) else {}
     path = os.path.join(OPLDIR, 'levels.json')
     cache = json.load(open(path)) if os.path.exists(path) else {}
-    key = lambda c: '%d,%d,%d' % c
+    from_ref = set()
+    for c in combos:
+        k = key(c)
+        if k in fixed and len(fixed[k][0]) >= combos[c]: cache[k] = fixed[k]; from_ref.add(c)
+    stale = [c for c in combos if c not in from_ref and key(c) in cache and len(cache[key(c)][0]) >= combos[c]]
+    if stale:
+        print('midi2psg: %d level curves come from %s, not from %s (measured in an earlier run: the bank differs from '
+              'the reference build: docs/ci.md)' % (len(stale), os.path.relpath(path, ROOT), os.path.relpath(LEVELS, ROOT)),
+              file=sys.stderr)
+    if DUMP_USED is not None: DUMP_USED.update({key(c): cache[key(c)] for c in combos if key(c) in cache})
     todo = [c for c in combos if key(c) not in cache or len(cache[key(c)][0]) < combos[c]]
+    if todo:
+        print('midi2psg: %d level curves not in %s, measured into %s (the bank then differs from the reference '
+              'build: docs/ci.md)' % (len(todo), os.path.relpath(LEVELS, ROOT), os.path.relpath(path, ROOT)), file=sys.stderr)
     if todo:
         # one run: per combo a program change, the note held `hold` frames, the release, 0.2 s of silence
         tpq = 500; ev = []; t = 0                   # 120 bpm (the default tempo): 1000 ticks a second, 20 a frame

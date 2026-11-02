@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """M7 step 11: the presentation's sound banks (PRES, src/pres/pres.asm) from the Master System Prince of Persia
-soundtrack (build/sound/sms/*.vgm, our conversion of the driver's register log: tools/vgm2psg.py, tools/sms/) and our
-effects (build/assets/sound.bin, tools/sndconv.py). docs/m7-design.md 19 (the mapping decided 2026-11-01).
+soundtrack (assets/sms/: the five pieces as MZ-800 PSG streams, converted from the driver's register logs; see
+assets/sms/README.md) and our effects (build/assets/sound.bin, tools/sndconv.py). docs/m7-design.md 19 (the mapping
+decided 2026-11-01).
+The streams are a stored artifact: the build reads them, it never needs the ROM. --from-vgm DIR remakes them (locally,
+from the logs tools/sms/run_song.py + tools/vgm2psg.py made from the ROM: DIR = build/sound/sms): each piece's VGM ->
+the states per frame -> the tones rescaled to the MZ-800's clock -> the exact stream (with the loop group for a looping
+piece), checked against the states through tools/sndsim.py; writes assets/sms/<piece>.psg and assets/sms/pieces.json.
 
 The pieces (exact streams: every attenuation change a command, the tones rescaled to the MZ-800's clock) and where
 they loop (the loop command 0xE8 lo hi after the stream: psg.asm snd_fill, tools/sndsim.py):
@@ -21,13 +26,15 @@ whose entry is empty starts nothing in PRES: cut.asm play_next_sound):
   C sound_pres_c.bin  title (54: j), credits (PM_CREDITS 42: k), effects   (PRS_SND_C, loaded between i and j)
 Writes build/assets/sound_pres.txt (the layout) and with --wav build/sound/pres/model_<piece>.wav (the model: the
 piece and one loop more, tools/sndsim.py render).
-usage: presbank.py [--wav]"""
-import os, struct, sys
+usage: presbank.py [--wav]
+       presbank.py --from-vgm DIR      (remakes assets/sms/ from DIR/<piece>.vgm only: the banks are `make
+                                       build/assets/sound_pres.bin`, which needs build/assets/sound.bin)"""
+import hashlib, json, os, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
 import sndconv as SC
 import sndsim
 import vgm2psg as V
-SMS = os.path.join(HERE, '..', 'build', 'sound', 'sms')
+ASSETS = os.path.join(HERE, '..', 'assets', 'sms')    # the stored streams (assets/sms/README.md)
 OUT = os.path.join(HERE, '..', 'build', 'assets')
 WAV = os.path.join(HERE, '..', 'build', 'sound', 'pres')
 SBANK_MAX = 0x2880                  # pres.asm SBANK_MAX (the torch cache)
@@ -45,10 +52,10 @@ BANKS = [('sound_pres.bin', 'PRS_SOUND', ['hourglass', 'title', 'cutscene'],
 SHARED = ('hourglass',)             # at the same address in every bank that has it (A -> B: the stream goes on)
 
 
-def piece(name):
-    """-> dict(stream, loop_off, frames, loop, states)"""
+def convert(name, vgmdir):
+    """the piece from its VGM (--from-vgm): -> (stream, loop frame or None, the loop group's byte offset or None, frames)"""
     fn, lp = PIECES[name]
-    frames, vloop, clk = V.read_vgm(os.path.join(SMS, fn + '.vgm'))
+    frames, vloop, clk = V.read_vgm(os.path.join(vgmdir, fn + '.vgm'))
     assert len(frames) == FRAMES[name], (name, len(frames))
     states = V.states_of(frames)
     mz, cents, _ = V.rescale(states, clk)
@@ -57,10 +64,37 @@ def piece(name):
     if loop is None:
         stream = V.encode(mz); V.verify(stream, mz); off = None
     else:
-        assert loop is not None
         stream, off = V.encode(mz, loop=loop); V.verify(stream, mz, loop=loop, loop_off=off)
-    gap = sndsim.max_gap(stream, off, len(frames) * 3)
-    return dict(stream=stream, loop_off=off, frames=len(frames), loop=loop, states=mz, gap=gap, cents=cents)
+    return stream, loop, off, len(frames)
+
+
+def from_vgm(vgmdir):
+    """remakes assets/sms/<piece>.psg and pieces.json from the VGMs in vgmdir"""
+    os.makedirs(ASSETS, exist_ok=True)
+    man = {}
+    for n in PIECES:
+        stream, loop, off, nfr = convert(n, vgmdir)
+        fn = PIECES[n][0]
+        open(os.path.join(ASSETS, fn + '.psg'), 'wb').write(stream)
+        man[n] = dict(file=fn + '.psg', sms_song=int(fn[:2]), frames=nfr, loop_frame=loop, loop_offset=off,
+                      bytes=len(stream), md5=hashlib.md5(stream).hexdigest())
+    with open(os.path.join(ASSETS, 'pieces.json'), 'w') as f:
+        json.dump(man, f, indent=1); f.write('\n')
+    print('wrote', os.path.normpath(ASSETS), '(%s)' % ', '.join('%s %d B' % (m['file'], m['bytes']) for m in man.values()))
+
+
+def piece(name):
+    """the stored piece (assets/sms/pieces.json) -> dict(stream, loop_off, frames, loop, gap)"""
+    m = json.load(open(os.path.join(ASSETS, 'pieces.json')))[name]
+    stream = open(os.path.join(ASSETS, m['file']), 'rb').read()
+    assert len(stream) == m['bytes'] and hashlib.md5(stream).hexdigest() == m['md5'], (name, 'assets/sms changed?')
+    assert m['frames'] == FRAMES[name] and m['file'] == PIECES[name][0] + '.psg', name
+    loop, off = m['loop_frame'], m['loop_offset']
+    assert (loop is None) == (off is None) and (loop is None) == (PIECES[name][1] is None), name
+    if loop is None: assert stream[-1] == 0, name                  # a one-shot ends with the end byte
+    else: assert 0 <= off < len(stream), name                      # a looping one with its last wait (the bank adds 0xE8)
+    gap = sndsim.max_gap(stream, off, m['frames'] * 3)
+    return dict(stream=stream, loop_off=off, frames=m['frames'], loop=loop, gap=gap)
 
 
 def build(verbose=True, wav=False):
@@ -111,4 +145,8 @@ def build(verbose=True, wav=False):
 
 
 if __name__ == '__main__':
-    build(wav='--wav' in sys.argv)
+    if '--from-vgm' in sys.argv:
+        from_vgm(sys.argv[sys.argv.index('--from-vgm') + 1])
+        print('assets/sms remade; build the banks with: make build/assets/sound_pres.bin')
+    else:
+        build(wav='--wav' in sys.argv)

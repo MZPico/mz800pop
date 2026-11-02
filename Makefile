@@ -39,12 +39,12 @@ $(BUILD)/boot.mzf: $(BUILD)/boot.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 B000
 GAME_ASSETS = $(wildcard $(BUILD)/assets/*.pack $(BUILD)/assets/*.dir $(BUILD)/assets/level*.bin) $(BUILD)/assets/logic.bin $(BUILD)/assets/sound.bin
 # M7: the PSG sound bank (effects re-made for 50 Hz from the DOS sound data, the MIDI music arranged by tools/midi2psg.py;
-# src/m4/psg.asm plays it); also build/assets/sound_pres.bin (the presentation's music, for PRES)
-$(BUILD)/assets/sound.bin: tools/sndconv.py tools/midi2psg.py tools/sndsim.py tools/datfile.py
+# src/m4/psg.asm plays it); the notes' OPL level curves: assets/opl/levels.json (committed: assets/opl/README.md)
+$(BUILD)/assets/sound.bin: tools/sndconv.py tools/midi2psg.py tools/sndsim.py tools/datfile.py assets/opl/levels.json
 	$(PY) tools/sndconv.py
-# M7 step 11: the presentation's sound banks (sound_pres.bin, _b, _c) from the Master System pieces (build/sound/sms/*.vgm,
-# converted from the driver's register logs by tools/vgm2psg.py; the logs need the ROM and MAME: tools/sms/) + the effects
-$(BUILD)/assets/sound_pres.bin: tools/presbank.py tools/vgm2psg.py tools/sndsim.py $(BUILD)/assets/sound.bin $(wildcard $(BUILD)/sound/sms/*.vgm)
+# M7 step 11: the presentation's sound banks (sound_pres.bin, _b, _c) from the Master System pieces (assets/sms/: the
+# converted streams, committed; remade locally from the ROM only: assets/sms/README.md) + the effects
+$(BUILD)/assets/sound_pres.bin: tools/presbank.py tools/sndsim.py $(BUILD)/assets/sound.bin assets/sms/pieces.json $(wildcard assets/sms/*.psg)
 	$(PY) tools/presbank.py
 # M7: boot.asm is also the launcher (src/boot/launch.inc); src/pres/pres.asm (PRES, the presentation program) goes into
 # POP800.PRS with its scenes; the boot keeps the game's compressed image in the RAM disk (tests/m7_launch.py).
@@ -86,7 +86,7 @@ m7keys: $(BUILD)/pop800.dsk $(BUILD)/m4test.mzf cheats
 cheats:
 	mkdir -p $(BUILD)/cheat/build
 	rsync -a --delete src Makefile $(BUILD)/cheat/
-	for d in tools tests external; do ln -sfn $(CURDIR)/$$d $(BUILD)/cheat/$$d; done
+	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/cheat/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/cheat/build/assets
 	$(MAKE) -C $(BUILD)/cheat CHEATS=1 build/m4game.mzf build/m4test.mzf build/pop800.dsk
 # M8a part 2: the time-exact pacing prototype (game.asm PACE_MODE 1) as a disk to try: build/pace/build/pop800.dsk (the release
@@ -94,7 +94,7 @@ cheats:
 pace:
 	mkdir -p $(BUILD)/pace/build
 	rsync -a --delete src Makefile $(BUILD)/pace/
-	for d in tools tests external; do ln -sfn $(CURDIR)/$$d $(BUILD)/pace/$$d; done
+	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/pace/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/pace/build/assets
 	$(MAKE) -C $(BUILD)/pace PACE=1 build/m4game.mzf build/pop800.dsk
 .PHONY: m7keys cheats pace
@@ -220,17 +220,15 @@ perf: $(BUILD)/m4game.mzf
 	$(PY) tools/perfcheck.py
 .PHONY: m4 perf m4game m4test
 
-# CI (docs/ci.md, .github/workflows/pr-checks.yml). ci-build: the assets, then everything `all` builds; the game disk
-# (build/pop800.dsk) only when the Master System logs PRES's sound banks are made from are there (build/sound/sms/*.vgm,
-# made locally from the ROM with MAME: tools/sms/; not available on a hosted runner)
-SMS_VGM = $(wildcard $(BUILD)/sound/sms/*.vgm)
+# CI (docs/ci.md, .github/workflows/pr-checks.yml). ci-build: the assets, then everything `all` builds (the game disk
+# too) and build/m4test.mzf
 CI_TARGETS = $(BUILD)/colorbars.mzf $(BUILD)/m0.dsk $(BUILD)/m1test.mzf $(BUILD)/m1.pack $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin \
-             $(BUILD)/m4test.mzf $(BUILD)/boot.mzf $(BUILD)/pres.bin $(if $(SMS_VGM),$(BUILD)/pop800.dsk)
+             $(BUILD)/m4test.mzf $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/pop800.dsk
 ci-build:
 	$(MAKE) assets
 	$(MAKE) $(CI_TARGETS)
-# the PR test tier, exactly what the PR jobs run (tools/ci/check_pr.py; PART=a or PART=b: one job's part, default both)
+# the PR test tier, exactly what the PR jobs run (tools/ci/check_pr.py; PART=a, b, c or d: one job's part, default all)
 PART ?= all
-check-pr: $(BUILD)/m4game.mzf $(BUILD)/m4test.mzf
+check-pr: $(BUILD)/m4game.mzf $(BUILD)/m4test.mzf $(BUILD)/pop800.dsk
 	$(PY) tools/ci/check_pr.py $(PART)
 .PHONY: ci-build check-pr

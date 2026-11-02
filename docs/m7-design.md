@@ -808,7 +808,7 @@ player), tests/m7_sound.py.
   midi2psg.py, compiled into build/sound/opl/ against external/SDLPoP/src/opl3.c) is SDLPoP's midi.c playback
   outside the game: it renders whole pieces (build/sound/music/*_midi.wav, lengths equal the MIDI's to the sample) and
   measures the level of every (instrument, velocity, key) used (700 combinations, one note at a time, RMS per 20 ms,
-  cached in build/sound/opl/levels.json).
+  cached in build/sound/opl/levels.json; since 2026-11-02 the reference curves are committed: assets/opl/levels.json).
 - **Arrangement** (per 20 ms frame): every note's level curve (measured attack/decay/sustain until its note-off, then
   the measured release); its sounding pitch (the instrument's octave: programs 2, 7 an octave up, 3, 11, 15 an octave
   down, measured from their spectra), folded up by octaves to >= 108.3 Hz (D5); a folded note keeps its loudness
@@ -1437,6 +1437,8 @@ tools/mkgamedisk.py (entries PRS_SND_B, PRS_SND_C), Makefile (sound_pres.bin: pr
 fill through MF_W, the loop wraps, part A on the new banks), tests/m7_title.py, m7_cut.py, m7_story.py (the loops, the bank
 reloads, the WAVs build/sound/pres/*.wav). The in-game bank build/assets/sound.bin is byte-identical; the game's binary changes
 only by snd_fill's 36 bytes (block 2).
+Since 2026-11-02 the five pieces are committed as converted streams (assets/sms/, its README; not GPL) and presbank.py
+builds the banks from them (byte-identical); `presbank.py --from-vgm build/sound/sms` remakes them from the VGMs locally.
 
 **The mapping** (decided 2026-11-01; every screen keeps its DOS duration from the ticks model unless stated; a piece shorter
 than its screen loops, a longer one is cut at the screen's end). The streams are the exact variants (every attenuation change a

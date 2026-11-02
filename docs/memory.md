@@ -253,8 +253,8 @@ build/assets/sound_pres.bin A 10,121 bytes, _b 9,938, _c 7,631; POP800.PRS entri
 copied whole to the torch cache (page 6 0x0000-0x287F, as before) when a scene needs it: A at the title's start and for the
 cutscenes / time-out / ending, B at title step h, C before step j. The pieces loop through psg.asm's loop command (0xE8 lo hi
 after a stream, read by snd_fill: +36 bytes of block 2, block2_end 0xEAED -> 0xEB11, 239 free; the ISR unchanged). The in-game
-bank build/assets/sound.bin is unchanged (byte-identical; note that it is reproducible only with build/sound/opl/levels.json,
-midi2psg's level cache: a copy without it gives a different arrangement). Details: docs/m7-design.md section 19.
+bank build/assets/sound.bin is unchanged (byte-identical; note that it is reproducible only with midi2psg's level
+curves: a copy without them gives a different arrangement; since 2026-11-02 they are committed, assets/opl/levels.json). Details: docs/m7-design.md section 19.
 
 Level cutscenes in PRES (M7 step 7, 2026-10-31): the engine src/pres/cut.asm is assembled after PRES's own image
 (end_of_pres 0x2E61) but travels in POP800.PRS's room entry (PRS_CROOM: the engine 0x2E61-0x3ED9, the room's PZ bands, the
