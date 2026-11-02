@@ -34,6 +34,8 @@ jobs:
         part: [a, b]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Packages
         run: |
@@ -63,25 +65,25 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/mzdeps
-          key: mzdeps-ubuntu24-${{ env.SDL3_TAG }}-${{ env.SDL3_IMAGE_TAG }}-${{ env.MINIZIP_TAG }}
+          key: mzdeps-ubuntu24-${{ env.SDL3_TAG }}-${{ env.SDL3_IMAGE_TAG }}-${{ env.MINIZIP_TAG }}-${{ hashFiles('tools/ci/build_deps.sh') }}
       - name: Restore mz800emu
         id: c-emu
         uses: actions/cache/restore@v4
         with:
           path: ~/mz800emu-bin
-          key: mz800emu-ubuntu24-${{ env.MZ800EMU_COMMIT }}-${{ env.SDL3_TAG }}
+          key: mz800emu-ubuntu24-${{ env.MZ800EMU_COMMIT }}-${{ env.SDL3_TAG }}-${{ hashFiles('tools/ci/build_deps.sh') }}
       - name: Restore SDLPoP (patched)
         id: c-sdlpop
         uses: actions/cache/restore@v4
         with:
           path: external/SDLPoP
-          key: sdlpop-ubuntu24-${{ env.SDLPOP_COMMIT }}-${{ hashFiles('tools/sdlpop-pop800.patch') }}
+          key: sdlpop-ubuntu24-${{ env.SDLPOP_COMMIT }}-${{ hashFiles('tools/sdlpop-pop800.patch') }}-${{ hashFiles('tools/ci/build_deps.sh') }}
       - name: Restore mzdisk
         id: c-mzdisk
         uses: actions/cache/restore@v4
         with:
           path: external/mzdisk
-          key: mzdisk-ubuntu24-${{ env.MZDISK_COMMIT }}
+          key: mzdisk-ubuntu24-${{ env.MZDISK_COMMIT }}-${{ hashFiles('tools/ci/build_deps.sh') }}
       - name: Build SDL3 / SDL3_image / minizip-ng
         if: steps.c-deps.outputs.cache-hit != 'true'
         run: tools/ci/build_deps.sh sdl3

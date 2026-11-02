@@ -201,5 +201,6 @@ def main():
                   ' (state lines: %d, sound lines: %d)' % (sbad, nbad), marker,
                   '' if not bad else '; first at tick %d:\n   sim %s\n   z80 %s' % first), flush=True)
     print('total differing ticks:', total_bad)
+    sys.exit(1 if total_bad else 0)
 
 if __name__ == '__main__': main()

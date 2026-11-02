@@ -19,7 +19,7 @@ export LD_LIBRARY_PATH="$DEPS/lib:$DEPS/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PAT
 export LIBRARY_PATH="$DEPS/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 
 fetch() {   # fetch <repo url> <commit or tag> <dir>: a shallow checkout of one commit
-    rm -rf "$3"; mkdir -p "$3"
+    rm -rf "$3"; mkdir -p "$3"     # (only scratch dirs and checked-in-place dirs: see keep_existing)
     git -C "$3" init -q
     git -C "$3" fetch -q --depth 1 "$1" "$2"
     git -C "$3" -c advice.detachedHead=false checkout -q FETCH_HEAD
@@ -61,9 +61,18 @@ emu() {
     echo "emu: built mz800emu $MZ800EMU_COMMIT"
 }
 
+keep_existing() {   # keep_existing <dir>: refuse to replace a checkout that is there but not a complete build (a developer's
+    # external/SDLPoP or external/mzdisk, possibly with local changes, reached through a worktree's symlinked external/)
+    if [ -e "$1" ] && [ -z "${POP800_REPLACE_EXTERNAL:-}" ]; then
+        echo "build_deps: $1 exists but is not a cached build: not replacing it (set POP800_REPLACE_EXTERNAL=1 to do so)" >&2
+        exit 1
+    fi
+}
+
 sdlpop() {
     local d="$ROOT/external/SDLPoP"
     if [ -x "$d/prince" ]; then echo "sdlpop: cached"; return; fi
+    keep_existing "$d"
     fetch https://github.com/NagyD/SDLPoP.git "$SDLPOP_COMMIT" "$d"
     git -C "$d" apply "$ROOT/tools/sdlpop-pop800.patch"
     make -C "$d/src" -j"$JOBS" > "$d/build-sdlpop.log" 2>&1 || { tail -30 "$d/build-sdlpop.log"; exit 1; }
@@ -74,6 +83,7 @@ sdlpop() {
 mzdisk() {
     local d="$ROOT/external/mzdisk"
     if [ -x "$d/build/mzdsk-fsmz" ]; then echo "mzdisk: cached"; return; fi
+    keep_existing "$d"
     fetch https://github.com/michalhucik/mzdisk.git "$MZDISK_COMMIT" "$d"
     # (upstream's CMakeLists.txt at this commit lists src/libs/sharpmz_ascii/sharpmz_utf8.c, which is not in the
     # repository; the local copy drops that line, as here)

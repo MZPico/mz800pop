@@ -4,11 +4,16 @@
 #include "common.h"
 fixes_options_type* fixes = NULL; custom_options_type* custom = NULL;
 #include "seqtbl.c"
+static int fail(const char* what) { perror(what); return 1; }
 int main(void) {
-    FILE* f = fopen("build/assets/seqtbl.bin", "wb"); fwrite(seqtbl, 1, sizeof(seqtbl), f); fclose(f);
+    FILE* f = fopen("build/assets/seqtbl.bin", "wb");
+    if (!f) return fail("build/assets/seqtbl.bin");
+    if (fwrite(seqtbl, 1, sizeof(seqtbl), f) != sizeof(seqtbl) || fclose(f) != 0) return fail("build/assets/seqtbl.bin");
     f = fopen("build/assets/seqtbl_offsets.txt", "w");
-    for (unsigned i = 0; i < sizeof(seqtbl_offsets)/sizeof(seqtbl_offsets[0]); i++) fprintf(f, "%u %u\n", i, seqtbl_offsets[i] - SEQTBL_BASE);
-    fclose(f);
+    if (!f) return fail("build/assets/seqtbl_offsets.txt");
+    for (unsigned i = 0; i < sizeof(seqtbl_offsets)/sizeof(seqtbl_offsets[0]); i++)
+        if (fprintf(f, "%u %u\n", i, seqtbl_offsets[i] - SEQTBL_BASE) < 0) { fclose(f); return fail("build/assets/seqtbl_offsets.txt"); }
+    if (fclose(f) != 0) return fail("build/assets/seqtbl_offsets.txt");
     printf("seqtbl %zu bytes, %zu offsets, base %#x\n", sizeof(seqtbl), sizeof(seqtbl_offsets)/sizeof(seqtbl_offsets[0]), SEQTBL_BASE);
     return 0;
 }
