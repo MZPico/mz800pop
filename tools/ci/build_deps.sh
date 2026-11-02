@@ -73,6 +73,9 @@ mzdisk() {
     local d="$ROOT/external/mzdisk"
     if [ -x "$d/build/mzdsk-fsmz" ]; then echo "mzdisk: cached"; return; fi
     fetch https://github.com/michalhucik/mzdisk.git "$MZDISK_COMMIT" "$d"
+    # (upstream's CMakeLists.txt at this commit lists src/libs/sharpmz_ascii/sharpmz_utf8.c, which is not in the
+    # repository; the local copy drops that line, as here)
+    [ -f "$d/src/libs/sharpmz_ascii/sharpmz_utf8.c" ] || sed -i '/sharpmz_ascii\/sharpmz_utf8\.c/d' "$d/CMakeLists.txt"
     log mzdisk cmake -S "$d" -B "$d/build" -DCMAKE_BUILD_TYPE=Release
     log mzdisk cmake --build "$d/build" -j"$JOBS" --target mzdsk-create mzdsk-fsmz
     echo "mzdisk: built mzdisk $MZDISK_COMMIT"

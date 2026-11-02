@@ -3,17 +3,26 @@
 each to its end, prints the wall time of each and fails if any failed. Needs the build (`make ci-build`) and an X
 display for the emulator (DISPLAY, e.g. xvfb-run).
 usage: check_pr.py [all | a | b ...] [--list]"""
-import os, subprocess, sys, time
+import glob, os, subprocess, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
 
-SUBSET = ['tests/m4_scripts/walk_level1.txt']
+# m4_test: all of tests/m7_scripts (the sound ticks model, the keys) + a few of each earlier set
+M4_SUBSET = ['tests/m4_scripts/walk_level1.txt', 'tests/m4_scripts/jumps_climbs.txt', 'tests/m4_scripts/traps_b9.txt',
+             'tests/m6_scripts/fight1.txt', 'tests/m6_scripts/fight_killpush.txt',
+             'tests/m5_scripts/level12_shadow_merge.txt', 'tests/m5_scripts/feather_fall.txt', 'tests/m5_scripts/level13_jaffar.txt']
+# m4_game: three scripts (a level walk, a fight, the shadow), the screen every 10th tick (the state every tick)
+M4_GAME = ['tests/m4_scripts/walk_level1.txt', 'tests/m6_scripts/fight1.txt', 'tests/m5_scripts/level12_shadow_merge.txt']
 PARTS = {
     'a': [
         ('perfcheck', [PY, 'tools/perfcheck.py']),
-        ('m4_test subset', [PY, 'tests/m4_test.py'] + SUBSET),
+        ('m4_game sample', [PY, 'tests/m4_game.py', '--every', '10'] + M4_GAME),
+        ('m4_test subset', [PY, 'tests/m4_test.py'] + sorted(glob.glob(os.path.join(ROOT, 'tests', 'm7_scripts', '*.txt'))) + M4_SUBSET),
     ],
-    'b': [],
+    'b': [
+        ('oracle_suite', [PY, 'tools/oracle_suite.py']),
+        ('cut_suite', [PY, 'tools/cut_suite.py']),
+    ],
 }
 
 
@@ -22,7 +31,7 @@ def main():
     names = sorted(PARTS) if 'all' in args else args
     steps = [s for n in names for s in PARTS[n]]
     if '--list' in sys.argv:
-        for name, cmd in steps: print('%-20s %s' % (name, ' '.join(os.path.relpath(c, ROOT) if c == PY else c for c in cmd)))
+        for name, cmd in steps: print('%-20s %s' % (name, ' '.join(['python3'] + [os.path.relpath(c, ROOT) for c in cmd[1:]])))
         return
     res = []
     for name, cmd in steps:
