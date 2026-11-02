@@ -217,7 +217,9 @@ Now ~10-11 frames per tick (12.5 fps needs 4), door/gate ticks ~21, room change 
    level doors, chompers, spikes, loose floors): per step copy the cached background and lay only the
    moving pieces.
 2. Object pass (~3.5 frames): pre-compose each room's fore layer (mask + data) into the RAM disk at room
-   entry and apply it in one masked pass instead of re-laying fore pieces every tick.
+   entry and apply it in one masked pass instead of re-laying fore pieces every tick. (Measured 2026-11-02, status 44:
+   not built; the fore ops barely overlap, the gain is the op scan, the layer needs up to ~38 KB of RAM disk and
+   ~10-30 frames a room change.)
 3. Piece laying: per-row overheads (copy-mode edge merge ~450 T a row-plane, masked chains), fewer
    RAM-disk seeks; faster op-list regeneration (tile_regen ~0.8 frames a tile).
 4. Room change: the same, then pre-compose the next room while the kid approaches an edge (RAM-disk
@@ -766,3 +768,15 @@ piece used AND/XOR semantics.
    the numbers point to: the fetch (0.9-1.55 frames a tick; pre-mirrored pack, a shift-free path), narrow tail chunks of
    9-11-wide boxes (~0.13 frames a tick in fights; needs chunks wider than 8 bytes), the fore pass (item 7's hidden fore
    pieces, M8a list item 2) and the background's per-row cost (M8a list item 3).
+44. M8a part 5, the fore layer (2026-11-02, docs/perf.md "M8a part 5: the fore layer (measured)"; numbered after item 43
+   of PR #10, the kid area): measured with tracepoints before building (no code change). lay_fore_rect per tick, frames:
+   walk_level1 30-60 0.658 (scan 0.147, laying 0.511), fight1 60-160 1.073 (0.246 / 0.827), traps_b1 0-300 0.282 (0.116 /
+   0.166), walk_level1 190-260 0.228 (0.215 / 0.013). The scan ~4.4-6.3 K T a chunk (~300 T for each of 11-14 tile cells,
+   all 4 tile rows); a chunk lays 0-3 ops (0.02-0.91 on average), an op ~22-24 K T copying (pillar front, wall face) or
+   ~11-34 K masked, most of it per row (470 / 660-690 T a row). The ops of a chunk barely overlap (union 90-93 % of
+   their sum). Per room (levels 0-14, 340 rooms) the fore layer covers up to 7,680 screen bytes (level 6 room 8): ~31-38
+   KB, 105-145 rooms fit the largest free RAM-disk piece (11.1 KB); the room draw's fore pass is 17-30 frames of a room
+   change. Estimate: gain walk -0.02 to +0.10, fight +0.18 to +0.22 (mostly the scan replaced by a lookup), ~180-250
+   resident bytes, a room change +10-30 frames. Decision: not built (rule: >= 0.2 frames a tick, < 250 bytes, fits the
+   RAM disk, < 5 frames a room change). Pointer: a faster fore scan (tile rows from the chunk's rows, SL_CNT walked by
+   pointer: ~1.5-2 K T a chunk, walk -0.08, fight -0.15 frames a tick, ~40-80 bytes, run_rect gains too).
