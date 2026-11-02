@@ -240,7 +240,8 @@ Remaining, with expected gains (frames per tick unless noted), resumed after M6/
    -1.5 to -3, door -0.2. The rest of lay_piece16's per-piece setup (~2 K T): room change -2, door -0.3.
 6. Kid logic (collision rows, tile lookups): -0.2 to -0.3.
 7. Kid area, measured with a guard on screen: old/new rects kept apart, fore pieces hidden behind the kid
-   skipped, less spinning in the copy scheduler: -0.4 to -0.6. Pre-mirrored kid pack (~106 KB of RAM disk,
+   skipped, less spinning in the copy scheduler: -0.4 to -0.6 (the old/new split measured 2026-11-02: < 0.01, dropped,
+   status 43; the copy scheduler: status 42). Pre-mirrored kid pack (~106 KB of RAM disk,
    same budget question as 2): -0.25.
 8. memext backend (memory-mapped RAM disk, no seeks) where the hardware has it.
 Expected after 1-7: normal ~5.0-5.3 (~80% of SDLPoP), fights ~6-7, door ~10-12, room change ~95 first
@@ -753,3 +754,15 @@ piece used AND/XOR semantics.
    6.03 -> 5.97, fight 9.13 -> 9.07). Decision (user, 2026-11-02): parked in PR #8 (perf/beam-wait, a draft) for its
    resident cost (~478 bytes, end_of_code 0x7870 -> 0x7B05, the low block -183); rebased and merged when there is resident
    room. A no-wait test build would add only -0.4 to -1.3 % (fight -3.7 %): no tearing switch.
+43. M8a part 4, the kid area (2026-11-02, docs/perf.md "M8a part 4: the kid area (measured)"): measured with tracepoints
+   before building (no code change). The object pass per tick, frames: walk_level1 30-60 place 1.23 (of it the fetch
+   0.90), background 0.63, flames 0.16, people 0.45, fore 0.70, copy 0.58, chunk setup 0.08, flush waiting 0.21 = 4.02;
+   fight1 60-160 place 2.06 (fetch 1.55), background 0.96, people 1.20, fore 1.09, copy 0.80 = 6.84; traps_b1 0-300 3.47;
+   gate_push 200-260 0.98. A character's old and new rects nearly coincide (kid box 174 against an exact union of 170
+   bytes x rows walking, 222 / 219 fighting; old and new disjoint or overlapping less than half in 3 of 30, 7 of 257,
+   0 of 100, 6 of 298 ticks), so keeping them apart would save <= 0.007 frames a tick (chunk cost model 31 K + 1,140 h
+   + 160 w h T), not joining the kid's and the guard's boxes ~0.035 in fights, against ~40-60 bytes in block 2.
+   Decision: not built (rule: >= 0.2 frames a tick at < 250 bytes). M8a list item 7's old/new split is dropped; what
+   the numbers point to: the fetch (0.9-1.55 frames a tick; pre-mirrored pack, a shift-free path), narrow tail chunks of
+   9-11-wide boxes (~0.13 frames a tick in fights; needs chunks wider than 8 bytes), the fore pass (item 7's hidden fore
+   pieces, M8a list item 2) and the background's per-row cost (M8a list item 3).
