@@ -10,11 +10,12 @@ fails. If the source disappears, point --url (or POP800_DOS_URL) at another copy
 folder that already holds the files: the md5 list keeps it honest.
 
 usage: fetch_dos_data.py [--url URL] [--from-dir DIR] [--dest external/dos/PRINCE]"""
-import argparse, base64, hashlib, os, shutil, subprocess, sys, tempfile, urllib.request
+import argparse, base64, hashlib, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 URL = 'https://archive.org/download/prince-of-persia-mr-abandonware/Prince%20of%20Persia.7z'
 ARCHIVE_SIZE = 5482709
+ATTEMPTS = 5                    # the download, with 15, 30, 60, 120 s between attempts
 INSTALLER = 'Prince of Persia (DOSBox) Installer.exe'
 FOLDER = ('C', 'POP', 'POP13')
 MD5 = os.path.join(ROOT, 'tools', 'ci', 'dos_data.md5')
@@ -54,10 +55,21 @@ def seven_zip(*args):
 
 def from_archive(url, tmp):
     arc = os.path.join(tmp, 'pop.7z')
-    print('downloading', url)
-    req = urllib.request.Request(url, headers={'User-Agent': 'pop800-ci'})
-    with urllib.request.urlopen(req, timeout=300) as r, open(arc, 'wb') as f:
-        shutil.copyfileobj(r, f)
+    # archive.org answers parallel CI jobs with an occasional HTTP 5xx / 429 or a dropped connection: retry with backoff
+    for attempt in range(1, ATTEMPTS + 1):
+        print('downloading', url, '(attempt %d of %d)' % (attempt, ATTEMPTS))
+        req = urllib.request.Request(url, headers={'User-Agent': 'pop800-ci'})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r, open(arc, 'wb') as f:
+                shutil.copyfileobj(r, f)
+            break
+        except (urllib.error.URLError, OSError) as x:     # (HTTPError is a URLError)
+            if isinstance(x, urllib.error.HTTPError) and x.code < 500 and x.code != 429:
+                sys.exit('fetch_dos_data: download failed: %s (not retried: the URL is wrong or gone)' % x)
+            if attempt == ATTEMPTS: sys.exit('fetch_dos_data: download failed %d times, last: %s' % (ATTEMPTS, x))
+            wait = 15 * 2 ** (attempt - 1)
+            print('download failed (%s); retrying in %d s' % (x, wait))
+            time.sleep(wait)
     size = os.path.getsize(arc)
     if size != ARCHIVE_SIZE:
         print('note: archive is %d bytes (expected %d); the md5 check decides' % (size, ARCHIVE_SIZE))
