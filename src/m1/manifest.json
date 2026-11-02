@@ -1,0 +1,12 @@
+{"root": "external/SDLPoP/data",
+ "images": [
+  {"id": 1, "set": "VDUNGEON", "res": 214, "mask": true},
+  {"id": 2, "set": "VDUNGEON", "res": 301, "mask": true},
+  {"id": 3, "set": "VDUNGEON", "res": 216, "mask": true},
+  {"id": 4, "set": "VDUNGEON", "res": 310, "mask": true},
+  {"id": 5, "set": "VDUNGEON", "res": 215, "mask": true},
+  {"id": 16, "set": "KID", "res": 401}, {"id": 17, "set": "KID", "res": 402},
+  {"id": 18, "set": "KID", "res": 403}, {"id": 19, "set": "KID", "res": 404},
+  {"id": 20, "set": "KID", "res": 405}, {"id": 21, "set": "KID", "res": 406},
+  {"id": 22, "set": "KID", "res": 407}, {"id": 23, "set": "KID", "res": 408}
+ ]}

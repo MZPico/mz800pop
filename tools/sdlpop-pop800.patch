@@ -1,0 +1,662 @@
+diff --git a/src/Makefile b/src/Makefile
+index 03301d3..67c61b1 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -4,7 +4,7 @@ CC = gcc
+ RM = rm -f
+ 
+ HFILES = common.h config.h data.h proto.h types.h
+-OBJ = main.o data.o seg000.o seg001.o seg002.o seg003.o seg004.o seg005.o seg006.o seg007.o seg008.o seg009.o seqtbl.o replay.o options.o lighting.o screenshot.o menu.o midi.o opl3.o stb_vorbis.o
++OBJ = main.o pop800_trace.o data.o seg000.o seg001.o seg002.o seg003.o seg004.o seg005.o seg006.o seg007.o seg008.o seg009.o seqtbl.o replay.o options.o lighting.o screenshot.o menu.o midi.o opl3.o stb_vorbis.o
+ BIN = ../prince
+ 
+ OS      := $(shell uname)
+diff --git a/src/seg000.c b/src/seg000.c
+index 3701636..39e159f 100644
+--- a/src/seg000.c
++++ b/src/seg000.c
+@@ -538,6 +538,7 @@ int process_key() {
+ 	const char* answer_text = NULL;
+ 	word need_show_text = 0;
+ 	int key = key_test_quit();
++	{ int pop800_next_key(void); int k = pop800_next_key(); if (k) key = k; }   /* pop-800 oracle: a script's key */
+ 
+ #ifdef USE_MENU
+ 	if (is_paused && is_menu_shown) {
+@@ -647,6 +648,7 @@ int process_key() {
+ 		break;
+ 		*/
+ 		case SDL_SCANCODE_R | WITH_CTRL: // Ctrl+R
++			{ void pop800_title(void); pop800_title(); }   /* pop-800 oracle: back to the title: the run ends */
+ 			start_level = -1;
+ #ifdef USE_MENU
+ 			if (is_menu_shown) menu_was_closed(); // Do necessary cleanup.
+@@ -881,6 +883,7 @@ void play_frame() {
+ 	exit_room();
+ 	check_the_end();
+ 	check_guard_fallout();
++	{ void pop800_trace_guard(void); pop800_trace_guard(); }   /* pop-800 oracle: per-tick guard state */
+ 	if (current_level == 0) {
+ 		// Special event: level 0 running exit
+ 		if (Kid.room == /*24*/ custom->demo_end_room) {
+@@ -906,6 +909,7 @@ void play_frame() {
+ 		}
+ 	}
+ 	show_time();
++	{ void pop800_trace_state(void); pop800_trace_state(); }   /* pop-800 oracle: level-event state */
+ 	// expiring doesn't count on Jaffar/princess level
+ 	if (current_level < 13 && rem_min == 0) {
+ 		expired();
+@@ -950,6 +954,8 @@ void draw_game_frame() {
+ 		}
+ 	}
+ 
++	{ void pop800_shot(void); pop800_shot(); }   /* pop-800 oracle: screenshots at chosen ticks */
++	{ void pop800_trace_sound(void); pop800_trace_sound(); }   /* pop-800 oracle: the tick's sound request */
+ 	play_next_sound();
+ 	// Note: texts are identified by their total time!
+ 	if (text_time_remaining == 1) {
+@@ -1222,6 +1228,7 @@ int play_kid_frame() {
+ 		check_knock();
+ 	}
+ 	savekid();
++	{ void pop800_trace(void); pop800_trace(); }   /* pop-800 oracle: per-tick kid state */
+ 	return 0;
+ }
+ 
+@@ -1636,6 +1643,7 @@ void play_next_sound() {
+ 			(sound_interruptible[current_sound] != 0 && sound_prio_table[next_sound] <= sound_prio_table[current_sound])
+ 		) {
+ 			current_sound = next_sound;
++			{ void pop800_sound_start(int); pop800_sound_start(current_sound); }   /* pop-800 oracle: the ticks sound model */
+ 			play_sound_from_buffer(sound_pointers[current_sound]);
+ 		}
+ 	}
+diff --git a/src/seg001.c b/src/seg001.c
+index fef5e81..f7df4aa 100644
+--- a/src/seg001.c
++++ b/src/seg001.c
+@@ -69,6 +69,7 @@ int proc_cutscene_frame(int wait_frames) {
+ 		set_timer_length(timer_0, cutscene_frame_time);
+ 		play_both_seq();
+ 		draw_proom_drects(); // changed order of drects and flash
++		{ extern int pop800_cut_flash; pop800_cut_flash = flash_time; }   /* pop-800 oracle: POP800_CUT */
+ 		if (flash_time) {
+ 			do_flash(flash_color);
+ 		}
+@@ -79,7 +80,9 @@ int proc_cutscene_frame(int wait_frames) {
+ 		if (!check_sound_playing()) {
+ 			play_next_sound();
+ 		}
++		{ void pop800_cut_frame(void); pop800_cut_frame(); }   /* pop-800 oracle: POP800_CUT */
+ 		do {
++			{ int pop800_cut_on(void); if (pop800_cut_on()) break; }   /* pop-800 oracle: POP800_CUT */
+ 			if (!disable_keys && do_paused()) {
+ 				stop_sounds();
+ 				draw_rect(&screen_rect, color_0_black);
+@@ -106,6 +109,7 @@ int proc_cutscene_frame(int wait_frames) {
+ 			idle();
+ #endif
+ 		} while(!has_timer_stopped(timer_0)); // busy waiting?
++		{ void pop800_cut_tick(void); pop800_cut_tick(); }   /* pop-800 oracle: POP800_CUT */
+ 		--cutscene_wait_frames;
+ 	} while(cutscene_wait_frames);
+ 	return 0;
+@@ -335,6 +339,7 @@ void end_sequence_anim() {
+ 		turn_sound_on_off(0x0F);
+ 	}
+ 	copy_screen_rect(&screen_rect);
++	{ void pop800_cut_bgshot(void); pop800_cut_bgshot(); }   /* pop-800 oracle: POP800_CUT: the room before the first frame */
+ 	play_sound(sound_26_embrace); // arrived to princess
+ 	init_ending_princess();
+ 	saveshad();
+@@ -355,10 +360,13 @@ void end_sequence_anim() {
+ 		if (proc_cutscene_frame(41)) return;
+ 	}
+ 	fade_out_1();
++	{ int pop800_n = 0; void pop800_cut_wait(int);   /* pop-800 oracle: POP800_CUT */
+ 	while (check_sound_playing()) {
+ 		idle();
+ 		delay_ticks(1);
++		++pop800_n;
+ 	}
++	pop800_cut_wait(pop800_n); }
+ }
+ 
+ // seg001:04D3
+@@ -371,11 +379,14 @@ void time_expired() {
+ 	if (proc_cutscene_frame(2)) return;
+ 	if (proc_cutscene_frame(100)) return;
+ 	fade_out_1();
++	{ int pop800_n = 0; void pop800_cut_wait(int);   /* pop-800 oracle: POP800_CUT */
+ 	while (check_sound_playing()) {
+ 		idle();
+ 		do_paused();
+ 		delay_ticks(1);
++		++pop800_n;
+ 	}
++	pop800_cut_wait(pop800_n); }
+ }
+ 
+ // seg001:0525
+@@ -427,16 +438,22 @@ void pv_scene() {
+ 	savekid();
+ 	if (proc_cutscene_frame(2)) return;
+ 	play_sound(sound_50_story_2_princess); // story 2: princess waiting
++	{ int pop800_n = 0; void pop800_cut_wait(int);   /* pop-800 oracle: POP800_CUT */
+ 	do {
+ 		if (proc_cutscene_frame(1)) return;
++		++pop800_n;
+ 		//idle();
+ 	} while(check_sound_playing());
++	pop800_cut_wait(pop800_n); }
+ 	cutscene_frame_time = 8;
+ 	if (proc_cutscene_frame(5)) return;
+ 	play_sound(sound_4_gate_closing); // gate closing
++	{ int pop800_n = 0; void pop800_cut_wait(int);   /* pop-800 oracle: POP800_CUT */
+ 	do {
+ 		if (proc_cutscene_frame(1)) return;
++		++pop800_n;
+ 	} while(check_sound_playing());
++	pop800_cut_wait(pop800_n); }
+ 	play_sound(sound_51_princess_door_opening); // princess door opening
+ 	if (proc_cutscene_frame(3)) return;
+ 	seqtbl_offset_shad_char(98); // princess turn around [PV1]
+@@ -459,10 +476,13 @@ void pv_scene() {
+ 	hourglass_state = 1;
+ 	flash_time = 5;
+ 	flash_color = 15; // white
++	{ int pop800_n = 0; void pop800_cut_wait(int);   /* pop-800 oracle: POP800_CUT */
+ 	do {
+ 		if (proc_cutscene_frame(1)) return;
++		++pop800_n;
+ 		//idle();
+ 	} while(check_sound_playing());
++	pop800_cut_wait(pop800_n); }
+ 	seqtbl_offset_kid_char(100); // Jaffar end conjuring and walk [PV1]
+ 	hourglass_sandflow = 0;
+ 	if (proc_cutscene_frame(6)) return;
+@@ -553,6 +573,7 @@ void do_flash(short color) {
+ }
+ 
+ void delay_ticks(Uint32 ticks) {
++	{ int pop800_cut_delay(int); if (pop800_cut_delay(ticks)) return; }   /* pop-800 oracle: POP800_CUT */
+ #ifdef USE_REPLAY
+ 	if (replaying && skipping_replay) return;
+ #endif
+@@ -576,6 +597,7 @@ void end_sequence() {
+ 	short i;
+ 	short color = 0;
+ 	short bgcolor = 15;
++	{ void pop800_end(void); pop800_end(); }   /* pop-800 oracle: the game is won */
+ 	load_intro(1, &end_sequence_anim, 1);
+ 	clear_screen_and_sounds();
+ 	is_ending_sequence = true; // added (fix being able to pause the game during the end sequence)
+@@ -686,7 +708,9 @@ void load_intro(int which_imgs,cutscene_ptr_type func,int free_sounds) {
+ 	need_drects = 1;
+ 	reset_cutscene();
+ 	is_cutscene = 1;
++	{ void pop800_cut_begin(void); pop800_cut_begin(); }   /* pop-800 oracle: POP800_CUT */
+ 	func();
++	{ void pop800_cut_end(void); pop800_cut_end(); }   /* pop-800 oracle: POP800_CUT */
+ 	is_cutscene = 0;
+ 	free_all_chtabs_from(3);
+ 	draw_rect(&screen_rect, color_0_black);
+@@ -724,6 +748,7 @@ void draw_star(int which_star,int mark_dirty) {
+ 		star_color = star_colors[stars[which_star].color];
+ 	}
+ 	draw_rect(&rect, star_color);
++	{ void pop800_cut_star(int, int, int); pop800_cut_star(mark_dirty, which_star, stars[which_star].color); }   /* pop-800 oracle: POP800_CUT */
+ 	if (mark_dirty) {
+ 		add_drect(&rect);
+ 	}
+@@ -817,6 +842,10 @@ void show_hof_text(rect_type* rect,int x_align,int y_align, const char* text) {
+ 
+ // seg001:1029
+ int fade_in_1() {
++	{ int pop800_cut_on(void); if (pop800_cut_on()) {   /* pop-800 oracle: POP800_CUT: the EGA fade runs one frame (DOSBox, m7-design 17) */
++		method_1_blit_rect(onscreen_surface_, offscreen_surface, &screen_rect, &screen_rect, 0); update_screen();
++		void pop800_cut_bgshot(void); pop800_cut_bgshot();
++		void pop800_cut_fade(int); pop800_cut_fade(1); proc_cutscene_frame(1); pop800_cut_fade(0); return 0; } }
+ #ifdef USE_FADE
+ //	sbyte index;
+ 	word interrupted;
+@@ -845,6 +874,8 @@ int fade_in_1() {
+ 
+ // seg001:112D
+ int fade_out_1() {
++	{ int pop800_cut_on(void); if (pop800_cut_on()) {   /* pop-800 oracle: POP800_CUT: the EGA fade runs one frame */
++		void pop800_cut_fade(int); pop800_cut_fade(1); proc_cutscene_frame(1); pop800_cut_fade(0); return 0; } }
+ #ifdef USE_FADE
+ 	word interrupted;
+ 	if (graphics_mode == gmMcgaVga) {
+diff --git a/src/seg003.c b/src/seg003.c
+index f2a80b8..c96effd 100644
+--- a/src/seg003.c
++++ b/src/seg003.c
+@@ -49,12 +49,14 @@ void init_game(int level) {
+ // seg003:005C
+ void play_level(int level_number) {
+ 	cutscene_ptr_type cutscene_func;
++	{ void pop800_cut_scene(void); pop800_cut_scene(); }   /* pop-800 oracle: POP800_CUT_SCENE: pv_scene, time_expired, end_sequence_anim */
+ #ifdef USE_COPYPROT
+ 	if (enable_copyprot && level_number == custom->copyprot_level) {
+ 		level_number = 15;
+ 	}
+ #endif
+ 	for (;;) {
++		{ void pop800_sound_outside(void); pop800_sound_outside(); }   /* pop-800 oracle: cutscenes play in real time */
+ 		if (demo_mode && level_number > 2) {
+ 			start_level = -1;
+ 			need_quotes = 1;
+@@ -101,6 +103,7 @@ void play_level(int level_number) {
+ 		hitp_delta = 0;
+ 		Guard.charid = charid_2_guard;
+ 		Guard.direction = dir_56_none;
++		{ void pop800_startpos(void); pop800_startpos(); }   /* pop-800 oracle: chosen start position */
+ 		do_startpos();
+ 		have_sword = /*(level_number != 1)*/ (level_number == 0 || level_number >= custom->have_sword_from_level);
+ 		find_start_level_door();
+@@ -213,6 +216,7 @@ void find_start_level_door() {
+ 
+ // seg003:0326
+ void draw_level_first() {
++	{ void pop800_level_start(void); pop800_level_start(); }   /* pop-800 oracle: fixed seed */
+ 	next_room = Kid.room;
+ 	check_the_end();
+ 	if (custom->tbl_level_type[current_level]) {
+@@ -366,6 +370,7 @@ int play_level_2() {
+ 			// speed when not fighting (smaller is faster)
+ 			set_timer_length(timer_1, /*5*/ custom->base_speed);
+ 		}
++		{ void pop800_sound_tick(void); pop800_sound_tick(); }   /* pop-800 oracle: the ticks sound model's clock */
+ 		guardhp_delta = 0;
+ 		hitp_delta = 0;
+ 		timers();
+diff --git a/src/seg006.c b/src/seg006.c
+index 09bbb2c..a96f128 100644
+--- a/src/seg006.c
++++ b/src/seg006.c
+@@ -1427,6 +1427,7 @@ void control_kid() {
+ 	} else {
+ 		rest_ctrl_1();
+ 		do_paused();
++		{ void pop800_control(void); pop800_control(); }   /* pop-800 oracle: scripted controls */
+ 		#ifdef USE_REPLAY
+ 		if (recording) add_replay_move();
+ 		if (replaying) do_replay_move();
+diff --git a/src/seg009.c b/src/seg009.c
+index a6c496e..a33628a 100644
+--- a/src/seg009.c
++++ b/src/seg009.c
+@@ -1923,6 +1923,7 @@ void stop_ogg(void) {
+ 
+ // seg009:7214
+ void stop_sounds() {
++	{ extern int pop800_stops; ++pop800_stops; void pop800_sound_stop(void); pop800_sound_stop(); }   /* pop-800 oracle: stop_sounds calls (the 'N' trace line), the ticks model */
+ 	// stub
+ 	stop_digi();
+ 	stop_midi();
+@@ -2476,6 +2477,7 @@ void turn_sound_on_off(byte new_state) {
+ 
+ // seg009:7299
+ int check_sound_playing() {
++	{ int pop800_sound_model(int*); int p; if (pop800_sound_model(&p)) return p; }   /* pop-800 oracle: the ticks sound model */
+ 	return speaker_playing || digi_playing || midi_playing || ogg_playing;
+ }
+ 
+diff --git a/src/pop800_trace.c b/src/pop800_trace.c
+new file mode 100644
+index 0000000..d4b24b2
+--- /dev/null
++++ b/src/pop800_trace.c
+@@ -0,0 +1,349 @@
++// pop-800 oracle hooks: scripted controls and a per-tick kid-state trace (enabled by environment variables).
++//   POP800_SCRIPT=<file>  one tick per line: "<x> <y> <shift>" with x,y in -1/0/1 (screen left/right, up/down), shift 0/1
++//                         (the game exits when the script is exhausted)
++//                         (an optional 4th field: keys, bit 0 = Ctrl+A restart level, bits 3-7 = a key code run
++//                         through the real process_key at the control point: see pop800_key_code)
++//   POP800_NOCHEATS=1     cheats_enabled = 0 at the first level start (`megahit` is only how the oracle picks the level)
++//   POP800_TRACE=<file>   per kid tick: tick frame x y dir row col action fall_x fall_y room curr_seq alive
++//   POP800_TRACE_STATE=1  per frame (end of play_frame) an 'S' line with the level-event state (see pop800_trace_state)
++//   POP800_TIME=min:tick  time left at the start
++//   POP800_START=room:pos:dir  the kid's start position on the first level start
++//   POP800_TRACE_SOUND=1  per drawn frame (draw_game_frame, before play_next_sound) an 'N' line (see pop800_trace_sound)
++//   POP800_SOUND_TICKS=<t12>;<t10>  the ticks sound model instead of real time (see pop800_sound_model)
++//   POP800_LEVEL1_MUSIC=1 keep need_level1_music (the level 1 crouch until its music ends; skipped otherwise)
++//   POP800_CUT=<rem_min>  trace the cutscene play_level runs before the start level (see pop800_cut_begin), then exit
++#include "common.h"
++#include <stdio.h>
++#include <stdlib.h>
++static FILE* script_fp; static FILE* trace_fp; static int script_done; static long tick_no; static int notraps_done;
++/* POP800_SEED=<n>: random seed set when the level starts (before the room's torches/potions get their first frames) */
++/* POP800_SWORD=1: the kid has the sword from the start.
++   POP800_GUARD="room:tile:dir:skill:color,...": a guard placed in a room (as pos_guards would; dir 0 right, -1 left) */
++/* POP800_START="room:tilepos:dir": where the kid starts on the first level start (level.start_room/pos/dir; dir 0 right,
++   -1 left); a restart starts at the level's own start (or the checkpoint) again */
++static int start_done;
++void pop800_startpos(void) {
++	const char* st = getenv("POP800_START");
++	if (st && !start_done) {
++		int r, p, d;
++		if (sscanf(st, "%d:%d:%d", &r, &p, &d) == 3) { level.start_room = r; level.start_pos = p; level.start_dir = d; }
++	}
++	start_done = 1;
++}
++static int time_done;
++void pop800_stops_reset(void);
++void pop800_level_start(void) {
++	pop800_stops_reset();   /* (the 'N' line's stop count starts at the first level start) */
++	if (getenv("POP800_NOCHEATS")) cheats_enabled = 0;
++	const char* z = getenv("POP800_SEED"); if (z) random_seed = atoi(z);
++	/* POP800_TIME="min:tick": the time left when the first level starts (rem_min, rem_tick) */
++	const char* tm = getenv("POP800_TIME");
++	if (tm && !time_done) { int m, t; if (sscanf(tm, "%d:%d", &m, &t) == 2) { rem_min = m; rem_tick = t; } }
++	time_done = 1;
++	if (getenv("POP800_SWORD")) have_sword = 1;
++	const char* g = getenv("POP800_GUARD");
++	while (g && *g) {
++		int r, t, d, sk, c, n = 0;
++		if (sscanf(g, "%d:%d:%d:%d:%d%n", &r, &t, &d, &sk, &c, &n) != 5) break;
++		level.guards_tile[r - 1] = t; level.guards_dir[r - 1] = d; level.guards_skill[r - 1] = sk;
++		level.guards_color[r - 1] = c; level.guards_seq_lo[r - 1] = 0; level.guards_seq_hi[r - 1] = 0;
++		level.guards_x[r - 1] = x_bump[(t % 10) + FIRST_ONSCREEN_COLUMN] + TILE_SIZEX;
++		g += n; if (*g == ',') g++;
++	}
++}
++/* The script's key codes (tools/kidsim.py KEY_*, src/m4/keys.asm): the scancode process_key sees. Code 7 is the whole
++   pause: Esc, then any other key (do_paused, called once more from the control hook). */
++static int key_queue[2], key_n;
++int pop800_next_key(void) {
++	if (!key_n) return 0;
++	int k = key_queue[0]; key_queue[0] = key_queue[1]; --key_n;
++	return k;
++}
++void pop800_title(void) {
++	if (!getenv("POP800_SCRIPT")) return;
++	if (trace_fp) { fprintf(trace_fp, "TITLE\n"); fclose(trace_fp); }
++	exit(0);
++}
++static void pop800_key_code(int code) {
++	static const int map[32] = { 0, SDL_SCANCODE_SPACE, SDL_SCANCODE_L | WITH_SHIFT, SDL_SCANCODE_RETURN,
++		SDL_SCANCODE_R | WITH_CTRL, SDL_SCANCODE_S | WITH_CTRL, SDL_SCANCODE_V | WITH_CTRL, SDL_SCANCODE_ESCAPE,
++		SDL_SCANCODE_K, SDL_SCANCODE_R, SDL_SCANCODE_KP_PLUS, SDL_SCANCODE_KP_MINUS, SDL_SCANCODE_T | WITH_SHIFT,
++		SDL_SCANCODE_S | WITH_SHIFT, SDL_SCANCODE_W | WITH_SHIFT, SDL_SCANCODE_I | WITH_SHIFT, SDL_SCANCODE_H,
++		SDL_SCANCODE_J, SDL_SCANCODE_U, SDL_SCANCODE_N, SDL_SCANCODE_B | WITH_CTRL };
++	key_queue[0] = map[code & 31]; key_n = 1;
++	if (code == 7) { key_queue[1] = SDL_SCANCODE_Z; key_n = 2; enable_pause_menu = 0; do_paused(); }   /* (the plain pause, no SDLPoP menu) */
++	else process_key();
++	key_n = 0;
++}
++void pop800_control(void) {
++	const char* s = getenv("POP800_SCRIPT");
++	if (!s) return;
++	if (!script_fp && !script_done) { script_fp = fopen(s, "r"); if (!script_fp) { script_done = 1; return; } }
++	if (script_done) return;
++	int x, y, sh, keys = 0;
++	char line[128];
++	if (!fgets(line, sizeof line, script_fp) || sscanf(line, "%d %d %d %d", &x, &y, &sh, &keys) < 3) {
++		script_done = 1; fclose(script_fp); script_fp = NULL;
++		if (trace_fp) fclose(trace_fp);
++		exit(0);
++	}
++	/* optional 4th field: keys pressed this tick, bit 0 = Ctrl+A (restart the level, as process_key does) */
++	if ((keys & 1) && current_level != 15) { stop_sounds(); is_restart_level = 1; }
++	if (keys >> 3) pop800_key_code(keys >> 3);
++	if (!notraps_done) {
++		notraps_done = 1;
++		if (getenv("POP800_NOTRAPS")) {   /* test mode: traps/buttons/potions/loose floors become plain floor */
++			trobs_count = 0;   /* no gate/button/loose-floor timers either */
++			for (int i = 0; i < 24 * 30; i++) {
++				byte t = level.fg[i] & 0x1F;
++				if (t == tiles_2_spike || t == tiles_6_closer || t == tiles_10_potion || t == tiles_11_loose || t == tiles_15_opener || t == tiles_18_chomper) level.fg[i] = tiles_1_floor;
++			}
++		}
++		const char* pt = getenv("POP800_PATCH");   /* "room:pos:tile:mod,..." tiles/modifiers changed at the first control tick */
++		while (pt && *pt) {
++			int r, p, t, m, n = 0;
++			if (sscanf(pt, "%d:%d:%d:%d%n", &r, &p, &t, &m, &n) != 4) break;
++			level.fg[(r - 1) * 30 + p] = t; level.bg[(r - 1) * 30 + p] = m;
++			pt += n; if (*pt == ',') pt++;
++		}
++		if (getenv("POP800_NOGUARDS")) {   /* no guards (fights are a later milestone) */
++			Guard.direction = dir_56_none; Guard.room = 0;
++			for (int i = 0; i < 24; i++) level.guards_tile[i] = 30;
++		}
++	}
++	control_x = x; control_y = y; control_shift = sh ? CONTROL_HELD : CONTROL_RELEASED;
++	if (!getenv("POP800_LEVEL1_MUSIC"))   /* the crouch-until-the-music-ends wait depends on sound timing: skipped */
++		need_level1_music = 0;          /* unless POP800_LEVEL1_MUSIC (with POP800_SOUND_TICKS it is deterministic) */
++}
++void pop800_trace(void) {
++	const char* t = getenv("POP800_TRACE");
++	if (!t) return;
++	if (!trace_fp) {
++		trace_fp = fopen(t, "w");
++		if (!trace_fp) return;
++		fprintf(trace_fp, "MODS ");                     /* room modifiers as the game has them now (gates etc.) */
++		for (int i = 0; i < 24 * 30; i++) fprintf(trace_fp, "%02x", level.bg[i]);
++		fprintf(trace_fp, "\n");
++	}
++	/* extra fields: hitp_curr hitp_max, trobs_count, mobs_count, checksum of the kid's room tiles+modifiers (sum of bytes) */
++	unsigned sum = 0;
++	if (Kid.room >= 1 && Kid.room <= 24) for (int i = 0; i < 30; i++) sum += level.fg[(Kid.room - 1) * 30 + i] + 3 * level.bg[(Kid.room - 1) * 30 + i];
++	fprintf(trace_fp, "%ld %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %u\n", tick_no++, Kid.frame, Kid.x, Kid.y, Kid.direction, Kid.curr_row,
++		Kid.curr_col, Kid.action, Kid.fall_x, Kid.fall_y, Kid.room, Kid.curr_seq - 0x196E, Kid.alive,
++		hitp_curr, hitp_max, trobs_count, mobs_count, sum);
++	const char* dr = getenv("POP800_TRACE_ROOM");   /* debugging: "R" line with the tiles and modifiers of a room */
++	if (dr) { int r = atoi(dr); fprintf(trace_fp, "R"); for (int i = 0; i < 30; i++) fprintf(trace_fp, " %d:%d", level.fg[(r - 1) * 30 + i], level.bg[(r - 1) * 30 + i]); fprintf(trace_fp, "\n"); }
++	if (getenv("POP800_TRACE_CTRL")) fprintf(trace_fp, "CTRL %d %d %d %d %d %d %d %d\n", ctrl1_forward, ctrl1_backward, ctrl1_up, ctrl1_down, ctrl1_shift2, is_keyboard_mode, is_joyst_mode, have_sword);
++	fflush(trace_fp);
++}
++
++/* POP800_SHOTS="t1,t2,..." (trace tick numbers) and POP800_SHOTDIR: save the drawn frame as shot_<tick>.bmp */
++void pop800_shot(void) {
++	const char* l = getenv("POP800_SHOTS");
++	if (!l || tick_no == 0) return;
++	long t = tick_no - 1;
++	char key[24]; snprintf(key, sizeof key, ",%ld,", t);
++	char buf[4096]; snprintf(buf, sizeof buf, ",%s,", l);
++	if (!strstr(buf, key)) return;
++	const char* d = getenv("POP800_SHOTDIR");
++	char path[512]; snprintf(path, sizeof path, "%s/shot_%ld.bmp", d ? d : ".", t);
++	SDL_SaveBMP(onscreen_surface_, path);
++}
++
++/* POP800_TRACE_GUARD=1: after each frame a line "G frame x y dir row col action fall_x fall_y room seq alive sword charid
++   guardhp_curr guardhp_max hitp_curr kid_sword can_guard_see_kid holding_sword justblocked guard_refrac kid_sword_strike
++   guard_notice_timer is_guard_notice offguard droppedout guard_skill" (Guard.direction 56 = no guard) */
++void pop800_trace_guard(void) {
++	if (!trace_fp || !getenv("POP800_TRACE_GUARD")) return;
++	fprintf(trace_fp, "G %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n", Guard.frame, Guard.x, Guard.y,
++		Guard.direction, Guard.curr_row, Guard.curr_col, Guard.action, Guard.fall_x, Guard.fall_y, Guard.room,
++		Guard.curr_seq ? Guard.curr_seq - 0x196E : 0, Guard.alive, Guard.sword, Guard.charid, guardhp_curr, guardhp_max, hitp_curr,
++		Kid.sword, can_guard_see_kid, holding_sword, justblocked, guard_refrac, kid_sword_strike, guard_notice_timer,
++		is_guard_notice, offguard, droppedout, guard_skill);
++	fflush(trace_fp);
++}
++
++/* POP800_TRACE_STATE=1: at the end of play_frame (after show_time, before the time-expired check) a line
++   "S current_level next_level rem_min rem_tick is_show_time text_time_remaining text_time_total is_feather_fall upside_down
++   flash_color flash_time united_with_shadow leveldoor_open checkpoint hitp_beg_lev hitp_curr hitp_max guardhp_curr guardhp_max
++   jumped_through_mirror demo_time demo_index shadow_initialized have_sword level_checksum".
++   With POP800_SCRIPT, the time running out ends the run here (line "EXPIRED"): expired() would show the cutscene and title. */
++void pop800_trace_state(void) {
++	if (trace_fp && getenv("POP800_TRACE_STATE")) {
++		unsigned sum = 0;
++		for (int i = 0; i < 24 * 30; i++) sum += (level.fg[i] + 3u * level.bg[i]) * (unsigned)(i % 7 + 1);
++		fprintf(trace_fp, "S %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %u\n", current_level, next_level,
++			rem_min, rem_tick, is_show_time, text_time_remaining, text_time_total, is_feather_fall, upside_down, flash_color, flash_time,
++			united_with_shadow, leveldoor_open, checkpoint, hitp_beg_lev, hitp_curr, hitp_max, guardhp_curr, guardhp_max,
++			jumped_through_mirror, demo_time, demo_index, shadow_initialized, have_sword, sum);
++		fflush(trace_fp);
++	}
++	if (getenv("POP800_SCRIPT") && current_level < 13 && rem_min == 0) {
++		if (trace_fp) { fprintf(trace_fp, "EXPIRED\n"); fclose(trace_fp); }
++		exit(0);
++	}
++}
++
++/* the end of the game (level 14, the princess's room): with POP800_SCRIPT the run ends here (line "END") */
++void pop800_end(void) {
++	if (!getenv("POP800_SCRIPT")) return;
++	if (trace_fp) { fprintf(trace_fp, "END\n"); fclose(trace_fp); }
++	exit(0);
++}
++
++/* POP800_TRACE_SOUND=1: in draw_game_frame, just before play_next_sound, a line "N queued started playing stops":
++   queued = next_sound (the tick's request that survived play_sound's priority rule, -1 none); started = the sound
++   play_next_sound starts now (-1 none); playing = check_sound_playing() (real time: SDL audio); stops = stop_sounds()
++   calls since the previous N line (counted from the first level start). Sound tables from seg000.c (FIX_SOUND_PRIORITIES
++   is compiled in: the PoP 1.3 values). */
++int pop800_stops;
++static int stops_reset;
++extern byte sound_prio_table[];
++void pop800_trace_sound(void) {
++	if (!trace_fp || !getenv("POP800_TRACE_SOUND")) return;
++	int playing = check_sound_playing() != 0;
++	int started = -1;
++	if (next_sound >= 0 && (!playing ||
++		(sound_interruptible[current_sound] != 0 && sound_prio_table[next_sound] <= sound_prio_table[current_sound])))
++		started = next_sound;
++	fprintf(trace_fp, "N %d %d %d %d\n", next_sound, started, playing, pop800_stops);
++	pop800_stops = 0;
++	fflush(trace_fp);
++}
++void pop800_stops_reset(void) { if (!stops_reset) { stops_reset = 1; pop800_stops = 0; } }
++
++/* POP800_SOUND_TICKS="l0,l1,...,l56;m0,m1,...,m56": the ticks sound model (tools/kidsim.py 'ticks' mode,
++   docs/m7-design.md 5.3) instead of SDL's real-time audio, so the waits on sound are deterministic: a sound started by
++   play_next_sound plays for l[id] ticks (m[id] when the kid's sword is drawn: 10 frames a second), counted down at the
++   start of every play_level_2 frame (before timers); stop_sounds ends it; check_sound_playing() = ticks left > 0.
++   The lengths come from the oracle (tools/oracle.py: kidsim.sound_ticks). Only inside play_level_2's loop: play_level
++   (the cutscenes and their "until the music ends" loops, the wait before a level start) asks the real audio. */
++static int st_init_done, st_on, st_active, st_left, st_len12[64], st_len10[64];
++static void st_init(void) {
++	st_init_done = 1;
++	const char* v = getenv("POP800_SOUND_TICKS");
++	if (!v) return;
++	int n = 0, k = 0, x;
++	while (*v && n < 128) {
++		if (sscanf(v, "%d%n", &x, &k) != 1) break;
++		if (n < 64) st_len12[n] = x; else st_len10[n - 64] = x;
++		v += k; n++;
++		if (*v == ',') v++;
++		else if (*v == ';') { v++; n = 64; }
++	}
++	st_on = 1;
++}
++static int cut_on, cut_left, cut_len[64];
++int pop800_sound_model(int* playing) {
++	if (cut_on) { *playing = cut_left > 0; return 1; }
++	if (!st_init_done) st_init();
++	if (!st_on || !st_active) return 0;
++	*playing = st_left > 0;
++	return 1;
++}
++void pop800_sound_start(int id) {
++	if (cut_on) { if (id >= 0 && id < 64) cut_left = cut_len[id]; return; }
++	if (!st_init_done) st_init();
++	if (id >= 0 && id < 64) st_left = Kid.sword == sword_2_drawn ? st_len10[id] : st_len12[id];
++}
++void pop800_sound_stop(void) { st_left = 0; cut_left = 0; }
++void pop800_sound_tick(void) {
++	if (!st_init_done) st_init();
++	st_active = 1;
++	if (st_left > 0) --st_left;
++}
++void pop800_sound_outside(void) { st_active = 0; }
++
++/* POP800_CUT=<rem_min> (tools/cut_suite.py; 'prince megahit N' for a level N with a cutscene): the cutscene play_level
++   runs before the level (load_intro), traced and deterministic, then the program exits:
++   - at the scene's start (load_intro, after reset_cutscene): rem_min = <rem_min> (the hourglass), random_seed = 12345
++     (POP800_SEED overrides), current_sound = 0;
++   - per cutscene frame (proc_cutscene_frame, after the drawing and the sound start) a line "C n  kid: frame x y dir
++     shad: frame x y dir  hourglass_state sandflow  star colour  torch0 torch1  flash_time cutscene_frame_time
++     next_sound current_sound playing" to POP800_TRACE (star: the star drawn this frame and its colour index, -1 -1
++     none; flash_time before the frame's decrement); the frame's timer wait is skipped;
++   - the sound: the ticks model at 60 a second: a sound play_next_sound starts plays POP800_CUT_TICKS[id] SDLPoP ticks
++     (tools/cutsim.py: ceil(seconds x 60)), every cutscene frame takes cutscene_frame_time of them at its end,
++     delay_ticks(n) n; check_sound_playing() = ticks left > 0;
++   - fade_in_1 / fade_out_1 run one cutscene frame each (the EGA fades, as DOSBox shows: docs/m7-design.md §17), whose
++     ticks are the fade's 20 (POP800_CUT_FADE), not cutscene_frame_time; fade_in_1 copies the room to the screen first;
++   - POP800_CUT_SCENE=pv|expired|ending: play_level runs that scene (load_intro as show_title, expired, end_sequence
++     do) instead of the level's, then the program exits;
++   - at the end a line "W n1 n2 ... left": the frame (or tick) counts of the until-the-music-ends loops, then the ticks
++     the music has left when the scene returns (play_level waits for them before the level starts);
++   - POP800_CUT_SHOTS=<dir>: the screen of every cutscene frame as <dir>/cut_<n>.bmp (VGA colours), and the room that
++     fade_in_1 shows (before the first frame: no characters, torches, hourglass or pillar yet) as <dir>/cut_bg.bmp. */
++static int cut_n, cut_star = -1, cut_star_col = -1, cut_waits[16], cut_nwaits;
++int pop800_cut_flash;
++extern short princess_torch_frame[];
++extern short cutscene_frame_time, hourglass_sandflow, hourglass_state;
++int pop800_cut_on(void) { return cut_on; }
++void pop800_cut_begin(void) {
++	const char* c = getenv("POP800_CUT");
++	if (!c) return;
++	rem_min = atoi(c);
++	const char* z = getenv("POP800_SEED");
++	random_seed = z ? atoi(z) : 12345; seed_was_init = 1;
++	current_sound = 0;
++	const char* v = getenv("POP800_CUT_TICKS");
++	int n = 0, k = 0, x;
++	while (v && *v && n < 64 && sscanf(v, "%d%n", &x, &k) == 1) { cut_len[n++] = x; v += k; if (*v == ',') v++; }
++	cut_on = 1; cut_left = 0;
++	const char* t = getenv("POP800_TRACE");
++	if (t && !trace_fp) trace_fp = fopen(t, "w");
++}
++void pop800_cut_star(int mark_dirty, int which, int color) {
++	if (cut_on && mark_dirty) { cut_star = which; cut_star_col = color; }
++}
++void pop800_cut_frame(void) {
++	if (!cut_on) return;
++	if (trace_fp) {
++		fprintf(trace_fp, "C %d  %d %d %d %d  %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d %d %d\n", cut_n,
++			Kid.frame, Kid.x, Kid.y, Kid.direction, Guard.frame, Guard.x, Guard.y, Guard.direction,
++			hourglass_state, hourglass_sandflow, cut_star, cut_star_col, princess_torch_frame[0], princess_torch_frame[1],
++			pop800_cut_flash, cutscene_frame_time, next_sound, current_sound, cut_left > 0);
++		fflush(trace_fp);
++	}
++	const char* d = getenv("POP800_CUT_SHOTS");
++	if (d) { char path[512]; snprintf(path, sizeof path, "%s/cut_%d.bmp", d, cut_n); SDL_SaveBMP(onscreen_surface_, path); }
++	cut_star = cut_star_col = -1;
++	++cut_n;
++}
++void pop800_cut_bgshot(void) {   /* the room as fade_in_1 shows it (no characters yet): <dir>/cut_bg.bmp */
++	const char* d = getenv("POP800_CUT_SHOTS");
++	if (d) { char path[512]; snprintf(path, sizeof path, "%s/cut_bg.bmp", d); SDL_SaveBMP(onscreen_surface_, path); }
++}
++static int cut_fade;
++void pop800_cut_fade(int on) { cut_fade = on; }
++void pop800_cut_tick(void) {
++	if (cut_on) { cut_left -= cut_fade ? 20 : cutscene_frame_time; if (cut_left < 0) cut_left = 0; }
++}
++extern void load_intro(int which_imgs, cutscene_ptr_type func, int free_sounds);
++extern void pv_scene(void), time_expired(void), end_sequence_anim(void);
++void pop800_cut_scene(void) {
++	const char* n = getenv("POP800_CUT_SCENE");
++	if (!n) return;
++	if (strcmp(n, "ending") != 0) {   /* show_title and expired: the offscreen surface is the whole screen */
++		if (offscreen_surface) free_surface(offscreen_surface);
++		offscreen_surface = make_offscreen_buffer(&screen_rect);
++	}
++	if (strcmp(n, "pv") == 0) { load_opt_sounds(sound_50_story_2_princess, sound_55_story_1_absence); load_intro(0, &pv_scene, 0); }
++	else if (strcmp(n, "expired") == 0) load_intro(1, &time_expired, 1);
++	else load_intro(1, &end_sequence_anim, 1);
++}
++int pop800_cut_delay(int ticks) {
++	if (!cut_on) return 0;
++	cut_left -= ticks; if (cut_left < 0) cut_left = 0;
++	return 1;
++}
++void pop800_cut_wait(int n) { if (cut_on && cut_nwaits < 16) cut_waits[cut_nwaits++] = n; }
++void pop800_cut_end(void) {
++	if (!cut_on) return;
++	if (trace_fp) {
++		fprintf(trace_fp, "W");
++		for (int i = 0; i < cut_nwaits; i++) fprintf(trace_fp, " %d", cut_waits[i]);
++		fprintf(trace_fp, " %d\n", cut_left);
++		fclose(trace_fp);
++	}
++	exit(0);
++}

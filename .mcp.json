@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "mz800emu": {
+      "command": "/home/matyamar/src/mz800emu/mcp-server/.venv/bin/python",
+      "args": ["/home/matyamar/src/mz800emu/mcp-server/mcp_server.py"],
+      "cwd": "/home/matyamar/src/mz800emu",
+      "env": {
+        "MZ800EMU_EXE": "/home/matyamar/src/pop-800/emu/mz800emu-pop.sh",
+        "MZ800EMU_INI": "/home/matyamar/src/pop-800/emu/mz800emu.ini",
+        "MZ800EMU_TRANSPORT": "pipe",
+        "MZ800EMU_USER_KB_DIR": ""
+      }
+    }
+  }
+}

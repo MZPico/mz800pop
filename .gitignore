@@ -1,0 +1,12 @@
+build/
+external/
+emu/*.dat
+emu/*.bpt
+cdl-export/
+__pycache__/
+*.pyc
+external/dos/
+# emulator RAM-disk dump (generated)
+rd-mz800.dat
+# renders and screenshots of the original game art (not redistributed)
+docs/research/*.png
