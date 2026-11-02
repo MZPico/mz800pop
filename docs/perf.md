@@ -603,3 +603,92 @@ copy, no together-flush whose character chunks first show in different frames, n
   multiply could be trimmed by ~0.02-0.03.
 - Using the wait for other work: after pend_flush the tick only draws the hit points and the texts, and the next tick's
   logic must not start before tick_done (the harness reads VRAM there), so there is nothing to overlap with it today.
+
+## M8a part 4: the kid area (measured) (2026-11-02)
+
+Status: **measured, not built.** The M8a list item 7 "old/new rects kept apart" would save under 0.01 frames a tick:
+a character's old and new rects (the bounding boxes of his objects last tick and this tick) nearly coincide, so their
+union box is within ~2 % of the exact union area, and a split adds chunks.
+
+How the kid's area is drawn today: people_place (overlay.asm, block 2) builds per character U = old rect U new rect
+(pp_group), joins the kid's and the guard's U into one box when they meet, and puts them on the dirty list;
+obj_rect_run (sprite.asm) cuts each dirty rect into compose chunks of at most 8 bytes x 64 rows starting at its left
+edge; obj_chunk composes a chunk (the shadow background or the background-only picture, the flames and falling
+floors, people_chunk = the overlay ops and the sprites, lay_fore_rect = the fore pieces), and pend_flush copies them.
+
+### Measured (tracepoints, a scratch tool in the worktree's build/, not committed)
+
+Tracepoints at draw_objects and its return, people_place's end, char_fetch and its return, pp_rects (the old rects,
+SD_OXB of the kid and the guard) and after the two pp_group calls (U and the new rects), do_m1 (the dirty list),
+obj_chunk (CRX..CRH), oc_free, oc_base, oc_kid, oc_fore, oc_rec, the return from obj_chunk, pf_blit1 and its returns.
+CPU cycles, frames per tick over perfcheck's spans (the copies inside a mid-pass flush are counted as copy, not setup):
+
+| Stretch | place (of it fetch) | chunk setup | background | flames, mobs | people (overlays + sprites) | fore | copy | flush waiting etc. | object pass |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| walk_level1 30-60 | 1.225 (0.899) | 0.075 | 0.627 | 0.161 | 0.447 | 0.697 | 0.584 | 0.208 | 4.024 |
+| fight1 60-160 | 2.064 (1.547) | 0.143 | 0.964 | 0.177 | 1.202 | 1.094 | 0.797 | 0.403 | 6.844 |
+| traps_b1 0-300 | 1.031 (0.730) | 0.061 | 0.612 | 0.189 | 0.479 | 0.321 | 0.558 | 0.219 | 3.470 |
+| gate_push 200-260 | 0.250 (0.004) | 0.013 | 0.060 | 0.182 | 0.002 | 0.173 | 0.225 | 0.078 | 0.983 |
+
+(chunk setup includes recording the chunk; background = the shadow restore, a torch chunk's cached picture or nothing
+inside a flame; the gate stretch has the kid outside the drawn room, its object pass is the torches and the gate.)
+
+The dirty rects (x in bytes, y in rows; area = bytes x rows):
+
+| Stretch | chunks a tick | dirty area a tick | kid U area | kid exact old U new | ticks with old/new disjoint / overlapping < half |
+|---|---:|---:|---:|---:|---:|
+| walk_level1 30-60 | 3.17 | 264 | 174 | 170 | 1 / 2 of 30 |
+| walk_level1 0-261 | | | 177 | 174 | 2 / 5 of 257 |
+| fight1 60-160 | 3.15 | 450 | 222 (guard 164) | 219 (guard 163) | 0 / 0 of 100 (guard 0 / 0) |
+| traps_b1 0-300 | 3.06 | 245 | 161 | 159 | 0 / 6 of 298 |
+
+The kid moves a few pixels a tick and his frames have similar boxes: old and new overlap almost entirely, and the
+union box is the exact union but for a few corner bytes. The disjoint cases are the few ticks where the image jumps
+(a turn, a frame with a different box).
+
+### Per-chunk cost (least squares over the chunks without the 2 x 18 torch chunks)
+
+The background costs ~640-1,010 T a row plus ~37 T a byte, fore ~16 K a chunk plus ~60-95 T a byte in fights, the copy
+~300 T a row plus ~64 T a byte (k = 1.31 + 0.28 w lines a row): a chunk costs roughly 31 K + 1,140 h + 160 w h T
+including its share of the sprite drawing. The per-row part dominates: a 1-byte-wide chunk of 35 rows still costs
+~25 K in the background and up to ~55 K in lay_fore_rect.
+
+With that model, the cheapest cover of each character's old U new (the box; old and new apart; one of them plus the
+other's bands outside it) against the box (frames per tick):
+
+| Stretch | kid: box -> best cover | guard: box -> best cover | ticks where a split wins |
+|---|---:|---:|---:|
+| walk_level1 30-60 | 1.446 -> 1.445 | | 1 of 30 |
+| walk_level1 0-261 | 1.475 -> 1.472 | | 10 of 257 |
+| fight1 60-160 | 1.720 -> 1.713 | 1.222 -> 1.222 | 12 of 200 |
+| traps_b1 0-300 | 1.380 -> 1.380 | | 0 of 298 |
+
+Joining the kid's and the guard's boxes when they meet (fight1 60-160, 43 ticks): 1.436 frames a tick against 1.401 for
+the best separate cover (the kid's box and the guard's bands outside it), ~0.035 a tick; the join usually makes two
+8-wide chunks where separate boxes make three (8 + 1 + 8), so it is mostly right.
+
+### Estimate and decision
+
+- Gain: <= 0.007 frames a tick keeping old and new apart (walking, traps, fights), ~0.035 more in fights from not
+  joining the two characters: far under the ~0.2 frames a tick the change would need.
+- Cost (a sketch): in pp_group, the old and new rects onto the dirty list separately when they are disjoint (or
+  overlap little) instead of U, with oc_kidtouch's and the join's use of PP_KU kept: ~40-60 bytes in block 2 (238 B free);
+  the band cover ~120-150 bytes.
+- Decision: not built (gain / cost far below the rule of thumb: >= 0.2 frames a tick on walks or fights at < 250 bytes).
+
+### What the numbers point to instead
+
+- **The fetch** (char_fetch: the image from the RAM disk, shifted and mirrored) is the largest single part of the
+  object pass: 0.90 frames a tick walking, 1.55 fighting (two characters and swords), more than any compose step. The
+  pre-mirrored kid pack (M8a item 7's second half, RAM-disk budget) and a shift-free path for byte-aligned x are
+  the levers.
+- **Narrow tail chunks**: a box 9-11 bytes wide becomes an 8-wide chunk plus a 1-3-wide one, which pays the full per-row
+  and per-chunk cost (~70-90 K T) for a few bytes: ~0.12 such chunks a tick in fight1 60-160 (~0.13 frames a tick),
+  ~0.03 walking. Removing them needs chunks wider than 8 bytes when they are low (the buffers hold 512 bytes a plane:
+  e.g. 12 x 42), i.e. a compose row stride other than 8 in restore_shadow, the piece layers, spr_draw and the copy
+  kernel: a large change, not sized here.
+- **Fore** (lay_fore_rect) costs ~16 K a chunk before it lays anything in fights and is the largest compose step walking
+  (0.70 frames a tick): the fore pieces hidden behind the kid (item 7) and the per-room pre-composed fore layer (M8a
+  list item 2) address it.
+- The background's per-row cost (~640-1,010 T a row a chunk: RAM-disk seeks per row) is M8a item 3 (the shadow stored
+  chunk-major).
