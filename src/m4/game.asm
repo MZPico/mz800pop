@@ -438,6 +438,7 @@ beam_lines:     di
                 include "../m4/people2.asm"
                 include "../m4/sndobj.asm"
                 include "../m4/ovl.asm"
+                include "../m4/flush.asm"
 end_of_code:
                 if end_of_code > OVL_W1
                 .error the code overlaps the overlay window W1
