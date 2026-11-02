@@ -714,3 +714,42 @@ piece used AND/XOR semantics.
       ready -> seed + start frame, per-frame keys, adaptive input delay, desync detection, relay): the netdev client calls
       in Z80, a room screen in PRES, the m4test state snapshot as the desync hash, tests with two emulator instances
       against the relay; both sides MZ-800 + MZPico with NET.
+36. Repository on GitHub (2026-11-02): MZPico/mz800pop, public, GPL-3 (LICENSE; the README's licence note; the converted
+   SMS music in assets/sms is third-party and not under the GPL, assets/sms/README.md). Work goes through branches and
+   pull requests to main only (never a direct push), each PR reviewed by CodeRabbit and its review addressed in the PR.
+37. PR checks on GitHub Actions (2026-11-02, .github/workflows/pr-checks.yml, docs/ci.md): every PR to main builds the port
+   from a clean checkout on the standard Ubuntu 24.04 runner (pasmo, mz800emu, SDLPoP, mzdisk, SDL3 from pinned commits,
+   cached) and runs the PR tier in four jobs (~22 min wall). The DOS v1.3 data is never committed, uploaded or cached: each
+   job fetches it from archive.org at run time (tools/ci/fetch_dos_data.py; unpacked with 7z, never executed), checks
+   every DAT against tools/ci/dos_data.md5 and retries the download. The SMS presentation music (assets/sms, the PSG
+   streams) and the OPL level measurements (assets/opl/levels.json) are committed, so a clean clone builds the exact disk
+   (pop800.dsk md5 09723617..., byte-identical to the local reference build).
+38. mz800emu tracepoints, PSG write log and VRAM hash (2026-11-02, MZPico/mz800emu#1, merged into wasm as 0e37a91; CI pins
+   that commit): a tracepoint records registers / memory / the VRAM planes' CRC-32s without stopping the emulator
+   (tools/emu.py trace_add / collect). The tests that stopped at every tick or interrupt use them now (POP800_EMU_TRACE=0
+   keeps the old path): m7_sound full ~1.5 h -> 5.4 min, m4_test on all scripts ~45 -> 4.2 min.
+39. Full regression on the runners (2026-11-02, .github/workflows/full-regression.yml): every test on its full set in 11
+   parts (~30 min wall), by hand or by a push to a regress/** branch (tools/ci/regress_only for some parts). The early
+   milestones' tests (M0-M3: smoke, m0, m1, m3 on all 14 levels) got an exit status and are gates now (part "early").
+40. Local runner (2026-11-02, tools/testrun.py, docs/ci.md "Local testing"): `make check` runs the tests the changes since
+   the merge base can affect (plus the last failures), in parallel, each cached by a hash of its inputs; `make
+   check-smoke` (~1.6 min cold), `make check-full` (everything, no cache). The PR tier, the full regression, the smoke
+   tier and the runner take their tests from one list, tools/ci/suite.py.
+41. Decisions and known issues (2026-11-02): the heavy runs belong on the runners (locally `make check` only, never a cold
+   full suite); M7 step 9 stays dropped (item 31); the RAM-disk tiers of item 33 (512 KB baseline, 1 MB+ derived caches,
+   16 MB never-evict caches, 256 KB per-level loading as a late M8 option) stand; the pacing switch PACE_MODE (item 32 B)
+   is kept as a backup, not adopted. Known issue: mz800emu is not run-to-run deterministic: the same build varies by up
+   to ~1-2 % in some perfcheck stretches (door step 17.88 vs 18.09 frames), so speed changes are judged on the median
+   of several runs.
+42. M8a part 3, the beam wait (2026-11-02, docs/perf.md "M8a part 3: the beam wait (measured, change parked)"): measured
+   with tracepoints where a tick waits for the beam before its chunk copies: scheduling + waiting 0.215 frames a tick
+   walking (walk_level1 30-60), 0.477 fighting (fight1 60-160), 0.065 at the gate (gate_push 200-260), 0.214 in the traps
+   (traps_b1 0-300), 0.58 in a door step. Causes: the fixed top-first copy order, tries that recomputed every chunk
+   (first copy 19.2 lines after the beam read for 3 chunks, the model 3-4 lines pessimistic), and in fights the
+   same-frame rule over wide side-by-side character chunks (9 of 116 flushes fell back to one at a time). A scheduler
+   variant (values once per flush, every order tried with overlapping chunks kept in order so the screen is the same,
+   BEAM_GUARD 12 -> 8, BEAM_MARGIN 20 -> 16; no torn copy or split same-frame flush in the tracepoint checks) gains
+   0.07-0.09 frames a tick (perfcheck: normal 6.20 -> 6.13, walk 190-260 11.00 -> 10.83, gate 5.13 -> 5.06, traps
+   6.03 -> 5.97, fight 9.13 -> 9.07). Decision (user, 2026-11-02): parked in PR #8 (perf/beam-wait, a draft) for its
+   resident cost (~478 bytes, end_of_code 0x7870 -> 0x7B05, the low block -183); rebased and merged when there is resident
+   room. A no-wait test build would add only -0.4 to -1.3 % (fight -3.7 %): no tearing switch.
