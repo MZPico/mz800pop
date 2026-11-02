@@ -35,3 +35,13 @@ python3 tools/oracle.py 1 tests/m4_scripts/walk_level1.txt /tmp/t.txt   # check 
 python3 tools/walkfind.py 1 out.txt   # search a control script that finishes a level (kidsim)
 python3 tests/m4_game.py --gui   # play the prototype in the emulator window: cursor keys / joystick 1, SHIFT, SPACE or fire = the button
 ```
+
+## Licence
+
+The port's code, tools and documentation are licensed under the GNU General Public License v3.0
+([LICENSE](LICENSE)). The Python game model (`tools/kidsim.py`, `tools/cutsim.py`) and the oracle hooks are
+derived from [SDLPoP](https://github.com/NagyD/SDLPoP), itself GPL-3.
+
+The licence does not cover the original game. Prince of Persia's graphics, levels, sound and music remain the
+property of their owners: the repository contains none of the DOS game data, and the build reads them from your
+own copy (`external/dos/PRINCE`).
