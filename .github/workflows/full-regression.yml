@@ -1,4 +1,5 @@
-# Full regression: build the port from a clean checkout and run every test on its full set, split into parallel jobs
+# Full regression: build the port from a clean checkout and run every M4-M8 test on its full set (the M0-M3 harnesses
+# are not gates yet: docs/ci.md), split into parallel jobs
 # (tools/ci/check_pr.py --full; docs/ci.md). Runs on demand (Actions tab or `gh workflow run`) and on pushes to
 # regress/** branches (a branch may limit the parts: tools/ci/regress_only).
 # The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:

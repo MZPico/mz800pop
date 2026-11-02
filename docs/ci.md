@@ -53,16 +53,25 @@ public), each job builds for itself (~1 min).
 | d | `tests/m7_title.py --quick` | PRES's title, part 1 (steps a-g): VRAM against tools/titleref.py at every step, fade pass and wipe column, the step timing, the PSG against sndsim (bank A, the looping title theme) | ~8 min |
 | d | `make cheats`, `tests/m7_keys.py` | the keys in the game and the launched game (texts, sound off, pause, Shift+L, Ctrl+R / Ctrl+Q through PRES), the release without cheat code | ~6.5 min |
 
+## The full regression (runners)
+
+`.github/workflows/full-regression.yml` runs every M4-M8 test on its full set on GitHub's hosted runners, in ten
+parallel jobs (`tools/ci/check_pr.py --full PART`): `logic` (m4_test all scripts, perfcheck, cut_suite),
+`oracle-m4m6` and `oracle-m5m7` (oracle_suite in two halves), `pixels-m4`, `pixels-m6`, `pixels-m5` (m4_game every tick),
+`sound` (m7_sound full, m5_boot, m5_save, m8_pace), `pres` (m7_title, m7_cut), `story` (m7_story), `launch-keys`
+(m7_launch, the cheat build, m7_keys). It needs the tracepoints of MZPico/mz800emu#1 to fit the runners.
+
+- Start it from the Actions tab (Full regression, Run workflow) or `gh workflow run full-regression.yml --ref <branch>`,
+  or push a branch named `regress/...`.
+- A branch can limit the run to some parts: commit `tools/ci/regress_only` with part names, one per line (the other
+  parts print "skipped" and pass). Unknown names, on the command line or in that file, fail the job.
+
 ## What stays local
 
 | Gate | Command | Why local |
 |---|---|---|
-| the logic, all scripts | `python3 tests/m4_test.py` | ~75 min on the runner (~0.25 s a tick, ~18,000 ticks) |
-| the game, every script, every tick | `python3 tests/m4_game.py` (`make m4`) | hours |
-| the oracle, all scripts | `python3 tools/oracle_suite.py` | ~33 min on the runner (~0.09 s a tick) |
-| the sound, full (and `--quick`) | `python3 tests/m7_sound.py` (`make m7sound`) | `--quick` alone ~26 min (measured locally; the runner ran every other test as fast as this machine): over a job's ~25 min budget with the setup; the full run is longer |
-| the rest of the disk tests | `python3 tests/m7_title.py` (full), `tests/m7_cut.py` (all cases), `tests/m7_story.py` (`make m7title m7cut m7story`) | the full runs: longer than their quick parts (not timed on the runner) |
-| the rest | `make m1 m2 m3 m3anim`, `tests/m8_pace.py` | not in the tier |
+| the M0-M3 harnesses | `make test m1 m2 m3 m3anim` | not gates yet: they print their differences but exit 0, and `m3test` is not built in CI (next PR) |
+| the EGA capture check | `python3 tests/m2_ega_capture.py` | needs a DOSBox capture of the real game (`build/dosbox/`) |
 
 ### The game disk in CI
 

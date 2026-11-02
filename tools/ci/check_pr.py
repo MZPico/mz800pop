@@ -44,7 +44,8 @@ PARTS = {
 }
 
 
-# The full regression (`check_pr.py --full PART`, .github/workflows/full-regression.yml; docs/ci.md): every test on its
+# The full regression (`check_pr.py --full PART`, .github/workflows/full-regression.yml; docs/ci.md): every M4-M8 test
+# (the M0-M3 harnesses are not gates yet: they print their differences but exit 0, and m3test is not built here) on its
 # full set, split so that each part fits a 2-vCPU runner job (with the tracepoints of MZPico/mz800emu#1 the emulator
 # no longer stops at every tick or interrupt). A branch can restrict a run to some parts: a file tools/ci/regress_only
 # listing part names (one per line): the other parts print "skipped" and pass.
@@ -84,9 +85,13 @@ def main():
     tier = FULL if '--full' in sys.argv else PARTS
     args = [a for a in sys.argv[1:] if not a.startswith('--')] or ['all']
     names = sorted(tier) if 'all' in args else args
+    bad = [n for n in names if n not in tier]
+    if bad: sys.exit('check_pr.py: unknown part(s) %s (known: %s)' % (' '.join(bad), ' '.join(sorted(tier))))
     only = os.path.join(ROOT, 'tools', 'ci', 'regress_only')
     if '--full' in sys.argv and os.path.exists(only):
         keep = {l.strip() for l in open(only) if l.strip() and not l.startswith('#')}
+        bad = sorted(keep - set(tier))
+        if bad: sys.exit('check_pr.py: tools/ci/regress_only names unknown part(s) %s (known: %s)' % (' '.join(bad), ' '.join(sorted(tier))))
         for n in [n for n in names if n not in keep]: print('==== %s: skipped (tools/ci/regress_only)' % n)
         names = [n for n in names if n in keep]
     steps = [s for n in names for s in tier[n]]
