@@ -15,6 +15,8 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 JOBS=$(nproc)
 export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:$DEPS/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export LD_LIBRARY_PATH="$DEPS/lib:$DEPS/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# (mz800emu links minizip-ng by name only, as from /usr/local/lib locally: the linker has to find it in $DEPS)
+export LIBRARY_PATH="$DEPS/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 
 fetch() {   # fetch <repo url> <commit or tag> <dir>: a shallow checkout of one commit
     rm -rf "$3"; mkdir -p "$3"
