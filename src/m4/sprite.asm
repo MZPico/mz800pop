@@ -469,30 +469,7 @@ oc_ry:          ld      a, (CRY)                ; (upside down: call fl_top, the
                 ld      hl, PEND_N
                 inc     (hl)
                 ret
-; pend_flush: copy the composed chunks to the screen, untorn and together. The copy writes a row's four planes
-; together, top to bottom, at k = 1.31 + 0.28 * w lines a row (slower than the beam), so a chunk is clean when
-; d, the lines until the beam next reaches its top row, is at least (k - 1) * h + k (a beam already inside the
-; chunk or below it gives a large d). The chunks are copied back to back (top first) from a moment when that
-; holds for each of them at its predicted start, so they all change in the same frame (a kid split over two
-; chunks never shows half old). If no such moment comes within two frames, each goes on its own when clear.
-BEAM_Y0         equ     113                     ; lines from the VBLN interrupt (scanline 245) to canvas row 0 (46)
-BEAM_MARGIN     equ     20                      ; k (<= 4) plus the lines the scan and the call take after the beam read
-BEAM_GUARD      equ     12                      ; lines of prediction error tolerated around a chunk's top
-pend_flush:     ld      a, (PEND_N)
-                or      a
-                ret     z
-                call    pf_sort
-                ld      hl, (FRAMES)
-                ld      (pf_f0), hl
-pf_try:         call    pf_seq
-                jp      nc, pf_all
-                ld      hl, (FRAMES)
-                ld      de, (pf_f0)
-                or      a
-                sbc     hl, de
-                ld      a, l
-                cp      2
-                jp      c, pf_try
+; pend_flush (the copy scheduler): src/m4/flush.asm (main block). Here: its one-at-a-time copy and helpers.
 pf_next:        ld      a, (PEND_N)             ; one at a time
                 or      a
                 ret     z
@@ -530,78 +507,6 @@ pf_take:        push    ix
                 ld      bc, 6
                 ldir
                 jp      pf_next
-pf_all:         ld      ix, PEND_LIST           ; all clear: copy them in order
-                ld      a, (PEND_N)
-                ld      b, a
-pa_l:           push    bc
-                push    ix
-                call    pf_blit1
-                pop     ix
-                ld      de, 6
-                add     ix, de
-                pop     bc
-                djnz    pa_l
-                xor     a
-                ld      (PEND_N), a
-                ret
-; pf_seq: carry clear when every chunk, copied in list order from now, is clear at its start and all of them
-; show in the same frame
-pf_seq:         call    pf_beam
-                ld      a, (PEND_N)             ; the first copy starts after this check: 4 + 5.5 lines a chunk
-                ld      b, a                    ; (measured), 5 + 6 per chunk taken
-                add     a, a
-                ld      c, a
-                add     a, a
-                add     a, c
-                add     a, 5
-                ld      l, a
-                ld      h, 0
-                ld      (pf_t), hl
-                ld      hl, 0x8000
-                ld      (pf_e), hl
-                ld      ix, PEND_LIST
-ps_l:           call    pf_calc
-                call    pf_d
-                push    hl
-                ld      de, (pf_need)
-                or      a
-                sbc     hl, de
-                pop     hl
-                ret     c
-                push    hl                      ; and not just behind the beam either: a few lines of error
-                ld      de, 312 - BEAM_GUARD    ; would turn "shows next frame" into "this frame, torn"
-                or      a
-                sbc     hl, de
-                pop     hl
-                ccf
-                ret     c
-                bit     0, (ix+4)               ; only chunks with the kid must show in the same frame
-                jp      z, ps_ok
-                ld      de, (pf_t)              ; the beam first shows the chunk whole at start + d: that frame
-                add     hl, de                  ; is E = t + d - top; all chunks must show in the same one
-                ld      e, (ix+1)
-                ld      d, 0
-                or      a
-                sbc     hl, de
-                ex      de, hl
-                ld      hl, (pf_e)
-                bit     7, h
-                jp      z, ps_cmp
-                ld      (pf_e), de              ; (the first chunk sets it)
-                jp      ps_ok
-ps_cmp:         or      a
-                sbc     hl, de
-                scf
-                ret     nz
-ps_ok:          ld      hl, (pf_t)
-                ld      de, (pf_dur)
-                add     hl, de
-                ld      (pf_t), hl
-                ld      de, 6
-                add     ix, de
-                djnz    ps_l
-                or      a
-                ret
 ; pf_beam: pf_s = the beam's line (0 = the VBLN interrupt), pf_t = 0
 pf_beam:        call    beam_lines
                 ld      de, 312
@@ -697,8 +602,8 @@ pso_n:          ld      de, 6
                 jp      nz, pso_p
                 ret
 pf_f0:          dw      0
-pf_e:           dw      0
-pf_t:           dw      0
+pf_e:           dw      0               ; (flush.asm pf_seq: the frame of the character chunks, low byte)
+pf_t:           dw      0               ; (also flush.asm's pf_st; pf_beam resets it for the one-at-a-time copy)
 pf_need:        dw      0
 pf_dur:         dw      0
 pf_s:           dw      0
