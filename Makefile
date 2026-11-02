@@ -229,7 +229,7 @@ CI_TARGETS = $(BUILD)/colorbars.mzf $(BUILD)/m0.dsk $(BUILD)/m1test.mzf $(BUILD)
 ci-build:
 	$(MAKE) assets
 	$(MAKE) $(CI_TARGETS)
-# the PR test tier, exactly what the PR job runs (PART=a or PART=b: one of the CI jobs' halves; default both)
+# the PR test tier, exactly what the PR jobs run (tools/ci/check_pr.py; PART=a or PART=b: one job's part, default both)
 PART ?= all
 check-pr: $(BUILD)/m4game.mzf $(BUILD)/m4test.mzf
 	$(PY) tools/ci/check_pr.py $(PART)
