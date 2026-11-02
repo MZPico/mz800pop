@@ -92,14 +92,15 @@ def title_run(dsk):
         tr.addr = {PS['spi_done']: 'act', PS['snh_di']: 'halt', PS['snd_arm']: 'arm', PS['snd_start']: 'start', PS['sf_x']: 'fill'}
         mine = {PS['ts_step']: 'step', PS['tf_pass']: 'pass', PS['tw_col']: 'col', PS['tfo_pass']: 'opass'}
         e.call('bp_clear')
-        for a in list(tr.addr) + list(mine): e.call('bp_add', addr=a)
+        tr.bps()                        # (tracepoints, or breakpoints without tracing: tests/m7_sound.py Tracker)
+        for a in mine: e.call('bp_add', addr=a)
         loop = 0; seen = set(); arms = []; t0 = time.time()
+        tr.hooks['arm'] = lambda f: arms.append((tr.cur[0], tr.cur[1] - F0))
         while True:
             r = e.run(1000)
-            if r['stopped_by'] != 'breakpoint': continue
+            if r['stopped_by'] != 'breakpoint': tr.poll(); continue
             pc = e.call('get_registers')['PC']
-            what = tr.event(pc)
-            if what == 'arm': arms.append((tr.cur[0], tr.cur[1] - F0))
+            tr.event(pc)
             kind = mine.get(pc)
             if kind is None: continue
             f = frames(e) - F0; tgt = word(e, PS['t_target']) - F0

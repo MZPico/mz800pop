@@ -19,7 +19,7 @@ env:
   SDL3_TAG: release-3.4.14
   SDL3_IMAGE_TAG: release-3.4.4
   MINIZIP_TAG: 4.2.2
-  MZ800EMU_COMMIT: 2bc0027329c70eef4076d99ca24076a02523874b
+  MZ800EMU_COMMIT: 56ed1267efea5e3b5afa725ccf95c18ea311570f   # feature/trace (MZPico/mz800emu#1, tracepoints): re-pin to its merge on wasm
   SDLPOP_COMMIT: 3c5add5fb7f83d4ceb542823ab66d00146c4271b
   MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
 

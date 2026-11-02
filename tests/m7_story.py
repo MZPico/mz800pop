@@ -51,7 +51,7 @@ def title_ticks():
 def run_step(e, tr, want, limit=30000):
     """run with the tracker until ts_step with t_step = want"""
     e.call('bp_clear')
-    for a in tr.addr: e.call('bp_add', addr=a)
+    tr.bps()
     e.call('bp_add', addr=PS['ts_step'])
     while True:
         if not go(e, limit): raise RuntimeError('no step %s' % want)
@@ -66,7 +66,7 @@ def run_to_sync(e, dsk):
     M5.run_to(e, PS['pres'], 3000)
     tr = C.tracker(e)
     e.call('bp_clear')
-    for a in tr.addr: e.call('bp_add', addr=a)
+    tr.bps()
     e.call('bp_add', addr=PS['ts_sync'])
     while True:
         go(e, 4000)
@@ -100,7 +100,7 @@ def part_title(dsk):
         Tpv = T0 + cs.t
         Ti = Tpv + PS['TITLE_I_LOAD'] + 16
         # i's fade-in
-        e.call('bp_clear'); [e.call('bp_add', addr=a) for a in tr.addr]; e.call('bp_add', addr=PS['tf_pass']); e.call('bp_add', addr=PS['ts_step'])
+        e.call('bp_clear'); tr.bps(); e.call('bp_add', addr=PS['tf_pass']); e.call('bp_add', addr=PS['ts_step'])
         black = T.blank(); marry = T.screen(['FRAME', 'MARRY']); ok = True; lastfr = None
         while True:
             go(e); pc = e.call('get_registers')['PC']; tr.event(pc)
@@ -125,7 +125,7 @@ def part_title(dsk):
         run_step(e, tr, 'm')
         Tm = Tk + WIPE + 360
         check('m at tick %d: VRAM = frame + credits' % Tm, not T.diff(scr(e), cred) and word(e, PS['t_target']) - F0 == Tm * 5 // 6, word(e, PS['t_target']) - F0)
-        e.call('bp_clear'); [e.call('bp_add', addr=a) for a in tr.addr]; e.call('bp_add', addr=PS['title'])
+        e.call('bp_clear'); tr.bps(); e.call('bp_add', addr=PS['title'])
         while True:
             go(e); pc = e.call('get_registers')['PC']; tr.event(pc)
             if pc == PS['title']: break
@@ -197,7 +197,7 @@ def part_ending(dsk):
         check('step t when the model\'s 56 ends: tick %d = the embrace\'s start + %d + %d (3 loops of the title theme = 2052 ticks), TITLE_MAIN' % (
               Tp + cutsim.sound_ticks60(56), Tp, cutsim.sound_ticks60(56)),
               word(e, PS['ct_tick']) == Tp + cutsim.sound_ticks60(56) == 2052 and not T.diff(scr(e), main), word(e, PS['ct_tick']))
-        e.call('bp_clear'); [e.call('bp_add', addr=a) for a in tr.addr]; e.call('bp_add', addr=PS['title'])
+        e.call('bp_clear'); tr.bps(); e.call('bp_add', addr=PS['title'])
         while True:
             go(e); pc = e.call('get_registers')['PC']; tr.event(pc)
             if pc == PS['title']: break
