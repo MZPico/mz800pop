@@ -2,7 +2,7 @@
 
 `.github/workflows/pr-checks.yml` runs on every pull request to `main` (and by hand: *Actions → PR checks → Run
 workflow*). It builds the port from a clean checkout on GitHub's standard Ubuntu 24.04 runner (2 vCPU) and runs the
-**PR tier**, a selection of the tests that keeps each job under ~20 minutes. The full gates stay local (below).
+**PR tier**, a selection of the tests that keeps each job at or under ~20 minutes. The full gates stay local (below).
 
 ## What a run does
 
@@ -30,7 +30,7 @@ Two matrix jobs (`a`, `b`) run in parallel; each one:
 5. **The PR tier**: `make check-pr PART=a` or `PART=b` under `xvfb-run` (the emulator needs an X display).
 
 Nothing built is passed between the jobs: no artifacts (the build holds converted game art and the repository is
-public), each job builds for itself (~1.5 min).
+public), each job builds for itself (~1 min).
 
 ## The PR tier
 
@@ -44,7 +44,7 @@ public), each job builds for itself (~1.5 min).
 | a | `tests/m4_game.py --every 10` walk_level1, fight1, level12_shadow_merge | the game program: the kid's state every tick, VRAM every 10th tick | ~2.5 min |
 | a | `tests/m4_test.py` on 7 earlier scripts: walk_level1, jumps_climbs, fight1, fight_killpush, level12_shadow_merge, feather_fall, level13_jaffar | the Z80 logic against kidsim, every tick | ~9 min |
 | b | `tests/m4_test.py` on all of `tests/m7_scripts` | the same: the sound-ticks and key scripts | ~9 min |
-| b | `tools/oracle_suite.py` on `tests/m7_scripts` + the 7 scripts above | kidsim against SDLPoP | ~7 min |
+| b | `tools/oracle_suite.py` on `tests/m7_scripts` + the 7 scripts above | kidsim against SDLPoP | ~9 min |
 | b | `tools/cut_suite.py` | cutsim against SDLPoP, all 63 cutscene cases | ~10 s |
 
 ## What stays local
@@ -88,8 +88,9 @@ Locally `python3 tools/ci/fetch_dos_data.py --dest DIR` fetches and checks a cop
 ## Caches and minutes
 
 The actions cache holds only the tools above (public sources, no game data), keyed by their versions; it is restored
-at the start of each job and saved right after a tool is built. With warm caches a job spends ~2.5 min on setup and
-the build, then its part: job a ~16 min, job b ~19 min wall, so a run takes ~20 min wall and ~35 runner minutes. (The
+at the start of each job and saved right after a tool is built. With warm caches a job spends ~1.5 min on setup and
+the DOS data and ~1 min on the build, then its part: job a ~16 min, job b ~20 min wall (measured: 15:40 and 19:34),
+so a run takes ~20 min wall and ~36 runner minutes. (The
 repository is public: standard runners cost no minutes there; for a private repository on the Free plan that is
 ~35 of the 2,000 minutes a month per run.) The first run after a cache miss rebuilds the tools (~4 min more: SDL3
 ~1.2 min, mz800emu ~1.1 min, SDLPoP and mzdisk seconds).
