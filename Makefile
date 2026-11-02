@@ -227,8 +227,8 @@ CI_TARGETS = $(BUILD)/colorbars.mzf $(BUILD)/m0.dsk $(BUILD)/m1test.mzf $(BUILD)
 ci-build:
 	$(MAKE) assets
 	$(MAKE) $(CI_TARGETS)
-# the PR test tier, exactly what the PR jobs run (tools/ci/check_pr.py; PART=a or PART=b: one job's part, default both)
+# the PR test tier, exactly what the PR jobs run (tools/ci/check_pr.py; PART=a, b, c or d: one job's part, default all)
 PART ?= all
-check-pr: $(BUILD)/m4game.mzf $(BUILD)/m4test.mzf
+check-pr: $(BUILD)/m4game.mzf $(BUILD)/m4test.mzf $(BUILD)/pop800.dsk
 	$(PY) tools/ci/check_pr.py $(PART)
 .PHONY: ci-build check-pr

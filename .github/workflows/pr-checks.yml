@@ -1,4 +1,4 @@
-# PR checks: build the port from a clean checkout and run the PR test tier (make check-pr). docs/ci.md.
+# PR checks: build the port (the game disk included) from a clean checkout and run the PR test tier (make check-pr). docs/ci.md.
 # The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:
 # no artifact, no cache holds it or anything built from it (the repository is public).
 name: PR checks
@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [a, b]
+        part: [a, b, c, d]
     steps:
       - uses: actions/checkout@v4
         with:

@@ -2,7 +2,7 @@
 """The PR test tier (`make check-pr`, .github/workflows/pr-checks.yml; docs/ci.md): runs the steps of one part (or all),
 each to its end, prints the wall time of each and fails if any failed. Needs the build (`make ci-build`) and an X
 display for the emulator (DISPLAY, e.g. xvfb-run).
-usage: check_pr.py [all | a | b ...] [--list]"""
+usage: check_pr.py [all | a | b | c | d ...] [--list]"""
 import glob, os, subprocess, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -21,11 +21,23 @@ PARTS = {
         ('perfcheck', [PY, 'tools/perfcheck.py']),
         ('m4_game sample', [PY, 'tests/m4_game.py', '--every', '10'] + M4_GAME),
         ('m4_test early', [PY, 'tests/m4_test.py'] + EARLY),
+        ('m5_boot', [PY, 'tests/m5_boot.py']),
+        ('m5_save', [PY, 'tests/m5_save.py']),
     ],
     'b': [
         ('m4_test m7', [PY, 'tests/m4_test.py'] + M7),
         ('oracle_suite subset', [PY, 'tools/oracle_suite.py'] + M7 + EARLY),
         ('cut_suite', [PY, 'tools/cut_suite.py']),
+    ],
+    # the game disk (build/pop800.dsk): the launcher round trips, PRES's title and cutscenes, the keys
+    'c': [
+        ('m7_launch', [PY, 'tests/m7_launch.py']),
+        ('m7_cut quick', [PY, 'tests/m7_cut.py', '--quick']),
+    ],
+    'd': [
+        ('m7_title quick', [PY, 'tests/m7_title.py', '--quick']),
+        ('cheat build', ['make', '-s', 'cheats']),
+        ('m7_keys', [PY, 'tests/m7_keys.py']),
     ],
 }
 
@@ -35,11 +47,11 @@ def main():
     names = sorted(PARTS) if 'all' in args else args
     steps = [s for n in names for s in PARTS[n]]
     if '--list' in sys.argv:
-        for name, cmd in steps: print('%-20s %s' % (name, ' '.join(['python3'] + cmd[1:])))
+        for name, cmd in steps: print('%-20s %s' % (name, ' '.join((['python3'] if cmd[0] == PY else cmd[:1]) + cmd[1:])))
         return
     res = []
     for name, cmd in steps:
-        print('==== %s: %s' % (name, ' '.join(cmd[1:])), flush=True)
+        print('==== %s: %s' % (name, ' '.join(cmd[1:] if cmd[0] == PY else cmd)), flush=True)
         t0 = time.time(); rc = subprocess.run(cmd, cwd=ROOT).returncode; dt = time.time() - t0
         res.append((name, rc, dt))
         print('==== %s: %s in %.0f s' % (name, 'ok' if rc == 0 else 'FAILED (exit %d)' % rc, dt), flush=True)
