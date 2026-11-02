@@ -6,6 +6,8 @@ name: PR checks
 on:
   pull_request:
     branches: [main]
+    # a PR that changes only documentation runs nothing (the build and the tests read no *.md; LICENSE neither)
+    paths-ignore: ['**/*.md', 'LICENSE']
   workflow_dispatch:
 
 concurrency:

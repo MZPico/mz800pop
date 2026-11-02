@@ -1,7 +1,8 @@
 # CI: the PR checks
 
-`.github/workflows/pr-checks.yml` runs on every pull request to `main` (and by hand: *Actions → PR checks → Run
-workflow*). It builds the port from a clean checkout on GitHub's standard Ubuntu 24.04 runner (2 vCPU) and runs the
+`.github/workflows/pr-checks.yml` runs on every pull request to `main` that changes more than documentation (a PR
+touching only `*.md` files and `LICENSE` runs nothing: the build and the tests read none of them), and by hand
+(*Actions → PR checks → Run workflow*). It builds the port from a clean checkout on GitHub's standard Ubuntu 24.04 runner (2 vCPU) and runs the
 **PR tier**, a selection of the tests that keeps each job at or under ~22 minutes. The **full regression**, every test
 on its full set, runs on the same runners on demand (`.github/workflows/full-regression.yml`, below). Locally
 `tools/testrun.py` runs what a change affects, cached and in parallel (below). All three take their tests from one
