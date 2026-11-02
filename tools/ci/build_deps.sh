@@ -23,22 +23,27 @@ fetch() {   # fetch <repo url> <commit or tag> <dir>: a shallow checkout of one 
     git -C "$3" -c advice.detachedHead=false checkout -q FETCH_HEAD
 }
 
+log() {     # log <name> <command...>: run quietly into $SRC/<name>.log, show its tail on failure
+    local n=$1; shift; mkdir -p "$SRC"
+    "$@" >> "$SRC/$n.log" 2>&1 || { echo "FAILED: $*"; tail -60 "$SRC/$n.log"; exit 1; }
+}
+
 sdl3() {
     if [ -f "$DEPS/lib/pkgconfig/sdl3-image.pc" ] && [ -f "$DEPS/lib/pkgconfig/minizip-ng.pc" ]; then echo "sdl3: cached"; return; fi
     fetch https://github.com/libsdl-org/SDL.git "refs/tags/$SDL3_TAG" "$SRC/SDL"
     cmake -S "$SRC/SDL" -B "$SRC/SDL/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$DEPS" \
-        -DCMAKE_INSTALL_LIBDIR=lib -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF > /dev/null
-    cmake --build "$SRC/SDL/build" -j"$JOBS" > /dev/null && cmake --install "$SRC/SDL/build" > /dev/null
+        -DCMAKE_INSTALL_LIBDIR=lib -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF
+    log sdl3 cmake --build "$SRC/SDL/build" -j"$JOBS" && log sdl3 cmake --install "$SRC/SDL/build"
     fetch https://github.com/libsdl-org/SDL_image.git "refs/tags/$SDL3_IMAGE_TAG" "$SRC/SDL_image"
     cmake -S "$SRC/SDL_image" -B "$SRC/SDL_image/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$DEPS" \
         -DCMAKE_INSTALL_LIBDIR=lib -DSDLIMAGE_VENDORED=OFF -DSDLIMAGE_AVIF=OFF -DSDLIMAGE_JXL=OFF -DSDLIMAGE_TIF=OFF \
-        -DSDLIMAGE_WEBP=OFF -DSDLIMAGE_SAMPLES=OFF -DSDLIMAGE_TESTS=OFF > /dev/null
-    cmake --build "$SRC/SDL_image/build" -j"$JOBS" > /dev/null && cmake --install "$SRC/SDL_image/build" > /dev/null
+        -DSDLIMAGE_WEBP=OFF -DSDLIMAGE_SAMPLES=OFF -DSDLIMAGE_TESTS=OFF
+    log sdl3 cmake --build "$SRC/SDL_image/build" -j"$JOBS" && log sdl3 cmake --install "$SRC/SDL_image/build"
     fetch https://github.com/zlib-ng/minizip-ng.git "refs/tags/$MINIZIP_TAG" "$SRC/minizip-ng"
     cmake -S "$SRC/minizip-ng" -B "$SRC/minizip-ng/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$DEPS" \
         -DCMAKE_INSTALL_LIBDIR=lib -DMZ_COMPAT=OFF -DMZ_ZSTD=OFF -DMZ_BZIP2=OFF -DMZ_LZMA=OFF -DMZ_PPMD=OFF \
-        -DMZ_PKCRYPT=OFF -DMZ_WZAES=OFF -DMZ_OPENSSL=OFF -DMZ_LIBBSD=OFF -DMZ_FETCH_LIBS=OFF > /dev/null
-    cmake --build "$SRC/minizip-ng/build" -j"$JOBS" > /dev/null && cmake --install "$SRC/minizip-ng/build" > /dev/null
+        -DMZ_PKCRYPT=OFF -DMZ_WZAES=OFF -DMZ_OPENSSL=OFF -DMZ_LIBBSD=OFF -DMZ_FETCH_LIBS=OFF
+    log sdl3 cmake --build "$SRC/minizip-ng/build" -j"$JOBS" && log sdl3 cmake --install "$SRC/minizip-ng/build"
     echo "sdl3: built SDL3 $(pkg-config --modversion sdl3), SDL3_image $(pkg-config --modversion sdl3-image), minizip-ng $(pkg-config --modversion minizip-ng)"
 }
 
@@ -46,8 +51,8 @@ emu() {
     if [ -x "$EMU_DIR/mz800emu" ]; then echo "emu: cached"; return; fi
     fetch https://github.com/MZPico/mz800emu.git "$MZ800EMU_COMMIT" "$SRC/mz800emu"
     cmake -S "$SRC/mz800emu" -B "$SRC/mz800emu/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-        -DMZ_BUILD_MZ1500=OFF -DMZ_BUILD_MZ700_PAL=OFF -DMZ_BUILD_MZ700_NTSC=OFF > /dev/null
-    cmake --build "$SRC/mz800emu/build" --target mz800emu -j"$JOBS" > /dev/null
+        -DMZ_BUILD_MZ1500=OFF -DMZ_BUILD_MZ700_PAL=OFF -DMZ_BUILD_MZ700_NTSC=OFF
+    log emu cmake --build "$SRC/mz800emu/build" --target mz800emu -j"$JOBS"
     mkdir -p "$EMU_DIR"
     cp "$SRC/mz800emu/build/build-mz800emu/mz800emu" "$EMU_DIR/"
     cp -r "$SRC/mz800emu/ui_resources" "$EMU_DIR/"
@@ -68,8 +73,8 @@ mzdisk() {
     local d="$ROOT/external/mzdisk"
     if [ -x "$d/build/mzdsk-fsmz" ]; then echo "mzdisk: cached"; return; fi
     fetch https://github.com/michalhucik/mzdisk.git "$MZDISK_COMMIT" "$d"
-    cmake -S "$d" -B "$d/build" -DCMAKE_BUILD_TYPE=Release > /dev/null
-    cmake --build "$d/build" -j"$JOBS" --target mzdsk-create mzdsk-fsmz > /dev/null
+    log mzdisk cmake -S "$d" -B "$d/build" -DCMAKE_BUILD_TYPE=Release
+    log mzdisk cmake --build "$d/build" -j"$JOBS" --target mzdsk-create mzdsk-fsmz
     echo "mzdisk: built mzdisk $MZDISK_COMMIT"
 }
 

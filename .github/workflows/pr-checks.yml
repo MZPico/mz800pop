@@ -82,28 +82,38 @@ jobs:
         with:
           path: external/mzdisk
           key: mzdisk-ubuntu24-${{ env.MZDISK_COMMIT }}
-      - name: Build the tools (cache misses only)
-        run: tools/ci/build_deps.sh sdl3 emu sdlpop mzdisk
+      - name: Build SDL3 / SDL3_image / minizip-ng
+        if: steps.c-deps.outputs.cache-hit != 'true'
+        run: tools/ci/build_deps.sh sdl3
       - if: steps.c-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/mzdeps
           key: ${{ steps.c-deps.outputs.cache-primary-key }}
-      - if: steps.c-emu.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/mz800emu-bin
-          key: ${{ steps.c-emu.outputs.cache-primary-key }}
+      - name: Build SDLPoP
+        if: steps.c-sdlpop.outputs.cache-hit != 'true'
+        run: tools/ci/build_deps.sh sdlpop
       - if: steps.c-sdlpop.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: external/SDLPoP
           key: ${{ steps.c-sdlpop.outputs.cache-primary-key }}
+      - name: Build mzdisk
+        if: steps.c-mzdisk.outputs.cache-hit != 'true'
+        run: tools/ci/build_deps.sh mzdisk
       - if: steps.c-mzdisk.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: external/mzdisk
           key: ${{ steps.c-mzdisk.outputs.cache-primary-key }}
+      - name: Build mz800emu
+        if: steps.c-emu.outputs.cache-hit != 'true'
+        run: tools/ci/build_deps.sh emu
+      - if: steps.c-emu.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/mz800emu-bin
+          key: ${{ steps.c-emu.outputs.cache-primary-key }}
 
       - name: Fetch the DOS data (archive.org, md5-checked)
         run: python3 -I tools/ci/fetch_dos_data.py
