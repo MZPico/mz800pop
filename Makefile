@@ -232,3 +232,19 @@ PART ?= all
 check-pr: $(BUILD)/m4game.mzf $(BUILD)/m4test.mzf $(BUILD)/pop800.dsk
 	$(PY) tools/ci/check_pr.py $(PART)
 .PHONY: ci-build check-pr
+
+# Local testing (tools/testrun.py, docs/ci.md "Local testing"; the tests: tools/ci/suite.py). The runner builds (make
+# ci-build and what the selected tests need), runs the tests in parallel (J jobs, default half the cores) and skips each
+# test that passed before with the same inputs. check: the full regression's tests that the changes since BASE (default:
+# the merge base with origin/main; BASE=HEAD: the uncommitted changes only) can affect, plus the tests that failed
+# last time; ALL=1: every test, cached. check-smoke: a few minutes cold. check-full: every test, no cache (the full
+# regression normally runs on GitHub's runners: docs/ci.md). K=text: only the tests whose id contains it (several:
+# K="m4_test oracle"). Results: build/testrun/last.json and build/testrun/logs/.
+TESTRUN = $(PY) tools/testrun.py $(if $(J),-j $(J)) $(foreach k,$(K),-k $(k))
+check-smoke:
+	$(TESTRUN) --tier smoke
+check:
+	$(TESTRUN) --tier $(if $(ALL),all,check) $(if $(BASE),--base $(BASE))
+check-full:
+	$(TESTRUN) --tier full
+.PHONY: check-smoke check check-full

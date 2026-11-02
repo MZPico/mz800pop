@@ -31,6 +31,10 @@ make m3     # Z80 room renderer versus the Python reference, every room of every
 make m3anim # per-tile redraw of every animated tile through all its frames, every room of every level
 make m3demo # camera demo: records build/m3_demo.gif; tests/m3_demo.py --gui runs it in the emulator window
 make m4     # the prince: Z80 logic versus tools/kidsim.py, then the playable program versus the Python render (state every tick, screen every 5th)
+make check        # the regression tests a change can affect (since the merge base with origin/main), in parallel, cached (tools/testrun.py)
+make check-smoke  # the smoke tier: build, boot, a few scripts, a scene, the title, a cutscene, perf (~2 min cold)
+make check-full   # every regression test, no cache; normally run on GitHub's runners (full-regression workflow, docs/ci.md)
+make check-pr     # the PR tier (PART=a..d), as the PR jobs run it; the test lists: tools/ci/suite.py
 python3 tools/oracle.py 1 tests/m4_scripts/walk_level1.txt /tmp/t.txt   # check kidsim against SDLPoP on a script
 python3 tools/walkfind.py 1 out.txt   # search a control script that finishes a level (kidsim)
 python3 tests/m4_game.py --gui   # play the prototype in the emulator window: cursor keys / joystick 1, SHIFT, SPACE or fire = the button

@@ -1,6 +1,6 @@
-# Full regression: build the port from a clean checkout and run every M4-M8 test on its full set (the M0-M3 harnesses
-# are not gates yet: docs/ci.md), split into parallel jobs
-# (tools/ci/check_pr.py --full; docs/ci.md). Runs on demand (Actions tab or `gh workflow run`) and on pushes to
+# Full regression: build the port from a clean checkout and run every gating test on its full set (all but the M2
+# measurements m2_oracle / m2_ega_capture, docs/ci.md), split into parallel jobs (tools/ci/check_pr.py --full: the parts
+# of FULL in tools/ci/suite.py; docs/ci.md). Runs on demand (Actions tab or `gh workflow run`) and on pushes to
 # regress/** branches (a branch may limit the parts: tools/ci/regress_only).
 # The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:
 # no artifact, no cache holds it or anything built from it (the repository is public).
@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [logic, oracle-m4m6, oracle-m5m7, pixels-m4, pixels-m6, pixels-m5, sound, pres, story, launch-keys]
+        part: [logic, oracle-m4m6, oracle-m5m7, pixels-m4, pixels-m6, pixels-m5, sound, pres, story, launch-keys, early]
     steps:
       - uses: actions/checkout@v4
         with:
