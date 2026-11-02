@@ -1,0 +1,115 @@
+# PR checks: build the port from a clean checkout and run the PR test tier (make check-pr). docs/ci.md.
+# The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:
+# no artifact, no cache holds it or anything built from it (the repository is public).
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SDL3_TAG: release-3.4.14
+  SDL3_IMAGE_TAG: release-3.4.4
+  MINIZIP_TAG: 4.2.2
+  MZ800EMU_COMMIT: 2bc0027329c70eef4076d99ca24076a02523874b
+  SDLPOP_COMMIT: 3c5add5fb7f83d4ceb542823ab66d00146c4271b
+  MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
+
+jobs:
+  check:
+    name: build + ${{ matrix.part }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [a]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends pasmo p7zip-full xvfb xauth ninja-build cmake pkg-config \
+            libsdl2-dev libsdl2-image-dev libglib2.0-dev libjson-glib-dev libcurl4-openssl-dev zlib1g-dev libgl-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libasound2-dev libpulse-dev libdbus-1-dev libudev-dev libegl1-mesa-dev libgles2-mesa-dev \
+            libpng-dev libjpeg-dev > /dev/null
+          echo "DEPS=$HOME/mzdeps" >> "$GITHUB_ENV"
+          echo "EMU_DIR=$HOME/mz800emu-bin" >> "$GITHUB_ENV"
+          echo "MZ800EMU_BIN=$HOME/mz800emu-bin/mz800emu" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$HOME/mzdeps/lib" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$HOME/mzdeps/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -q -r requirements.txt
+
+      # the tools, cached by their versions (public sources only, no game data); restored here, saved right after a
+      # build (before anything runs them)
+      - name: Restore SDL3 / SDL3_image / minizip-ng
+        id: c-deps
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/mzdeps
+          key: mzdeps-ubuntu24-${{ env.SDL3_TAG }}-${{ env.SDL3_IMAGE_TAG }}-${{ env.MINIZIP_TAG }}
+      - name: Restore mz800emu
+        id: c-emu
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/mz800emu-bin
+          key: mz800emu-ubuntu24-${{ env.MZ800EMU_COMMIT }}-${{ env.SDL3_TAG }}
+      - name: Restore SDLPoP (patched)
+        id: c-sdlpop
+        uses: actions/cache/restore@v4
+        with:
+          path: external/SDLPoP
+          key: sdlpop-ubuntu24-${{ env.SDLPOP_COMMIT }}-${{ hashFiles('tools/sdlpop-pop800.patch') }}
+      - name: Restore mzdisk
+        id: c-mzdisk
+        uses: actions/cache/restore@v4
+        with:
+          path: external/mzdisk
+          key: mzdisk-ubuntu24-${{ env.MZDISK_COMMIT }}
+      - name: Build the tools (cache misses only)
+        run: tools/ci/build_deps.sh sdl3 emu sdlpop mzdisk
+      - if: steps.c-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/mzdeps
+          key: ${{ steps.c-deps.outputs.cache-primary-key }}
+      - if: steps.c-emu.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/mz800emu-bin
+          key: ${{ steps.c-emu.outputs.cache-primary-key }}
+      - if: steps.c-sdlpop.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/SDLPoP
+          key: ${{ steps.c-sdlpop.outputs.cache-primary-key }}
+      - if: steps.c-mzdisk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/mzdisk
+          key: ${{ steps.c-mzdisk.outputs.cache-primary-key }}
+
+      - name: Fetch the DOS data (archive.org, md5-checked)
+        run: python3 -I tools/ci/fetch_dos_data.py
+
+      - name: Build
+        run: make ci-build
+
+      - name: PR tier (${{ matrix.part }})
+        run: xvfb-run -a -s "-screen 0 1024x768x24" make check-pr PART=${{ matrix.part }}

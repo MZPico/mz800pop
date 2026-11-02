@@ -1,5 +1,7 @@
 build/
 external/
+# (also when external is a symlink, as in a worktree)
+/external
 emu/*.dat
 emu/*.bpt
 cdl-export/
@@ -10,3 +12,5 @@ external/dos/
 rd-mz800.dat
 # renders and screenshots of the original game art (not redistributed)
 docs/research/*.png
+# Claude Code worktrees and local settings
+.claude/
