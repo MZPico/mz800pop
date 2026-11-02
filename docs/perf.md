@@ -121,6 +121,7 @@ overheads dominate), and hide room changes.
   masked 4x60 jamb clipped to 3x46 92 K T (was 149 K before the single-run block read).
 - Copy latency from the beam read to the first copy: 4 + 5.5 lines per pending chunk (measured), used in the
   same-frame schedule; BEAM_GUARD 12 lines around a chunk's top absorbs the prediction error.
+  (Measured anew in M8a part 3: 8.5 / 14.3 / 19.2 lines for 1 / 2 / 3 chunks, the model 3-4 lines too pessimistic.)
 
 ## M8a speed work (2026-10-28; tools/profile.py = mz800emu's call profiler per routine)
 
@@ -494,3 +495,111 @@ equal (view_redraw 10.92, run_rect 8.10, kid_tick 1.10, the same chunks) except 
 1.01). The ticks start at another raster phase than before (the start-up's cycles changed: PR_TAB is built at the start,
 the overlay loads differ), so the chunks wait for the beam differently; the traps stretch gained the same way. This phase
 sensitivity is what the M8a beam-wait item is about.
+
+## M8a part 3: the beam wait (measured, change parked) (2026-11-02)
+
+Status: measured; the scheduler variant below is built and verified but **parked** in PR #8 (MZPico/mz800pop#8,
+branch perf/beam-wait) because it costs ~476 resident bytes (end_of_code 0x7870 -> 0x7B02, the low block -181) for
+~1-1.5 %, and the next drawing work (kid rect split, fore-layer precompose, standing guard) needs that room. It is
+to be rebased and merged when there is resident room; the measuring tool (tools/beamwait.py) comes with it.
+
+A tick ends with pend_flush (sprite.asm): the chunks the object pass composed (at most 3, the
+compose buffers) go to VRAM back to back, each started only when the beam cannot overtake it (d, the lines until the
+beam next reaches the chunk's top, at least h (k - 1) + BEAM_MARGIN) nor has just passed it (d < 312 - BEAM_GUARD), and
+the chunks that show a character change in the same frame. A flush with more chunks than buffers flushes mid-pass too.
+
+### Measured (tools/beamwait.py in PR #8: tracepoints at pend_flush, each beam read, pf_blit1, the copy kernel's start and end, the
+VBLN interrupt; raster lines from the GDG tick counter, 1136 a line)
+
+pend_flush's time outside the copies, frames per tick (perfcheck's stretches; the copies themselves are unchanged:
+walk 0.58, door 1.29, fight 0.80 frames a tick):
+
+| Stretch | Now (main): setup / waiting / latency / one at a time = total | Parked variant: setup / waiting / latency / one at a time = total |
+|---|---|---|
+| walk_level1 30-60 | 0.028 / 0.125 / 0.058 / - = 0.216 | 0.065 / 0.056 / 0.024 / - = 0.150 |
+| level door 203-207 | 0.025 / 0.470 / 0.083 / - = 0.584 | 0.091 / 0.082 / 0.036 / - = 0.215 |
+| room change 89 | 0.016 / 0.402 / 0.040 / - = 0.461 | 0.047 / 0.361 / 0.017 / - = 0.428 |
+| walk_level1 190-260 | 0.022 / 0.244 / 0.071 / - = 0.342 | 0.078 / 0.055 / 0.030 / - = 0.168 |
+| gate_push 200-260 | 0.005 / 0.034 / 0.025 / - = 0.065 | 0.025 / 0.016 / 0.012 / - = 0.053 |
+| traps_b1 0-300 | 0.027 / 0.121 / 0.056 / 0.007 = 0.215 | 0.065 / 0.054 / 0.023 / 0.004 = 0.151 |
+| fight1 60-160 | 0.029 / 0.249 / 0.056 / 0.141 = 0.478 | 0.067 / 0.256 / 0.024 / 0.066 = 0.418 |
+
+(setup: entry to the first beam read; waiting: to the read the copy started from; latency: from that read to the first
+copy; one at a time: the whole of the flushes that gave up on the same-frame copy. After a frame boundary is crossed
+the rest of the stretch starts at another raster phase, so single numbers move by a few per cent; the per-flush causes
+below are what the change addresses.)
+
+What makes a tick wait (each failing try classified with the old pf_seq's rules):
+- **The sorted order.** Chunks were copied top first. In a walk tick the two torch chunks (2x18 at row 68) come first and
+  the kid's chunk just below them (3-6 x 26-41 at rows 78-93) would start ~75 lines after the read, too late: the beam
+  reaches its top first and overtakes the copy ("need" fails on the third chunk). Copying the kid's chunk first, then the
+  torches, fits at once in most of those cases. Failing tries by reason over walk 190-260: need 590 (471 on the top
+  chunk, the beam about to reach it; 119 on a later one), guard 117 (the beam just past a chunk's top).
+- **The tries were slow.** A try recomputed every chunk's need and duration (mul8) after its beam read: ~4,000 T for 3
+  chunks, so the first copy started 19.2 lines after the read (14.3 for 2 chunks, 8.5 for 1) and a wait was spent in
+  steps of 6-11 lines. The latency model 6 n + 5 lines was 3-4 lines too pessimistic: the real start came earlier than
+  predicted (by -7.3 to +2.5 lines), which the guard had to absorb and the margin did not need.
+- **Fights.** The kid's and the guard's chunks are wide (8x40, 7x40 side by side, plus a 2x18): their copies take
+  250-360 lines, so they can only all show in the same frame when the copy starts right after the beam has passed their
+  tops (~200 lines of waiting a flush), and 9 of 116 flushes found no such moment in 1-2 frames and fell back to one at a
+  time (0.14 frames a tick).
+- No copy was torn in any stretch (measured from each copy's start and end), and the margins were larger than needed:
+  the beam passed a chunk's top at least 11.3 lines before its first row was written, and its next pass came at least
+  19.4 lines after the copy's catch-up point.
+
+### The parked variant (PR #8)
+
+- The chunk values (the line of the top row, need, duration, the character flag) are computed once per flush (pf_prep);
+  a try is one beam read and a few compares per chunk: the first copy starts 5.2 / 7.0 / 9.1 lines after the read for
+  1 / 2 / 3 chunks, modelled as PF_LAT0 + PF_LATN n = 3 + 2 n (error now -2.9 to +5.7 lines, median +0.9).
+- pf_try tries the sorted order first, then the other orders (all 6 of 3 chunks), each against its own beam read.
+  **Why the screen stays the same:** two chunks that overlap keep the order the old code copied them in (by top row, the
+  earlier entry on a tie: pf_sort's stable order; pf_ovl marks the overlapping pairs, an order that swaps one is never
+  tried), and chunks that do not overlap write disjoint VRAM, so after the flush every byte holds what the old order left
+  there. Only when the copies happen changes. The sort became an index sort (pf_idx); PEND_LIST is sorted in place only
+  before the one-at-a-time fallback, which is unchanged.
+- BEAM_GUARD 12 -> 8, BEAM_MARGIN 20 -> 16: with the accurate latency the guard keeps the old worst case (the beam passes
+  a chunk's top >= 9.8 lines before its first row is written), and the need side keeps >= 8.1 lines beyond the measured
+  worst case (an interrupt between the read and the copy, or inside the copy, adds up to ~5 lines). Both constants are
+  for the real-hardware check of M8: the copy speed is the emulator's VRAM wait-state model.
+- Code: src/m4/flush.asm (main block, 658 bytes: pend_flush, pf_prep, pf_seq, the order tables); the old pend_flush,
+  pf_all and pf_seq left the low block (181 bytes net). Free resident would be main 912 -> 254, low 115 -> 296: the reason it is parked.
+
+Checks with tools/beamwait.py over the whole of walk_level1 0-261, gate_push 0-261, traps_b1 0-299, fight1 0-161: no torn
+copy, no together-flush whose character chunks first show in different frames, no overlapping pair out of its order.
+
+### The variant's gains (tools/perfcheck.py, 3 runs each; its runs were identical, main's door step varied 17.88-18.09)
+
+| Stretch | Main (median) | Parked variant | Change |
+|---|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 6.20 | 6.13 | -1.1% |
+| level door step (walkthrough 203-207) | 17.88 | 17.72 | -0.9% |
+| room change (walkthrough 89) | 106.92 | 106.89 | 0 |
+| walkthrough 190-260 | 11.00 | 10.83 | -1.5% |
+| gate (gate_push 200-260) | 5.13 | 5.06 | -1.4% |
+| traps (traps_b1 0-300) | 6.03 | 5.97 | -1.0% |
+| fight (fight1 60-160, guard on) | 9.13 | 9.07 | -0.7% |
+
+### Tried and measured, not kept
+
+- **A feasibility test per order** (pf_fits: the character chunks of an order can show in the same frame at some beam
+  position exactly when max a_i - min (a_i - need_i) <= 311 - BEAM_GUARD, a_i = the top line minus the chunk's start
+  offset), to give up on hopeless fight flushes after one frame instead of two: fight 9.06 -> 9.04 (0.2 %) for ~150
+  bytes; run at every flush it cost more than it saved (walk +0.04 frames). Dropped.
+- **Copying a chunk without a character on its own** while the others wait (simulated on the recorded flushes): worse
+  than the order search (walk 190-260 0.10 instead of 0.18 frames a tick saved), the greedy copy commits too early.
+- **No beam wait at all** (copy at once in the sorted order, the setup kept; a test build, never committed): normal 6.05,
+  door 17.60, room change 106.51, walk 190-260 10.74, gate 5.04, traps 5.90, fight 8.73, i.e. -0.4 to -1.3 % against the variant
+  and -3.7 % in the fight, and ~0.07 frames a tick more without pf_prep. Too small for a tearing switch like
+  PACE_MODE; not built.
+
+### What is left
+
+- Fights: the same-frame rule over all character chunks (the kid's and the guard's chunks are tied together) is most of
+  the remaining wait (0.26 frames a tick + 0.07 one at a time). Tying only the chunks of one character together would
+  cut it (simulated: -0.075 frames a tick without the rule at all), but it changes what the screen shows between two
+  frames; the kid rect split (smaller, better placed chunks) would help the same flushes.
+- The setup (0.07 frames a tick) is now the largest part in walks: the index sort, the overlap tests and pf_prep's
+  multiply could be trimmed by ~0.02-0.03.
+- Using the wait for other work: after pend_flush the tick only draws the hit points and the texts, and the next tick's
+  logic must not start before tick_done (the harness reads VRAM there), so there is nothing to overlap with it today.
