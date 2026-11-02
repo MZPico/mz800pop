@@ -86,7 +86,7 @@ m7keys: $(BUILD)/pop800.dsk $(BUILD)/m4test.mzf cheats
 cheats:
 	mkdir -p $(BUILD)/cheat/build
 	rsync -a --delete src Makefile $(BUILD)/cheat/
-	for d in tools tests external; do ln -sfn $(CURDIR)/$$d $(BUILD)/cheat/$$d; done
+	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/cheat/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/cheat/build/assets
 	$(MAKE) -C $(BUILD)/cheat CHEATS=1 build/m4game.mzf build/m4test.mzf build/pop800.dsk
 # M8a part 2: the time-exact pacing prototype (game.asm PACE_MODE 1) as a disk to try: build/pace/build/pop800.dsk (the release
@@ -94,7 +94,7 @@ cheats:
 pace:
 	mkdir -p $(BUILD)/pace/build
 	rsync -a --delete src Makefile $(BUILD)/pace/
-	for d in tools tests external; do ln -sfn $(CURDIR)/$$d $(BUILD)/pace/$$d; done
+	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/pace/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/pace/build/assets
 	$(MAKE) -C $(BUILD)/pace PACE=1 build/m4game.mzf build/pop800.dsk
 .PHONY: m7keys cheats pace
