@@ -27,8 +27,8 @@ uses them, the emulator (binary, emu/), SDLPoP (binary, commit, tools/sdlpop-pop
 The same key again: "cached", not run. Failures are never cached; --no-cache runs everything.
 
 Affected (tier check): a test is selected when a changed file is one of its repository inputs above or matches the
-sources of its build artefacts (suite.Build.src: src/, tools/, assets/, the Makefile); *.md files never select. The
-emulator, SDLPoP, pasmo and mzdisk are outside the repository: after changing one, --tier all (`make check ALL=1`).
+sources of its build artefacts (suite.Build.src: src/, tools/, assets/); *.md files never select. The Makefile, the
+emulator, SDLPoP, pasmo and mzdisk select nothing: after changing one, --tier all (`make check ALL=1`).
 
 Isolation: every test runs in its own working directory build/testrun/work/<id> (mz800emu writes rd-mz800.dat, its
 breakpoint file and other state into its current directory). Tests that write files under build/ that would collide
@@ -331,7 +331,9 @@ def probe_display(display, timeout=15):
     """True when the emulator starts on that display (and answers)"""
     work = os.path.join(OUT, 'work', '_display_probe'); rmtree_safe(work); os.makedirs(work)
     code = 'import sys; sys.path.insert(0, %r)\nfrom emu import Emu\ne = Emu(); e.run(2); e.close()' % os.path.join(ROOT, 'tools')
-    env = dict(os.environ, DISPLAY=display)
+    env = dict(os.environ)
+    if display: env['DISPLAY'] = display
+    else: env.pop('DISPLAY', None)
     p = subprocess.Popen([PY, '-c', code], cwd=work, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
     try: ok = p.wait(timeout) == 0
@@ -367,6 +369,7 @@ def choose_display(arg):
     if arg: return arg, None, 'given'
     d = os.environ.get('DISPLAY')
     if d and probe_display(d): return d, None, 'from the environment'
+    if not d and probe_display(None): return None, None, 'none: the emulator starts headless'
     p, d2 = start_xvfb()
     if p and probe_display(d2): return d2, p, 'a private Xvfb (pid %d)' % p.pid
     if p: p.kill()
@@ -405,7 +408,8 @@ class Run:
         f = open(self.log, 'w' if attempt == 1 else 'a')
         f.write('# %s (attempt %d)\n# cd %s\n# %s%s\n' % (t.id, attempt, self.work, ''.join('%s=%s ' % kv for kv in t.env.items()),
                                                          ' '.join(self.cmd))); f.flush()
-        env = dict(os.environ, PYTHONUNBUFFERED='1', DISPLAY=display, **t.env)
+        env = dict(os.environ, PYTHONUNBUFFERED='1', **t.env)
+        if display: env['DISPLAY'] = display
         self.t0 = time.time()
         self.p = subprocess.Popen(self.cmd, cwd=self.work, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                   env=env, start_new_session=True)
@@ -511,7 +515,7 @@ def main():
         done[0] += 1
         results[t.id] = dict(id=t.id, status=status, seconds=round(secs, 1), attempts=attempts, key=key,
                              log=os.path.relpath(os.path.join(OUT, 'logs', t.safe() + '.log'), ROOT))
-        if status == 'pass': failed.pop(t.id, None)
+        if status in ('pass', 'cached'): failed.pop(t.id, None)
         elif status in ('fail', 'hung', 'timeout'): failed[t.id] = status
         print('[%3d/%d] %-44s %-7s %7.1f s%s' % (done[0], n_total, t.id, status, secs, '' if attempts == 1 else '  (attempt %d)' % attempts), flush=True)
     for t in sel:
