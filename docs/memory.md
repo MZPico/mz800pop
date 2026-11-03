@@ -20,6 +20,7 @@ else all 64 KB are RAM. Code in the low block must never run inside `blit`.
 | 0x01BD-0x01BF, 0x01FD-0x01FF | 6 | free (runtime data) |
 | 0x0200-0x027F | 128 | run_rect's recorded ops (RR_PTRS, 64 pointers) |
 | 0x0280-0x029E | 31 | level-event state EV (objects.asm: next level, time left, bottom text and flash timers, feather fall, upside down, mirror, shadow script, checkpoint, restart / level switch / game over flags, keys (KEYS: bit 0 Ctrl+A, bit 2 Ctrl+G, bits 3-7 a key code, src/m4/keys.asm); for the drawing TEXT_GEN, FLASH_NOW, MI_JUMPED, TXT_GEN_SHOWN, the save overlay's text TEXT_MSG / TEXT_MSG_GEN); set by game_init, runtime only |
+| 0x029F | 1 | HO_RDSPD_MAIN (src/boot/launch.inc): the RAM disk's read speed as the boot measured it (src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1: the game pattern's mean, clocks/byte x 5, 105 = 21.0 = no wait states, 255 = 51.0 or more); set by the launcher at every start after zeroing low RAM; 0 in the harness; read by nothing yet (PLAN item 50) |
 | 0x02A0-0x02AF | 16 | HO_MAIN: the launcher's copy of the handoff block (src/boot/launch.inc; magic "P7" = the game was started by the launcher, M7); zeroed by the launcher otherwise, never written by the harness except KEY_OPT 0x02A8 = HO_OPTIONS: bit 0 the sound off (Ctrl+S, M7 step 10; goes through PRES with the block), bit 1 blind (CHEATS only); 0x02AF = HO_RDTOP: the RAM disk's last page as the boot's probe found it (7 = 512 KB, 15 = 1 MB, 255 = 16 MB; set by the launcher at every start; 0 in the harness = the 512 KB layout; read by nothing yet, docs/ramdisk-tiers.md) |
 | 0x02B0-0x02B4 | 5 | m4test only: N_SNAP, the 'N' trace snapshot (snd_snap: queued, started, playing, stops) and its counter |
 | 0x02C0-0x02DB | 28 | m4test only: S_SNAP, the 'S' trace snapshot (state_snap) and its counter |
@@ -82,7 +83,7 @@ M5 drawing (2026-10-30): the new resident code went into the low block (fx.asm: 
 upside-down chunk tops), the main block (people2.asm: the mirror image, the left clip's column, the blink, the text and
 flash checks; gfx.asm: blit_flip, sd_bounds) and block 2 (overlay.asm: seven object slots); the rarely run parts are
 overlays (the text line in W2, set_flip in the room overlay). No reclaim was needed. Still free in low RAM (runtime
-data only): 0x0148-0x01FF, 0x029F, 0x02B0-0x02BF, 0x03C1-0x03FF, 0x09A4-0x09B3, 0x09DB-0x09FF (M7 took 0x0148-0x01FF and
+data only): 0x0148-0x01FF, 0x029F (taken 2026-11-03: HO_RDSPD_MAIN), 0x02B0-0x02BF, 0x03C1-0x03FF, 0x09A4-0x09B3, 0x09DB-0x09FF (M7 took 0x0148-0x01FF and
 0x03C1-0x03D0, step 4 gave 0x0148-0x01FF back and took 0x03D1-0x03DC: still free 0x0148-0x01FF, 0x029F, 0x02B0-0x02BF in
 the game, 0x03DD-0x03FF, 0x09A4-0x09B3, 0x09DB-0x09FF).
 
