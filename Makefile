@@ -53,7 +53,7 @@ $(BUILD)/assets/sound_pres.bin: tools/presbank.py tools/sndsim.py $(BUILD)/asset
 $(BUILD)/assets/title.inc $(BUILD)/assets/title.pack: tools/build_assets.py tools/titleref.py tools/kidsim.py tools/datfile.py
 	$(PY) tools/build_assets.py --title
 # M7 step 7: the cutscene engine (src/pres/cut.asm: the room entry of POP800.PRS) and its tables (tools/cutart.py)
-$(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/build_assets.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
+$(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/build_assets.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt $(BUILD)/assets/seqtbl_z80.bin
 	$(PY) tools/cutart.py
 $(BUILD)/pres.bin: src/pres/pres.asm src/boot/launch.inc src/boot/unpz.asm src/boot/fdc.asm src/m1/far.asm src/m4/psg.asm src/m4/save.asm $(BUILD)/assets/title.inc src/pres/cut.asm $(BUILD)/assets/cut.inc | $(BUILD)
 	cd src/pres && $(PASMO) --bin pres.asm ../../$(BUILD)/pres.bin ../../$(BUILD)/pres.sym
@@ -131,6 +131,11 @@ m1: $(BUILD)/m1test.mzf $(BUILD)/m1.pack
 
 # M2 assets: packs for every image set, level blueprints, tables
 assets: $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
+	$(PY) tools/build_assets.py
+# the same run as a file rule, so that a plain `make` in a fresh checkout builds what the programs and the disk read
+ASSET_OUT = $(BUILD)/assets/tables.inc $(BUILD)/assets/logic.bin $(BUILD)/assets/seqtbl_z80.bin $(BUILD)/assets/kid.dir \
+            $(BUILD)/assets/kid.pack $(BUILD)/assets/sword.dir $(BUILD)/assets/sword.pack
+$(ASSET_OUT) &: tools/build_assets.py tools/popdata.py tools/datfile.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
 	$(PY) tools/build_assets.py
 # SDLPoP's sequence table (external/SDLPoP/src/seqtbl.c) as data: build/assets/seqtbl.bin, seqtbl_offsets.txt (tools/seqdump.c)
 SDL2_CFLAGS ?= $(shell pkg-config --cflags sdl2 2>/dev/null || echo -I/usr/include/SDL2)
