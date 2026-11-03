@@ -772,3 +772,33 @@ In a room change the room draw lays the room's fore ops in its own pass: 17.3-30
   together with item 3 below.
 - **The laying's per-row cost** (470 T a row copying, 660-690 masked: a chunk with the fight room's pillar pays ~21 K of
   its 34 K in per-row work): M8a list item 3 (per-row overheads of the piece layers).
+
+## M8a part 6: the fore scan (2026-11-03)
+
+Part 5 measured the fore pass (lay_fore_rect) and found its fixed part, the scan, at 4.4-6.3 K T a chunk: 450-1,000 T
+of setup, ~300 T for each of the 11-14 tile cells it visited (all 4 tile rows) and 360-760 T for each op tested, so a
+chunk that lays nothing still paid 3.7-5.4 K T. The scan is rr_table, which run_rect's tile redraws use too.
+
+**The change** (src/m3/room.asm): rr_table walks the slice count table SL_CNT by pointer along each tile row instead
+of two tab_get calls and a row x 10 lookup per cell: an empty cell costs ~35 T. A non-empty cell's slice rows are
+tested in registers before the walk state is saved (a slice that misses the rect ~90 T). The slice tables share their
+low byte (SL_START / SL_CNT on page 0x81, SL_Y0 / SL_Y1 on page 0x04); an assembly-time check guards that layout.
+lay_fore_rect takes its bounds from rect_bounds and limits the columns to the rect's. The rows, columns and the order
+of the ops laid are the same, so the pixels are: the full regression on the runners passed (all parts).
+
+**Result:** the scan of a chunk 4.4-6.3 K T -> 1.7-3.0 K T; the main code 67 bytes smaller (end_of_code 0x7870 ->
+0x782D). tools/perfcheck.py, medians of 3 runs each, main (f3c16d5) -> this:
+
+| Stretch | main | fore scan | change |
+|---|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 6.20 | 6.10 | -0.10 |
+| fight (fight1 60-160) | 9.13 | 9.00 | -0.13 |
+| traps (traps_b1 0-300) | 6.03 | 5.96 | -0.07 |
+| walkthrough 190-260 | 11.00 | 10.70 | -0.30 |
+| level door step (walkthrough 203-207) | 17.88 | 17.45 | -0.43 |
+| room change (walkthrough 89) | 106.92 | 106.58 | -0.34 |
+| gate (gate_push 200-260) | 5.13 | 5.11 | -0.02 |
+
+Part 5's estimate was walk -0.08, fight -0.15: met. The tile redraws (doors, gates, loose floors) share the scan, so
+the walkthrough and the door step gain more than the fore pass alone would. The baseline (tests/perf_baseline.json)
+is lowered where the new median beats it; the room change and the fight keep their older, lower values.
