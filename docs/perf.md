@@ -1281,3 +1281,73 @@ for gates, and the most work) and **4**. With 1-3 a spike cycle would cost ~+4.5
 and +1.8). With 5 + 6 a gate step would cost ~+1.5-2 instead of +5-7: a kid running past an opening gate would take ~7
 frames a tick instead of 11. (Not proposed: drawing fewer ticks, PACE_MODE 1 of M8a part 2, which the user decided
 against.)
+
+## M8a part 11: spikes (2026-11-03)
+
+Status: **built.** The first two fixes of the gates-and-spikes measurement ("Gates and spikes: per-tick
+measurements", candidate fixes 1 and 2; its tools tools/tickcost.py, tools/trapscenes.py and tests/perf_scripts, on main
+since #24, measured before and after). view.asm vrd_one sends a spike's modifier-only change to spike_redraw
+(src/m4/spike.asm, main block), the way vrd_gate handles gates (M8a part 2 A):
+
+1. **Held spikes draw nothing.** The spike's picture depends on spike_frame(modifier) only (room.asm dta_spike,
+   dtf_spike of its own tile, dtar_spike of its right neighbour); when the old and the new modifier give the same frame
+   (the 15 ticks 0x8F..0x81 that the spikes stay out, and every tick the kid stands on them, 0x8F again) nothing is
+   regenerated or laid.
+2. **A spike step regenerates only the tiles that draw it**: its own tile and its right neighbour (column < 9); for a
+   spike in the left room's column 9 our column 0 only; for the above room's row 2 its tile only (as tile_redraw did);
+   for the below room's row 0 nothing (draw_tile_anim_topright reads only a gate, draw_tile_topright no spike
+   modifier). tile_redraw's third regeneration, the tile above-right, and for a left-room spike the second
+   tile_redraw of the row above, are gone.
+
+Resident: low block +5 bytes (the dispatch in vrd_one: end_of_low 0x1FE5 -> 0x1FEA, 22 free), main +60 (spike.asm:
+end_of_code 0x795F -> 0x799B, 613 free). The Python reference renders the room from the level state, so it has no
+redraw decision to keep in step (as for gate fix A).
+
+### Per scene (1 MB, frames a tick, the ticks where the kid moves; tools/tickcost.py --scene, median / p90 / worst)
+
+| scene | ticks | n | before | after | b (walking, after) |
+|---|---|---:|---|---|---:|
+| l14 spike | spikes held | 14 | 5.98 / 6.23 / 6.62 | **4.16** / 4.85 / 4.91 | 4.07 |
+| | spike step | 9 | 10.90 / 11.96 / 12.42 | 10.44 / 11.46 / 11.70 | 4.57 |
+| l08 spike | spikes held | 31 | 6.02 / 7.10 / 7.97 | **4.13** / 5.06 / 6.01 | 4.02 |
+| | spike step | 18 | 12.57 / 13.57 / 18.16 | 10.91 / 12.55 / 17.16 | 7.65 |
+| l06 spike | spikes held | 28 | 6.26 / 6.94 / 8.05 | **4.24** / 5.01 / 6.25 | 4.21 |
+| | spike step | 13 | 10.87 / 13.75 / 16.12 | 10.62 / 13.54 / 16.13 | 10.03 |
+| | spike step, the kid standing on the spikes (c) | 5 | 11.75 / 16.18 / 16.18 | 10.99 / 16.18 / 16.18 | |
+| l07 drop (room 19) | spikes held | 11 | 7.51 / 11.72 / 11.90 | **5.98** / 10.37 / 10.74 | 5.49 |
+| | spikes held + gate step | 8 | 15.11 / 15.84 / 18.95 | 13.94 / 14.82 / 17.57 | |
+| | spike step | 4 | 13.88 / 16.42 / 16.42 | 13.29 / 16.65 / 16.65 | 12.94 |
+| | spike step + gate step | 5 | 18.68 / 22.15 / 22.15 | 18.18 / 22.16 / 22.16 | |
+
+Held ticks cost what walking costs now (l14 4.16 against b's 4.07, l08 4.13 / 4.02, l06 4.24 / 4.21): -1.7..-2.0
+frames a tick, the expected 6.0 -> ~4.4. (b's own numbers fell in l08, l06 and l07 too: b patches only one spike
+tile to floor, other spikes of the room still cycle.) Tick by tick, the mean change of a's spike steps is -0.34
+(l14), -1.26 (l08, with held spikes elsewhere in the room), -0.32 (l06), -0.28 (l07); per step between -0.9 and
++0.25. Every step regenerates 2 tiles instead of 3 (--rects), -0.41 frames of tile_regen, but on some ticks the
+saving turns into waiting for the beam before the copy: l14 tick 33 (0x81 -> 6) is 10.44 frames in both builds,
+with tile_regen 1.61 -> 1.20 and pend_flush 0.89 -> 1.30 (--profile). The worst ticks that grew (l07 16.42 -> 16.65)
+are such beam phases.
+
+### perfcheck (3 runs per size, identical within each size; main = 60e7a83, one run)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.72 / 5.72 | 5.20 / 5.20 | 5.03 / 5.03 |
+| level door step (walkthrough 203-207) | 17.16 / 17.16 | 16.23 / 16.23 | 16.23 / 16.23 |
+| room change (walkthrough 89) | 106.05 / 106.05 | 106.05 / 106.05 | 105.22 / 105.22 |
+| walkthrough 190-260 | 10.26 / 10.26 | 10.06 / 10.07 | 9.69 / 9.68 |
+| gate (gate_push 200-260) | 4.99 / 4.99 | 4.99 / 4.99 | 4.99 / 4.99 |
+| traps (traps_b1 0-300) | 5.63 / 5.63 | 5.30 / 5.30 | 5.22 / 5.22 |
+| fight (fight1 60-160, guard on) | 7.73 / 7.72 | 7.19 / 7.20 | 6.86 / 6.86 |
+
+Nothing changes by more than 0.01. The 1 MB walkthrough 190-260 +0.01 is beam phase: its ticks differ only in the
+level door's animation (215 -0.51, 222 +0.57, 226 +0.61, ...), each a whole wait more or less, from the 17 T the
+spike compare adds to every other modifier change that reaches vrd_one's type checks. The baselines were lowered where
+the new medians beat them: 512 KB fight 7.73 -> 7.72, 16 MB walkthrough 190-260 9.69 -> 9.68 and traps 5.23 -> 5.22
+(1 MB: none).
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state and VRAM every tick) on the l14, l08, l06 spike and l07 drop scenes' a and c
+scripts, traps_b1, b9, b39, b40 and fight_spikes: 0 state diffs, 0 differing pixels; tests/m4_test.py on the same
+scripts: 0 differing (the logic program does not include view.asm). The full regression on the runners: see the PR.

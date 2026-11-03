@@ -891,3 +891,12 @@ piece used AND/XOR semantics.
    lookup unchanged; nothing resident; the level-start overlay 2,746 -> 3,438 bytes (W2 658 free), the overlay area in
    page 7 608 bytes free (the cheat build 194: the guard sets' code needs room elsewhere, e.g. a fill-only overlay).
    fg_run fills any key list (mask tables + pointers): the follow-up uses it for the level's guard set.
+53. M8a part 11, spikes (2026-11-03, docs/perf.md "M8a part 11: spikes"; numbered 53: items 51 and 52 are taken by
+   open work): fixes 1 and 2 of the gates-and-spikes measurement (PR #24). view.asm vrd_one sends a spike's
+   modifier-only change to spike_redraw (src/m4/spike.asm, main): nothing is drawn while spike_frame(modifier) is the
+   same (the 15 held ticks, the kid standing on the spikes); a frame change regenerates only the tiles that draw it (no
+   tile above-right; nothing for a below-room spike). Held ticks 6.0 -> 4.1-4.2 frames (= walking alone; l07 7.5 ->
+   6.0), spike steps one tile_regen fewer (-0.41 frames of work, -0.3 a tick on average: some of it becomes beam
+   wait). Resident: low +5 (22 free), main +60 (613 free). perfcheck unchanged on every size (+-0.01, beam phase);
+   baselines lowered where the medians beat them. Next from the list: spike records patched in place (fix 3), the
+   gate's records patched in place (5), the gate column shift (6).

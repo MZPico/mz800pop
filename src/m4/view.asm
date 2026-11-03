@@ -342,6 +342,8 @@ vrd_one:        ld      a, b
                 jr      z, vrd_torch
                 cp      T_GATE
                 jr      z, vrd_gate
+                cp      T_SPIKE
+                jp      z, spike_redraw ; (room.asm: C, E = the new and the old modifier)
                 cp      T_POTION
                 jr      nz, vrd_tile
                 ld      a, (VS_KIND)
