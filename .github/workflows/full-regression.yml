@@ -22,7 +22,7 @@ env:
   SDL3_TAG: release-3.4.14
   SDL3_IMAGE_TAG: release-3.4.4
   MINIZIP_TAG: 4.2.2
-  MZ800EMU_COMMIT: 94b796779e07977d4a9935e83e2270a798ea631c   # MZPico/mz800emu#2 (feature/regions-memdisk, not merged yet: re-pin to wasm once merged)
+  MZ800EMU_COMMIT: b4ebc084d639d360888d328d06e1b3bc49236c05   # wasm: MZPico/mz800emu#2 squash-merged (regions, mr1r18_wait)
   SDLPOP_COMMIT: 3c5add5fb7f83d4ceb542823ab66d00146c4271b
   MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
 
