@@ -116,8 +116,9 @@ Sources: mz800emu source + docs/agent (local checkout at ~/src/mz800emu), Hučí
   transfer inside one 64 KB page); the page register is ANDed with the size mask (256 KB = 3, 512 KB = 7), so a
   smaller RAM disk aliases pages: the loader writes a marker to offset 0 of pages 7 down to 0, reads them back
   (all distinct = 512 KB or more) and restores the bytes (since 2026-11-03 pages 255 down to 0: it counts the pages,
-  rd_top, docs/ramdisk-tiers.md; mz800emu supports 64K / 256K / 512K / 1M / 16M, its MCP reaches pages 0-51 only with 16M). `mr1r18_size = 256K` in a copy of the INI (with its own
-  `mr1r18_filepath`) tests the refusal.
+  rd_top, docs/ramdisk-tiers.md; mz800emu supports 64K / 256K / 512K / 1M / 16M, its MCP lists all 256 pages of 16M since MZPico/mz800emu#2, pages 0-51 before). `mr1r18_size = 256K` in a copy
+  of the INI tests the refusal. The INI's `mr1r18_type = STANDARD` keeps the RAM disk in memory (0xFF at start, no
+  file); `SRAM` saves it to `mr1r18_filepath` on every exit.
 - To check on real hardware (not emulated): the real drive's timing (latency, the 1Bh step rate on the
   installed drive), booting from a drive other than 0 (the loader always uses drive 0), the MZ-1R18 page aliasing
   of a 256 KB card (the probe assumes unused page bits are ignored), and MZPico (its FDC emulation and pico_rd

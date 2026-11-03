@@ -102,9 +102,13 @@ whole set through the local runner without the cache; the full regression is nor
 `tools/testrun.py` runs the tests of `tools/ci/suite.py` in parallel and skips each test that passed before with the
 same inputs. It builds first (`make ci-build`, then what the selected tests need: `make cheats`, the M3 programs).
 
-`POP800_RD_SIZE=512K` (or 256K, 1M, 16M) runs every emulator test with that RAM-disk size (emu/mz800emu-pop.sh writes an
-INI copy to build/emu/; unset = emu/mz800emu.ini's 1M); it is part of each test's cache key. A change under emu/ makes
-`make check` select every emulator test: run those on the runners instead (docs/ramdisk-tiers.md section 4).
+`POP800_RD_SIZE=512K`, `1M` or `16M` runs every emulator test with that RAM-disk size (the full-suite sizes;
+emu/mz800emu-pop.sh writes an INI copy to build/emu/; unset = emu/mz800emu.ini's 1M). `256K` (and `64K`) is only the
+refusal test's configuration: the loader refuses a RAM disk below 512 KB, so the ordinary boot of tests/m5_boot.py and
+the rest of the suite cannot run with it. `POP800_RD_WAIT=<T>` (0-255) adds that many wait states to every RAM-disk port
+access (mz800emu's `mr1r18_wait`; unset = the INI's 0). 0 is a chip-based RAM disk (the MZ-1R18, no wait states),
+`POP800_RD_WAIT=1` the MZPico (it asserts WAIT for at least 1 T). Both are part of each test's cache key. A change under
+emu/ makes `make check` select every emulator test: run those on the runners instead (docs/ramdisk-tiers.md section 4).
 
 | Target | What | Use |
 |---|---|---|
