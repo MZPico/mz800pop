@@ -30,7 +30,7 @@ VS_KIND         equ     VARS + 0x7c
 VS_PTR          equ     VARS + 0x7d     ; 16-bit
 VS_PRESSED      equ     VARS + 0x5b
 VS_LINKS        equ     VARS + 0x5c     ; 4: the shown room's links (left, right, up, down) for this snapshot/redraw
-VIEW_SNAP       equ     0xf510          ; 53 x (tile, modifier, pressed), after the level blueprint (ends 0xF501)
+VIEW_SNAP       equ     0xf510          ; 53 x (tile, modifier), the buttons, the entries' tile addresses (view.asm; to 0xF5F4)
 ; M8a part 2: time-exact pacing (PACE_MODE 1, below): the tick clock and the skipped drawing (low RAM, runtime only)
 NEXT_TICK       equ     0x01b8          ; 16-bit: the frame the next tick is due (mode 1)
 SKIP_TICK       equ     0x01ba          ; mode 1: this tick is a whole tick late: its drawing may be skipped

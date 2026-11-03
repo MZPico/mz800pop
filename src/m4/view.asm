@@ -85,6 +85,8 @@ vs_check:       ld      a, (SHOWN_ROOM)
                 ld      (VS_IDX), a
                 ld      hl, vs_ptrs
                 ld      (vr_pp), hl
+                ld      hl, VS_BTN
+                ld      (VS_PTR), hl
 vb_l:           call    vs_entry
                 ld      hl, 0
                 ld      a, (VS_ROOM)
@@ -101,11 +103,31 @@ vb_st:          ex      de, hl
                 ld      (hl), d
                 inc     hl
                 ld      (vr_pp), hl
-                ld      hl, VS_IDX
+                ld      a, d                    ; a button: on the list (tiles do not become buttons)
+                or      e
+                jr      z, vb_n
+                ld      a, (de)
+                and     0x1f
+                cp      T_CLOSER_R
+                jr      z, vb_btn
+                cp      T_OPENER
+                jr      nz, vb_n
+vb_btn:         ld      hl, (VS_PTR)
+                ld      a, l
+                cp      low (VS_BTN + 2 * VS_BTNMAX)
+                jr      z, vb_n                 ; (full: the levels 0-14 show at most 5)
+                ld      a, (VS_IDX)
+                ld      (hl), a
+                inc     hl
+                inc     hl
+                ld      (VS_PTR), hl
+vb_n:           ld      hl, VS_IDX
                 inc     (hl)
                 ld      a, (hl)
                 cp      53
                 jr      nz, vb_l
+                ld      hl, (VS_PTR)
+                ld      (hl), 0xff
                 ret
 ; vs_get: BC = &fg (0: none) -> B = tile byte, C = modifier, A = 1 for a pressed button (door-link timer
 ; above 1), else 0. Keeps DE, HL.
@@ -139,57 +161,173 @@ vg1:            push    bc
                 ret     nc
                 xor     a
                 ret
-view_snapshot:  call    vs_check
-                ld      hl, vs_ptrs
-                ld      de, VIEW_SNAP
-                ld      a, 53
-vsn_l:          ld      (vs_n), a
-                ld      c, (hl)
+; The snapshot (VIEW_SNAP: per entry the tile byte and the modifier, VS_BTN: the buttons' pressed state) and the
+; compare walk the entries as runs of consecutive tile bytes (vs_runs: first entry, count; a run without a room is
+; skipped by both).
+VS_BTNMAX       equ     8
+VS_BTN          equ     VIEW_SNAP + 106         ; VS_BTNMAX x (entry, pressed), then 0xff
+vs_ptrs         equ     VS_BTN + 2 * VS_BTNMAX + 1      ; 53 x the entry's tile byte address (0: no room), to 0xF5F4
+vs_runs:        db      0, 30, 30, 1, 31, 1, 32, 1, 33, 10, 43, 10
+; vs_run: the next run of vs_runs at (vr_pp): DE = its first tile byte, BC = DE + 720 (its modifier), HL = its
+; snapshot entry, B' = its length; Z: no room there
+vs_run:         ld      hl, (vr_pp)
+                ld      a, (hl)                 ; first entry
                 inc     hl
-                ld      b, (hl)
-                inc     hl
-                call    vs_get
-                ex      de, hl
-                ld      (hl), b
-                inc     hl
-                ld      (hl), c
-                inc     hl
-                ld      (hl), a
-                inc     hl
-                ex      de, hl
-                ld      a, (vs_n)
-                dec     a
-                jr      nz, vsn_l
-                ret
-view_redraw:    xor     a
-                ld      (VS_IDX), a
-                ld      hl, vs_ptrs
-                ld      (vr_pp), hl
-                ld      hl, VIEW_SNAP
-                ld      (VS_PTR), hl
-vrd_loop:       ld      hl, (vr_pp)
-                ld      c, (hl)
-                inc     hl
-                ld      b, (hl)
+                ld      c, (hl)                 ; count
                 inc     hl
                 ld      (vr_pp), hl
-                call    vs_get          ; B, C = new tile byte, modifier; A = pressed
-                ld      (VS_PRESSED), a
-                ld      hl, (VS_PTR)
-                ld      d, (hl)         ; D, E = old
-                inc     hl
+                ld      l, a
+                ld      h, 0
+                add     hl, hl
+                push    hl
+                ld      de, vs_ptrs
+                add     hl, de
+                ld      a, c
+                exx
+                ld      b, a
+                exx
                 ld      e, (hl)
                 inc     hl
-                cp      (hl)            ; a button pressed or released: redraw it
+                ld      d, (hl)
+                pop     hl
+                ld      bc, VIEW_SNAP
+                add     hl, bc
+                ld      a, e
+                add     a, low 720
+                ld      c, a
+                ld      a, d
+                adc     a, high 720
+                ld      b, a
+                ld      a, d
+                or      e
+                ret
+; vs_press: A = entry -> A = 1 for a pressed button, B = its tile byte (vs_get)
+vs_press:       add     a, a
+                ld      l, a
+                ld      h, 0
+                ld      de, vs_ptrs
+                add     hl, de
+                ld      c, (hl)
                 inc     hl
-                ld      (VS_PTR), hl
-                jr      nz, vrd_cht
+                ld      b, (hl)
+                jp      vs_get
+view_snapshot:  call    vs_check
+                ld      hl, vs_runs
+                ld      (vr_pp), hl
+                ld      a, 6
+vsn_r:          ld      (vs_n), a
+                call    vs_run
+                jr      z, vsn_rn
+vsn_l:          ld      a, (de)
+                ld      (hl), a
+                inc     hl
+                ld      a, (bc)
+                ld      (hl), a
+                inc     hl
+                inc     de
+                inc     bc
+                exx
+                dec     b
+                exx
+                jp      nz, vsn_l
+vsn_rn:         ld      a, (vs_n)
+                dec     a
+                jr      nz, vsn_r
+                ld      hl, VS_BTN
+vsn_b:          ld      a, (hl)
+                inc     a
+                ret     z
+                dec     a
+                inc     hl
+                push    hl
+                call    vs_press
+                pop     hl
+                ld      (hl), a
+                inc     hl
+                jr      vsn_b
+view_redraw:    ld      hl, VS_BTN              ; a button pressed or released: its snapshot tile byte is made to
+vrd_b:          ld      a, (hl)                 ; differ, so that the compare redraws the tile in its turn
+                inc     a
+                jr      z, vrd_c
+                dec     a
+                inc     hl
+                push    hl
+                push    af
+                call    vs_press
+                pop     de                      ; D = entry
+                pop     hl
+                cp      (hl)
+                inc     hl
+                jr      z, vrd_b
+                push    hl
+                ld      l, d
+                ld      h, 0
+                add     hl, hl
+                ld      de, VIEW_SNAP
+                add     hl, de
                 ld      a, b
+                xor     1
+                ld      (hl), a
+                pop     hl
+                jr      vrd_b
+vrd_c:          ld      hl, vs_runs
+                ld      (vr_pp), hl
+                ld      a, 6
+vrd_r:          ld      (vs_n), a
+                call    vs_run
+                jr      z, vrd_rn
+vrd_l:          ld      a, (de)                 ; the tile byte now
+                cp      (hl)
+                jr      nz, vrd_x0
+                inc     hl
+                ld      a, (bc)                 ; the modifier
+                cp      (hl)
+                jr      nz, vrd_x1
+vrd_ln:         inc     hl
+                inc     de
+                inc     bc
+                exx
+                dec     b
+                exx
+                jp      nz, vrd_l
+vrd_rn:         ld      a, (vs_n)
+                dec     a
+                jr      nz, vrd_r
+                jp      flames_sync             ; ops moved (any tile_redraw): the registry follows
+vrd_x0:         inc     hl
+vrd_x1:         push    hl                      ; HL = the entry's modifier in the snapshot
+                push    de
+                push    bc
+                exx
+                push    bc
+                exx
+                ld      a, (de)
+                ld      d, a
+                ld      a, (bc)
+                ld      c, a
+                ld      b, d                    ; B, C = new tile byte, modifier
+                ld      de, -VIEW_SNAP
+                add     hl, de
+                ld      a, l
+                srl     a                       ; the entry: (HL - VIEW_SNAP) / 2
+                ld      (VS_IDX), a
+                ld      de, VIEW_SNAP - 1
+                add     hl, de
+                ld      d, (hl)
+                inc     hl
+                ld      e, (hl)                 ; D, E = old
+                call    vrd_one
+                exx
+                pop     bc
+                exx
+                pop     bc
+                pop     de
+                pop     hl
+                jr      vrd_ln
+; vrd_one: entry VS_IDX changed: B, C = new tile byte, modifier; D, E = the snapshot's
+vrd_one:        ld      a, b
                 cp      d
-                jr      nz, vrd_cht     ; the tile itself changed
-                ld      a, c
-                cp      e
-                jp      z, vrd_next     ; nothing changed
+                jr      nz, vrd_cht     ; the tile itself changed (or a button was pressed or released)
                 push    bc
                 push    de
                 call    vs_entry
@@ -254,13 +392,8 @@ vrd_tile:       ld      a, (VS_TAG)
                 sub     10
                 jr      nc, vrd_up
                 ld      a, 30                   ; row 0: the row above
-vrd_up:         call    tile_redraw
-vrd_next:       ld      hl, VS_IDX
-                inc     (hl)
-                ld      a, (hl)
-                cp      53
-                jp      nz, vrd_loop
-                jp      flames_sync             ; ops moved (any tile_redraw): the registry follows
+vrd_up:         jp      tile_redraw
+vrd_next:       ret
 ; a gate's modifier changed (M8a part 2): its bars are drawn by its right neighbour (draw_gate_back) and their top by
 ; the tile above that (draw_tile_anim_topright), both from min(modifier, 188) / 4; the gate's own tile draws nothing
 ; of them. So nothing changes on screen for a gate in the above room's row 2 (draw_tile_above has no anim_right) or in
@@ -545,7 +678,6 @@ flm_gen:        db      0xff
 flm_rec:        ds      2 * FLM_MAX
 tf_tag:         db      0
 tf_frm:         db      0
-vs_ptrs:        ds      106
 vr_pp:          dw      0
 vs_n:           db      0
 vs_built:       db      0xff
