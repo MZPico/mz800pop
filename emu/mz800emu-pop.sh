@@ -1,5 +1,21 @@
 #!/bin/sh
 # Launch mz800emu with the pop-800 project configuration (used by .mcp.json and tools/emu.py).
 # MZ800EMU_BIN: the emulator binary (default: the local build; CI sets it to its own build, docs/ci.md).
+# POP800_RD_SIZE: the RAM disk's size (mz800emu's mr1r18_size: 64K, 256K, 512K, 1M or 16M; default: mz800emu.ini's,
+# 1M): a copy of the INI with that size and its own RAM-disk file (rd-mz800-<size>.dat in the current directory, as
+# the INI's own file) in build/emu/ (docs/ramdisk-tiers.md section 1).
+dir="$(cd "$(dirname "$0")" && pwd)"
+ini="$dir/mz800emu.ini"
+if [ -n "$POP800_RD_SIZE" ]; then
+    case "$POP800_RD_SIZE" in
+        64K|256K|512K|1M|16M) ;;
+        *) echo "mz800emu-pop.sh: POP800_RD_SIZE must be 64K, 256K, 512K, 1M or 16M" >&2; exit 2 ;;
+    esac
+    mkdir -p "$dir/../build/emu"
+    gen="$dir/../build/emu/mz800emu-$POP800_RD_SIZE.ini"
+    sed -e "s/^mr1r18_size = .*/mr1r18_size = $POP800_RD_SIZE/" \
+        -e "s/^mr1r18_filepath = .*/mr1r18_filepath = rd-mz800-$POP800_RD_SIZE.dat/" "$ini" > "$gen.$$" && mv "$gen.$$" "$gen"
+    ini="$gen"
+fi
 exec "${MZ800EMU_BIN:-/home/matyamar/src/mz800emu/build/build-mz800emu/mz800emu}" \
-    --config "$(cd "$(dirname "$0")" && pwd)/mz800emu.ini" --no-save-ini "$@"
+    --config "$ini" --no-save-ini "$@"

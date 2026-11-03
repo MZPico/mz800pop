@@ -21,7 +21,10 @@
 ;   +12 1  result (reserved: the PRES -> game direction, e.g. a restored game)
 ;   +13 1  is_guard_notice   \ SDLPoP globals no level start resets (a bump noise, the last room-leave result):
 ;   +14 1  roomleave_result  / kept as the game keeps them without the swap
-;   +15 1  0
+;   +15 1  rd_top (HO_RDTOP): the RAM disk's last 64 KB page as the boot's probe found it (7 = 512 KB, 15 = 1 MB,
+;          255 = 16 MB); the launcher sets it in the copy at HO_MAIN each time it starts a program (what a program
+;          wrote there in the RAM disk's block is ignored); 0 at HO_MAIN (the harness, which does not boot) = the 512 KB
+;          layout (docs/ramdisk-tiers.md). Nothing reads it yet.
 LN_LOAD         equ     0xb000          ; the launcher's image runs here (outside both programs' images)
 LN_LAUNCH       equ     LN_LOAD + 3     ; jp: start the program the handoff block (RAM disk) asks for
 LN_PRS_LOAD     equ     LN_LOAD + 6     ; call (PRES only, the launcher stays at 0xB000 while PRES runs): A = entry
@@ -47,6 +50,7 @@ HO_LOOSE        equ     11
 HO_RESULT       equ     12
 HO_NOTICE       equ     13
 HO_ROOMLEAVE    equ     14
+HO_RDTOP        equ     15
 ACT_PLAY        equ     0x00            ; game: start level HO_LEVEL
 ACT_DEMO        equ     0x01            ; game: the attract demo (level 0; later)
 ACT_TITLE       equ     0x10            ; PRES (bit 4): the title (then a new game)

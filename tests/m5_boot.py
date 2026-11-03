@@ -23,7 +23,9 @@ are left out of the RAM-disk comparison (the harness does not write them). tests
 M7 step 3: the launched game's sound model is live (SND_MODE 1: snd_playing = the PSG player); the floppy run is set
 to silent at level_ready, as every harness run is (live decisions only change which sounds start, i.e. the timing).
 Also: the loader's progress bar is full when PRES starts, and with a 256 KB RAM disk (a temporary emulator INI) the
-loader refuses (stops at rd_stop) and the game does not start. Prints the boot times in frames (50 per second).
+loader refuses (stops at rd_stop) and the game does not start; the probe finds 512 KB, 1 MB and 16 MB RAM disks
+(rd_top 7, 15, 255; docs/ramdisk-tiers.md section 1) and puts back the bytes it wrote, and the launched game gets the
+emulator's size at HO_MAIN + HO_RDTOP. Prints the boot times in frames (50 per second).
 The disk is mounted from a copy (mz800emu writes a mounted image back on eject, even read-only).
 usage: m5_boot.py [ticks]"""
 import base64, os, shutil, sys, tempfile
@@ -44,6 +46,7 @@ MAIN = ((0x1200, 0x8000), (0xC000, G['block2_end']))
 REAL_GAME = dict(guards=True, place=[], sword=False)   # guard_opts zero, ev_opts as assembled
 TICKS = int(sys.argv[1]) if len(sys.argv) > 1 else 300
 SND_MODE_LAUNCHED = None
+RD_TOP_LAUNCHED = None
 
 def fill_ramdisk(e):
     for p in range(PAGES):
@@ -153,6 +156,8 @@ def floppy_run(dsk):
         t_pres = t_launch + run_to(e, PS['pres'])
         t_title = t_pres + title_start(e)
         t_start = t_title + run_to(e, G['start'])
+        global RD_TOP_LAUNCHED                          # the probe's size, as the launcher handed it to the game
+        RD_TOP_LAUNCHED = e.mem(BS['HO_MAIN'] + BS['HO_RDTOP'], 1)[0]
         s0 = snapshot(e, RESERVED + PRES_SCRATCH)
         t_ready = t_start + run_to(e, G['level_ready'])
         global SND_MODE_LAUNCHED                        # M7: the launched game plays sound live (psg.asm SND_MODE 1);
@@ -164,22 +169,33 @@ def floppy_run(dsk):
         e.screenshot(os.path.join(BUILD, 'm5_game.png'))
     return s0, s1, s2, (t_boot, t_launch, t_pres, t_title, t_start, t_ready), bar
 
+RD_TOP = {'256K': 3, '512K': 7, '1M': 15, '16M': 255}  # mz800emu's mr1r18_size -> the probe's rd_top (its last page)
+def ini_rd_size():
+    """the RAM-disk size the default emulator runs with: POP800_RD_SIZE (emu/mz800emu-pop.sh), else the INI's"""
+    if os.environ.get('POP800_RD_SIZE'): return os.environ['POP800_RD_SIZE']
+    for l in open(os.path.join(ROOT, 'emu', 'mz800emu.ini')):
+        if l.startswith('mr1r18_size'): return l.split('=')[1].strip()
+
+def rd_emu(tmp, size):
+    """a launcher for an emulator with a RAM disk of `size` (a temporary INI, its own RAM-disk file in tmp)"""
+    ini = open(os.path.join(ROOT, 'emu', 'mz800emu.ini')).read()
+    lines = []
+    for l in ini.splitlines():
+        if l.startswith('mr1r18_size'): l = 'mr1r18_size = ' + size
+        if l.startswith('mr1r18_filepath'): l = 'mr1r18_filepath = ' + os.path.join(tmp, 'rd%s.dat' % size)
+        lines.append(l)
+    open(os.path.join(tmp, 'mz800emu.ini'), 'w').write('\n'.join(lines) + '\n')
+    real = open(emu.EXE).read().split('exec ', 1)[1].split()[0]
+    sh = os.path.join(tmp, 'launch.sh')
+    open(sh, 'w').write('#!/bin/sh\ncd %s\nexec %s --config %s --no-save-ini "$@"\n' % (tmp, real, os.path.join(tmp, 'mz800emu.ini')))
+    os.chmod(sh, 0o755)
+    return sh
+
 def refuse_run(dsk):
     """boot with a 256 KB RAM disk (a temporary INI and launcher, its own RAM-disk file)"""
     tmp = tempfile.mkdtemp(prefix='m5boot')
     try:
-        ini = open(os.path.join(ROOT, 'emu', 'mz800emu.ini')).read()
-        lines = []
-        for l in ini.splitlines():
-            if l.startswith('mr1r18_size'): l = 'mr1r18_size = 256K'
-            if l.startswith('mr1r18_filepath'): l = 'mr1r18_filepath = ' + os.path.join(tmp, 'rd256.dat')
-            lines.append(l)
-        open(os.path.join(tmp, 'mz800emu.ini'), 'w').write('\n'.join(lines) + '\n')
-        real = open(emu.EXE).read().split('exec ', 1)[1].split()[0]
-        sh = os.path.join(tmp, 'launch.sh')
-        open(sh, 'w').write('#!/bin/sh\ncd %s\nexec %s --config %s --no-save-ini "$@"\n' % (tmp, real, os.path.join(tmp, 'mz800emu.ini')))
-        os.chmod(sh, 0o755)
-        with Emu(exe=sh) as e:
+        with Emu(exe=rd_emu(tmp, '256K')) as e:
             e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
             e.call('reset')
             e.call('bp_add', addr=G['start']); e.call('bp_add', addr=BS['rd_stop'])
@@ -192,6 +208,29 @@ def refuse_run(dsk):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+def probe_run(dsk, size):
+    """boot with a RAM disk of `size` up to the end of the probe (rd_probed): (rd_top, the bytes at offsets 0-1 of every
+    page put back, the probe accepted it); offsets 0-1 of each page the emulator lets the test reach hold a pattern before
+    the boot"""
+    tmp = tempfile.mkdtemp(prefix='m5probe')
+    try:
+        with Emu(exe=rd_emu(tmp, size)) as e:
+            pages = RD_TOP[size] + 1                    # (mz800emu's MCP lists at most 128 regions: with 16 MB only
+            pages = min(pages, sum(r['kind'] == 'ramdisk_std' for r in e.call('regions_list')['regions']))   # pages 0-51)
+            pat = lambda p: bytes([(p * 7 + 3) & 255, (p * 13 + 200) & 255])
+            for p in range(pages):
+                e.call('region_write', region_id=RAMDISK[0] + p, offset=0, data_b64=base64.b64encode(pat(p)).decode())
+            e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
+            e.call('reset')
+            e.call('bp_add', addr=BS['rd_probed'])
+            r = e.run(400); assert r['stopped_by'] == 'breakpoint', r
+            zf = bool(e.call('get_registers')['AF'] & 0x40)
+            top = e.mem(BS['rd_top'], 1)[0]
+            kept = all(e.region(RAMDISK[0] + p, 0, 2) == pat(p) for p in range(pages))
+        return top, kept, zf
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
 def main():
     print('harness run (tests/m4_game.py setup, guards on) ...')
     h0, h1, h2 = harness_run()
@@ -201,6 +240,7 @@ def main():
         dsk = copy_disk(tmp)
         f0, f1, f2, (t_boot, t_launch, t_pres, t_title, t_start, t_ready), bar = floppy_run(dsk)
         ok, pc = refuse_run(dsk)
+        probes = {size: probe_run(dsk, size) for size in ('512K', '1M', '16M')}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print('boot: loader entered after %d frames, launcher after %d frames (loader %d frames = %.1f s), PRES after %d, '
@@ -224,6 +264,15 @@ def main():
     bad += (not same_kv) + (not same_vram)
     print('256 KB RAM disk: loader %s (PC %04X; screenshot build/m5_refuse.png)' % ('refuses at rd_stop' if ok else 'DID NOT REFUSE', pc))
     bad += not ok
+    for size, (top, kept, zf) in probes.items():      # (docs/ramdisk-tiers.md section 1)
+        good = top == RD_TOP[size] and kept and zf
+        print('%s RAM disk: the probe found pages 0-%d, %s, the bytes it wrote put back: %s%s' % (
+            size, top, 'accepted' if zf else 'REFUSED', 'yes' if kept else 'NO', '' if good else '  FAILED'))
+        bad += not good
+    want = RD_TOP.get(ini_rd_size())
+    print('the launched game\'s HO_MAIN + HO_RDTOP: %d (the emulator\'s %s RAM disk: %s)' % (
+        RD_TOP_LAUNCHED, ini_rd_size(), 'right' if RD_TOP_LAUNCHED == want else 'WRONG, want %s' % want))
+    bad += RD_TOP_LAUNCHED != want
     print('M5 boot test %s' % ('OK' if not bad else 'FAILED'))
     sys.exit(1 if bad else 0)
 
