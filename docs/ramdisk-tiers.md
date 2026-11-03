@@ -1,9 +1,11 @@
 # RAM-disk tiers: design and measurements (2026-11-03)
 
-Status: **design for review**; measured, nothing of the caches built. The enabling changes in the same PR change no
-behaviour: the boot's probe now counts the RAM disk's pages and the launcher hands the size to the program it starts
-(nothing reads it yet), the emulator launcher takes a size (`POP800_RD_SIZE`), `tests/m5_boot.py` tests the probe with
-512 KB, 1 MB and 16 MB, and `tools/fetchstat.py` measures the sprite fetch.
+Status: **design for review**; measured, nothing of the caches built. Sections 7-8 (prefetching; prebuilt layouts and
+the hybrid) answer the user's follow-up questions; the recommendation (section 9) rests on them. The enabling changes
+in the same PR change no behaviour: the boot's probe now counts the RAM disk's pages and the launcher hands the size
+to the program it starts (nothing reads it yet), the emulator launcher takes a size (`POP800_RD_SIZE`),
+`tests/m5_boot.py` tests the probe with 512 KB, 1 MB and 16 MB, `tools/fetchstat.py` measures the sprite fetch and
+tools/fetchmodel/ holds the models and measurements behind the tables (run_all.sh / idle_all.sh feed them).
 
 The decisions this builds on (PLAN.md item 33 and its 16 MB addendum, item 41): the RAM-disk size is probed at boot and
 used when it is there, never required; 256 KB = per-level loading (late M8), 512 KB = today's layout, 1 MB and more =
@@ -123,7 +125,10 @@ The most used keys first: 128 KB of entries cover 40 % of all fetches, 256 KB 59
 rarely shows the same frame at the same shift twice in a short stretch (a walk cycles frames while x moves 1-4 pixels
 a tick): **a first pass gains little, a long session a lot**. That decides the fill and eviction policy (section 3).
 
-## 3. The frame cache
+## 3. The frame cache: option A, filled at run time
+
+(Sections 7 and 8 compare it with prefetching and with prebuilt or pre-generated fixed layouts; the recommendation in
+section 9 is the fixed-layout hybrid of section 8, which reuses this section's entry format and lookup.)
 
 ### Format of an entry
 
@@ -236,7 +241,7 @@ eviction in every script). tests/m4_game.py's every-tick VRAM hash comparison ag
 check; perfcheck gets warm and cold stretches (the cold one: a fresh RAM disk; warm: the stretch run twice).
 
 **Today's game on other sizes, verified in this PR**: the full regression on the runners with the INI at 512K
-(regress/rd512) and at 16M (regress/rd16m) (section 7).
+(regress/rd512) and at 16M (regress/rd16m) (section 6).
 
 ## 5. The visited-room cache (second step)
 
@@ -257,40 +262,209 @@ check; perfcheck gets warm and cold stretches (the cold one: a fresh RAM disk; w
   op lists. 16 MB: 8 + 158 + 15 + the frame cache's observed ~24 pages (67 for the whole key space) = 205-248 of 256
   pages: everything fits, never evicting, across levels and restarts (a restart's blueprint reload is caught by the
   snapshot compare). 1 MB: a few room slots against frame-cache space: 4 pages = 8 rooms (LRU per level), the frames
-  256 KB (0.549 instead of 0.447 in the session table). Which split is the user's call (section 8).
+  256 KB (0.549 instead of 0.447 in the session table). Which split is the user's call (section 10).
 - **Resident**: the slot choice and the snapshot compare at a room draw go into the room overlay (W1, 86 bytes free:
   likely a second room overlay); resident only the patched shadow page (~20-40 bytes).
 
-## 6. Recommendation
+## 6. Results of the regression runs on other sizes
 
-1. **PR A: the frame cache for the kid, sword and guards** (1 MB and 16 MB at once: the eviction is the only difference;
-   FIFO ring, 16 MB = a ring that never wraps): directory + lookup + fill in char_fetch, set-up in W2 / the launcher,
-   `POP800_RD_SIZE` in m4_game.setup (poke 0x02AF), perfcheck warm/cold stretches, the full regression at 512K / 1M /
-   16M. ~3-4 days. Gain warm walk -0.72, fight -1.2 frames a tick; cold first passes up to +0.1-0.25.
-2. **PR B: CI**: the RAM-disk dimension in the full-regression workflow (or a second run), PR tier at 1M; optionally the
-   emulator's region limit raised (MZPico/mz800emu PR from `wasm`) to inspect the cache above page 51 in tests. ~0.5-1
-   day.
-3. **PR C: the visited-room cache** (16 MB first: no eviction; then 1 MB's split): ~4-6 days. Revisit ~106 -> ~15-20
-   frames.
-4. Independent of the tiers (every size, also the fill path): a faster shift routine (the shift is 77-103 T a byte;
-   registers instead of IY-indexed stores, no ROWTMP pass for shift 0) could gain ~0.15-0.25 frames a tick walking on
-   512 KB; worth a measurement after PR A since it also lowers the cold penalty.
-5. Not recommended as separate steps: a pre-mirrored pack alone (-0.12 walking right, superseded by the cache's
-   entries) and pre-generating entries at level start (the whole kid set is ~2.1 MB: ~60 s of shifting).
+The full regression on the runners (all 11 parts, every test on its full set) with the INI's `mr1r18_size` changed on a
+probe branch, this PR's first commit: **512K: passed** (regress/rd512, run 41628768083) and **16M: passed**
+(regress/rd16m, run 41628772168); the PR checks passed too. Today's game (and the new probe) therefore behaves the same
+with 512 KB, 1 MB and 16 MB, which the tiers' verification (section 4) builds on.
 
-## 7. Results of the regression runs on other sizes
+## 7. Prefetching: can the cache be (almost) always warm?
 
-(filled in below when the runner jobs finish)
+### The working set
 
-## 8. Open questions for the user
+| | keys | bytes as stored entries |
+|---|---:|---:|
+| the kid, every frame x 2 mirrors x 8 shifts | 3,504 | 2,154 KB |
+| the sword | 544 | 59 KB |
+| one guard set (guard, guard_palace, fat, vizier / skel, shadow) | 544 / 448, 512 | 368-388 KB / 314, 311 KB |
+| the whole game | 7,184 | 4,354 KB |
+| observed in the scripts, per level (kid / that level's guard set): level 1 | 1,256 / - | 793 KB / - |
+| level 2 / 4 (the plain guard) | 402, 928 / 142, 171 | 273, 590 / 122, 138 KB |
+| level 13 (vizier) / 12 (shadow) | 244, 247 / 90, 32 | 154, 166 / 68, 26 KB |
+| observed over all 71 scripts | 2,553 | 1,515 KB |
 
-1. The 1 MB split between frames and rooms: frames only (448 KB, the frame cache's best), or 256 KB frames + 8 room
-   slots? (the session numbers: 0.447 vs 0.549 frames a tick of fetch; a revisit ~15-20 frames instead of ~106).
-2. The cold penalty: a first pass is up to ~0.1-0.25 frames a tick slower than today (fight_bump the worst). Acceptable,
-   or fill only when the tick has time left (a fill skipped when the tick is already late; it changes only speed)?
-3. Resident space: the cache (~300 bytes) and the parked beam wait (PR #8, ~478) do not both fit the 768 free bytes.
-   Cache first, beam wait after a reclaim?
-4. Pre-generating during PRES's title (it waits for a key; the kid's most used ~128-256 KB of entries in ~10-20 s) to
-   start warm: worth the complexity?
-5. The emulator: raise MCP_REGIONS_MAX (or add a bank-addressed RAM-disk read/write) and consider `mr1r18_type = STD`
-   for the tests (no shared file, no 16 MB file writes)?
+(Per level the observed sets are what the scripts happen to cover: level 1 has 30 scripts, other levels 1-6.) 1 MB
+(~480 KB free above the base layout and the 30 KB directory): about a fifth of the kid's full set, or the most used
+~400 KB of kid + sword keys and ~80 KB of the level's guard set. 16 MB: everything (4.35 MB = 67 pages) with room for
+the room cache.
+
+### Fill times at today's shift speed
+
+Generating a key with today's code = a fetch (measured: ~1,800 T + per image byte 25.5 read, 79 / 99 shift unmirrored /
+mirrored, 17 loop) + writing it (21.1 T a byte): tools/fetchmodel/prebuild.py.
+
+| | today's fetch code | a dedicated generator (estimate) |
+|---|---:|---:|
+| the kid's full set (2,154 KB) | 78.4 s | ~31 s |
+| one guard set (~388 KB) | 12-15 s | ~5.6 s |
+| the sword | 2.3 s | ~0.9 s |
+| everything (4,354 KB) | 163 s | ~61 s |
+| the most used kid + sword 400 KB | 14.6 s | ~5.8 s |
+| the most used 80 KB of a guard set | 3.0 s | ~1.2 s |
+
+The dedicated generator (estimate, not built): one read of each image row, the 8 shifts made by shifting the row one
+more bit each time (RL through the 4 planes, ~20 T a byte), the mirror by the bit-reverse table, each variant's row
+written with OTIR to its entry (21 T a byte + a seek a row): ~50 T an output byte instead of ~125. Its output must be
+byte-identical to the kernel's (checked as tools/fetchmodel/prebuild_check.py checks the Python generator).
+
+### When the MZ has time without the player noticing
+
+- **Do the pages survive?** Yes: pages 8 and up are written by nothing but the caches: not by the boot's stream
+  (pages 0-7), the launcher (page 0 0xF000, page 5's handoff block, the game image in pages 3-4), PRES (its scratch is
+  page 1 0x0000-0x7CFF and page 6 0x0000-0x287F) or a level change. A cache filled at boot lasts the whole session,
+  across levels, restarts and cutscenes.
+- **At boot**: the loader runs 14.2 s today (emulator, 708 frames; a real drive longer); the title waits for a key.
+  Filling there adds its time to the first start (or runs while PRES shows the title: PRES owns main RAM then, so the
+  filler would be PRES's own code; not designed).
+- **At a level start**: today the level load is ~0.9 s (m5_boot: 44 frames from the game's start to level_ready on
+  level 1); the "LEVEL n" text, the fade and the level 1 crouch music are timed in ticks, which keep running (filling
+  there would delay them: visible). A per-level fill makes the level start longer by its time.
+- **The idle part of ticks** (the 4-frame pacing floor halts when a tick took less than 4 frames), measured with
+  tracepoints at tick_done and ml_go over all 71 scripts (tools/fetchmodel/idle.py): **0.05-2.3 frames idle a second
+  of play** (walk_level1 1.50, traps_b1 0.87, random1 1.32, the level starts ~2.2, fights 0.10-0.22, death_text 0.19,
+  time_expire 0.06): the game runs 5-8 frames a tick, so it almost never waits. At ~1.1 frames a key (today's code)
+  that is about one key a second walking, none in fights: negligible.
+- **Death and level-end waits** are tick-driven too (the death text, the end music in the hybrid sound mode): the
+  ticks are drawn as always, so no idle time; working there would change how many ticks a wait takes in real time,
+  i.e. behaviour: no.
+
+So prefetching means a fixed amount of work at boot and / or level start, not background filling.
+
+### Misses that remain, the cold pass
+
+With a store filled ahead (keys chosen by use, cross-validated: chosen from half of the scripts, measured on the other
+half; tools/fetchmodel/static_set.py), fetch frames a tick, today 0.871 on these runs:
+
+| store | fetch | stored keys hit |
+|---|---:|---:|
+| 16 MB: all 7,184 keys | 0.186 | 100 % |
+| 1 MB: kid + sword 400 KB + the level's guard set 80 KB | 0.399 | 74 % |
+| kid + sword 448 KB + guard set 32 KB | 0.394 | 74 % |
+| kid + sword 256 KB + guard set 64 KB | 0.477 | 64 % |
+| kid + sword 400 KB only | 0.451 | 68 % |
+
+Held-out scripts with the 1 MB store (keys chosen from the other 70): walk_level1 0.936 -> 0.485, fight1 1.222 -> 0.639,
+traps_b1 0.906 -> 0.361. A key not in the store costs exactly today's fetch: **no cold penalty** (option A's first
+pass is up to +0.1-0.25 slower than today).
+
+### Resident bytes
+
+A background filler (in the halt loop, resumable per row so the next tick is never late) would need its generator
+resident (~250-350 bytes: the overlays' windows are busy during play) for ~1 key a second: not worth it. Boot and
+level-start filling run from overlays (W2 / the launcher: no resident cost).
+
+## 8. Prebuilt or pre-generated fixed layouts against the run-time cache
+
+The per-tick saving is the same in every variant: a hit = the lookup + reading the entry (~800 T + 21.1 T a byte)
+instead of ~63 K T. What differs is how the entries get into the RAM disk and whether the per-tick code also fills.
+
+**The fixed layout**: the entries of the chosen keys at build-time-known (B, D) or boot-computed (C) places, a key table
+in page 8 (4 bytes a key, 471 ids x 16 = 30 KB, 0 = not stored: the normal fetch), no headers needed beyond ow / h, no
+eviction, no fill: the per-tick code is section 3's lookup alone, **~110 bytes of main code** (768 free; it does not fit
+the low block's 30 or block 2's 220 together with its callers' changes). With all 16 variants of every image stored
+(16 MB) the table could even be per image (base address; variant v at base + v * size) but the per-key table costs
+the same lookup and serves both sizes.
+
+| | A: run-time cache | B: prebuilt on the floppy | C: generated at boot / level start | D: MZPico RAM-disk image |
+|---|---|---|---|---|
+| how the data get there | the first use of a key | tools/build_assets.py -> disk -> the loader unpacks into pages 8+ | an overlay from the packs | the image file on the SD card, already there at power-up |
+| per-tick code (resident) | lookup + fill + FIFO, ~300 B | lookup ~110 B | lookup ~110 B | lookup ~110 B |
+| 1 MB: what is stored | any key, FIFO | the most used kid + sword 400 KB (+ guard sets?) | kid + sword 400 KB at boot, the level's guard 80 KB at level start | as B/C |
+| 16 MB | everything as used | kid 2,154 KB does not fit the disk (below) | everything: 61-163 s: too long; the 1 MB core + A's fill for the rest | everything |
+| disk | none | 400 KB raw -> **~88 KB PZ (22 %)**; the kid's full set 475 KB, everything 960 KB | none | none (the image is built locally from the user's data) |
+| boot cost | none | read ~4.4 s (real drive ~20 KB/s) + PZ decode ~11.5 s (~100 T a byte) = **~16 s** | **~5.8 s** (dedicated generator) / 14.6 s (today's code) | none |
+| level start | none | none (if guard sets are on the disk: 82-86 KB PZ each) | +1.2 s (dedicated) / +3.0 s (today's code) for 80 KB of the guard set | none |
+| cold pass | first uses +0.1-0.25 a tick | none: an unstored key = today's fetch | none | none |
+| session fetch (1 MB / 16 MB) | 0.447 / 0.301 | 0.399 / - | 0.399 / ~0.19-0.30 | 0.399 / 0.186 |
+| pixel safety | the kernel's own buffer | a PC generator: must match the kernel bit for bit | the kernel's own routines (or a verified generator) | as B |
+
+B's numbers come from tools/fetchmodel/prebuild.py, which generates every variant as the kernel does; its output equals
+the kernel's buffer for all 852 distinct kid fetches of walk_level1 and traps_b1 (tools/fetchmodel/prebuild_check.py,
+tracepoints after char_fetch: 0 differ), so B is pixel-safe given such a test in the build.
+
+**The disk** (for B): today's disk (40 tracks x 2 sides, 1,280 blocks of 256 B) has 241 blocks (60 KB) free after
+POP800.PR2: B's 88 KB does not fit. An 80-track FSMZ image (mzdisk `mzdsk-create --format-basic 80 --sides 2`: 2,560
+blocks = 640 KB, the DSK file 696,576 bytes; a "720 KB" PC-style 9 x 512 format is not FSMZ) leaves ~1,520 blocks
+(~380 KB): B's 88 KB fits, the kid's full set (475 KB PZ) does not. What it needs: tools/mkgamedisk.py the track count
+(its `mzdsk-create ... 40` and the block budget), the loader's block -> track / side / sector arithmetic and seek range
+(tracks 40-79; to check), tests mounting the bigger image (mz800emu reads DSK track tables of any length; to check), and
+the FSMZ free map beyond block 1,280 (the MZ-800 Disk BASIC's own 80-track support: to check). Hardware: the MZ-800's
+standard drive (MZ-1F19, 5.25" 2D) has 40 tracks: an 80-track image works on MZPico's FDC (its DSK track table takes
+up to 204 track-sides) and on an 80-track drive, not on a stock drive, so it would be a second disk image, not the
+only one.
+
+**D on MZPico** (MZPico-firmware src/mz_devices/ramdisk.cpp): `[ramdisk]` has `image=` (a backing file on the SD card,
+flat: byte page * 65,536 + address, the same as mz800emu's rd-mz800.dat) and `size=`; writes go back to the file, so
+the contents persist across power cycles (even option A would stay warm). It is Deluxe-board only (pico_rd elsewhere,
+same `image=`). Without an image it is RAM-backed, bounded by the Pico's RAM (an RP2040 has 264 KB: less than today's
+512 KB layout); with an image every access goes through a 128-byte cached window of the file (each seek outside the
+window is an SD read). Whether that keeps up with the game's access pattern (a seek a row in the shadow restore and the
+fetch) is a hardware question that already applies to today's 512 KB game; to measure on a Deluxe board before relying
+on D. The image would be written by a build tool from the user's own assets (like build/pop800.dsk).
+
+### The hybrid (the user's candidate)
+
+1. the kid's (and sword's) variants prebuilt by tools/build_assets.py in the fixed layout, on the disk, loaded at boot;
+2. the level's guard set generated before the level by an overlay, into the fixed layout;
+3. keys not stored: today's fetch.
+
+Measured / estimated for it:
+
+| | 1 MB | 16 MB |
+|---|---|---|
+| RAM disk | key table 30 KB + kid / sword 400 KB + one guard set's 80 KB (pages 8-15) | everything: 4.35 MB (pages 8-75) |
+| disk for (1) | 88 KB PZ (does not fit today's disk; fits 80 tracks) | the kid's full set 475 KB PZ: does not fit even 80 tracks |
+| boot (1) | ~16 s from the disk (B) or ~5.8 s generated (C) | the full kid set: ~31 s generated, ~78 s with today's code |
+| level start (2) | 80 KB of the guard set: +1.2 s / +3.0 s; the whole set +5.6 s / +12-15 s | every set once: as the 1 MB column, then never again |
+| per-tick lookup | ~110 bytes main | the same |
+| cold pass | none: the kid's stored keys are warm from the first tick, the guard's after the level start; the rest = today | none |
+| gain (fetch frames a tick) | session 0.871 -> 0.399; walk 0.94 -> 0.49, fight 1.22 -> 0.64, traps 0.91 -> 0.36 | -> 0.186 when all stored |
+| whole tick | walk ~5.72 -> ~5.3, fight ~7.73 -> ~7.2 (first pass = every pass) | walk -> ~5.0, fight -> ~6.5 |
+
+Against option A on 1 MB: the hybrid is better over a session (0.399 against 0.447), has no cold penalty, ~190 fewer
+resident bytes and no fill / eviction code; A adapts to keys the scripts never showed (on 16 MB A ends warmer than a
+partial store). The kid's part as B (disk) costs a bigger disk and ~16 s of boot; as C (generated at boot from the
+packs already in the RAM disk) ~6 s and no disk change, with the same layout and lookup. 16 MB: the full set takes
+~31 s to generate: generate the 1 MB core at boot, and let the rest fill on first use (A's fill without eviction, +~190
+bytes) or not at all.
+
+## 9. Recommendation
+
+1. **PR A: the fixed-layout store and its lookup** (char_fetch: the key table in page 8, ~110 bytes main), the tier
+   decision from rd_top, `POP800_RD_SIZE` in tests/m4_game.setup (0x02AF), and the **kid + sword core generated at boot
+   by an overlay from the packs** with today's shift routines (exact by construction; ~14.6 s for 400 KB: measure it on
+   the MZ in this PR) and the key list chosen at build time from the scripts' use (tools/fetchmodel/static_set.py into
+   build/assets). Gain on 1 MB: fetch -0.45 to -0.58 a tick from the first tick, no cold pass. ~3-4 days.
+2. **PR B: a dedicated generator** (all 16 variants of an image from one read), verified byte for byte against the
+   kernel: boot ~14.6 -> ~6 s; then the level's guard set at the level start (80 KB ~1.2 s; whole set ~5.6 s on 16 MB,
+   once). ~2-3 days.
+3. **PR C: CI**: the full regression with a RAM-disk dimension (512K reference, 1M, 16M; this PR's probe runs show both
+   pass today), the PR tier at 1M. ~0.5-1 day.
+4. **16 MB extras** (optional): the rest of the key space by fill on first use without eviction (A's fill, ~190 bytes),
+   or generated once and kept on MZPico's file-backed RAM disk (D, persists). Then **PR D: the visited-room cache**
+   (section 5, ~4-6 days; revisit ~106 -> ~15-20 frames).
+5. Not recommended: B for the kid on the floppy (needs an 80-track second disk image, ~16 s of boot, and still not the
+   full set); background filling in idle tick time (0.05-2.3 frames a second); the run-time cache alone on 1 MB (cold
+   passes slower than today). A faster shift routine (the shift is 77-103 T a byte) still helps
+   every size and the generator: measure after PR B.
+
+## 10. Open questions for the user
+
+1. Boot time: is ~6 s (dedicated generator; ~15 s with today's code in the first PR) added to the first start acceptable,
+   or should it run while PRES shows the title (PRES's own code, more work)?
+2. Level start: +1.2 s for 80 KB of the guard set (or +5.6 s for the whole set, once per set on 16 MB) acceptable?
+3. The 1 MB split between the frame store and the room cache (8 room slots = 256 KB would halve the kid core:
+   0.399 -> ~0.48 a tick of fetch)?
+4. The key list from the test scripts' use (cross-validated 74 % hits): good enough, or record a few real play sessions
+   (the GUI) to choose it?
+5. MZPico: is the 512 KB+ `[ramdisk]` on a Deluxe board file-backed (RP2040 RAM), and is its speed known? A test on the
+   board would tell whether D (and today's game) run at the emulator's speed there.
+6. Resident space: the lookup (~110 bytes) fits next to the parked beam wait (PR #8, ~478) in the 768 free bytes; A's
+   fill would not: keep the fill out (16 MB extras later)?
+7. The emulator: raise MCP_REGIONS_MAX (or a bank-addressed RAM-disk command) and consider `mr1r18_type = STD` for the
+   tests?

@@ -832,5 +832,14 @@ piece used AND/XOR semantics.
    behaviour change: the boot's probe counts the pages (rd_top 7 / 15 / 255) and the launcher puts it at HO_MAIN + 15
    (0 = the harness = 512 KB layout; nothing reads it yet), `POP800_RD_SIZE` selects the emulator's size, m5_boot tests
    the probe at 512 KB / 1 MB / 16 MB. Found: every test so far ran with 1 MB (the INI); mz800emu's MCP reaches only RAM-disk
-   pages 0-51 with 16 MB (128-region limit). Recommended order: the frame cache (~3-4 days), CI with a RAM-disk dimension,
-   the room cache (~4-6 days); open questions in the document's section 8.
+   pages 0-51 with 16 MB (128-region limit). The full regression passed with the INI at 512K and at 16M. Follow-ups
+   (user): prefetching (sections 7: the ticks idle only 0.05-2.3 frames a second, so prefetch = work at boot / level
+   start; pages 8+ survive levels and PRES) and prebuilt / boot-generated fixed layouts and the hybrid (section 8: a key
+   table, lookup ~110 resident bytes, no fill or eviction; 1 MB store kid + sword 400 KB + the level's guard set 80 KB
+   chosen from the scripts' use: fetch 0.871 -> 0.399 a tick with no cold pass, against the run-time cache's 0.447 with
+   +0.1-0.25 first passes; the kid's set on the floppy needs an 80-track image (88 KB PZ for 400 KB; the full set 475
+   KB) and ~16 s of boot, generated at boot from the packs ~6 s (a dedicated generator) / ~15 s (today's code); the
+   guard's 80 KB at a level start +1.2 / +3.0 s; MZPico's [ramdisk] takes a flat image file, persistent). Recommended
+   (section 9): the fixed-layout store with the kid core generated at boot (~3-4 days), a dedicated generator and the
+   level's guard set (~2-3 days), CI with a RAM-disk dimension, 16 MB extras, then the room cache (~4-6 days); open
+   questions in section 10.
