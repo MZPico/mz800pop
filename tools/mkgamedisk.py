@@ -100,6 +100,7 @@ def ramdisk_writes():
     S = syms(os.path.join(B, 'm4game.sym'))
     w.append((S['OVL_RD_PAGE'], S['OVL_RD_TAB'], open(os.path.join(B, 'm4ovl.bin'), 'rb').read()))
     w.append((S['SB_PAGE'], S['SB_ADDR'], rd('sound.bin')))          # the PSG sound bank (M7, tools/sndconv.py)
+    w.append((S['FS_MPAGE'], S['FS_MADDR'], rd('fstore_masks.bin')))  # the frame store's keys (tools/fstore.py)
     return w
 
 def launcher_syms():

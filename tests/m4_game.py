@@ -143,6 +143,7 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     ovl = open(os.path.join(ROOT, 'build', 'm4ovl.bin'), 'rb').read()   # code overlays (src/m4/ovl.asm): table + images
     write_pack(e, ovl, S['OVL_RD_PAGE'], S['OVL_RD_TAB'])
     write_pack(e, rd('sound.bin'), S['SB_PAGE'], S['SB_ADDR'])     # the PSG sound bank (tools/sndconv.py, src/m4/psg.asm)
+    write_pack(e, rd('fstore_masks.bin'), S['FS_MPAGE'], S['FS_MADDR'])    # the frame store's keys (tools/fstore.py)
     e.call('mem_write', addr=S['level_number'], data_hex='%02x' % lv)
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(opts).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(opts).hex())
@@ -154,7 +155,7 @@ def rd_size():
     """the emulated RAM disk's size: POP800_RD_SIZE (emu/mz800emu-pop.sh), else the INI's mr1r18_size"""
     v = os.environ.get('POP800_RD_SIZE')
     if v: return v
-    for l in open(os.path.join(ROOT, 'emu', 'mz800emu.ini')):
+    for l in open(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'emu', 'mz800emu.ini')):
         if l.startswith('mr1r18_size'): return l.split('=')[1].strip()
 
 def fs_clear(e, S):

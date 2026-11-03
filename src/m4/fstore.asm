@@ -5,10 +5,32 @@
 ; construction) into RAM-disk pages 8+, once: the marker (the build id and the class) at page 8 FS_MARK says the
 ; store is there (the game is restarted from its image at every launch; pages 8+ are written by nothing else).
 ; Then fs_on (char_fetch, src/m4/sprite.asm) is patched to the lookup (src/m4/fslook.asm). Interrupts are off; uses
-; SPRBUF_A (outside W2) as the buffer and the shift tables (tables_init first).
+; SPRBUF_A (outside W2) as the cell buffer, SPRBUF_B for the masks (copied from the RAM disk: FS_MPAGE:FS_MADDR, written
+; by the boot and the harness) and its own variables, the shift tables (tables_init first). It leaves main RAM as a
+; start without the fill does (spr_fetch's patched operands and dir_buf put back: tests/m7_launch.py compares them).
+FF_MBUF         equ     SPRBUF_B                ; the masks (2 x FS_IDS words), fs_id (4), ff_class (1)
+fs_mask1        equ     FF_MBUF
+fs_mask2        equ     FF_MBUF + 2 * FS_IDS
+fs_id           equ     FF_MBUF + 4 * FS_IDS
+ff_class        equ     fs_id + 4               ; (right after fs_id: the marker's fifth byte)
+FF_SAVE_A       equ     sf_rows + 1             ; spr_fetch's patched operands
+FF_SAVE_N       equ     sf_stride + 3 - FF_SAVE_A
+ff_save         equ     FF_MBUF + 0x410         ; their copy, then dir_buf's
+ff_desc         equ     ff_save + 0x40          ; a sprite descriptor (SD_BUF = SPRBUF_A, the rest spr_fetch's)
+ff_page         equ     ff_desc + SD_SIZE
+ff_addr         equ     ff_page + 1
+ff_n            equ     ff_page + 3
+ff_id           equ     ff_page + 5
+ff_v            equ     ff_page + 6
 fs_fill:        ld      a, (HO_MAIN + HO_RDTOP)
                 cp      FS_TOP1
                 ret     c                       ; 512 KB: today's fetch
+                ld      a, FS_MPAGE             ; the masks and the build id
+                ld      de, FS_MADDR
+                ld      hl, FF_MBUF
+                ld      bc, 4 * FS_IDS + 4
+                call    far_copy
+                ld      a, (HO_MAIN + HO_RDTOP)
                 ld      b, 1
                 cp      FS_TOP2
                 jr      c, ff_cls
@@ -26,8 +48,17 @@ ffm_cmp:        in      a, (c)
                 jr      nz, ff_build
                 inc     hl
                 djnz    ffm_cmp
-                jr      ff_on
-ff_build:       ld      a, FS_PAGE              ; the table and the marker cleared
+                jp      ff_on
+ff_build:       ld      hl, FF_SAVE_A
+                ld      de, ff_save
+                ld      bc, FF_SAVE_N
+                ldir
+                ld      hl, dir_buf
+                ld      c, 8
+                ldir
+                ld      hl, SPRBUF_A
+                ld      (ff_desc + SD_BUF), hl
+                ld      a, FS_PAGE              ; the table and the marker cleared
                 ld      de, 0
                 call    far_seek
                 dec     c
@@ -56,7 +87,14 @@ ffz:            out     (c), a
                 jr      c, ff_mark
                 ld      hl, fs_mask2
                 call    ff_pass
-ff_mark:        ld      a, FS_PAGE              ; the marker last: an interrupted fill is redone
+ff_mark:        ld      hl, ff_save
+                ld      de, FF_SAVE_A
+                ld      bc, FF_SAVE_N
+                ldir
+                ld      de, dir_buf
+                ld      c, 8
+                ldir
+                ld      a, FS_PAGE              ; the marker last: an interrupted fill is redone
                 ld      de, FS_MARK
                 call    far_seek
                 dec     c
@@ -189,12 +227,12 @@ ffk_o:          otir
                 ld      (ff_addr), hl
                 ret
 
-ff_desc:        dw      SPRBUF_A                ; (a sprite descriptor: SD_BUF, the rest spr_fetch's)
-                ds      SD_SIZE - 2
-ff_page:        db      0
-ff_addr:        dw      0
-ff_n:           dw      0
-ff_id:          db      0
-ff_v:           db      0
-                include "../../build/assets/fstore.inc"     ; the masks, then fs_id (4 bytes)
-ff_class:       db      0                                   ; (right after fs_id: the marker's fifth byte)
+                if      FF_SAVE_N + 8 > ff_desc - ff_save
+                .error  ff_save is too small
+                endif
+                if      ff_class >= ff_save
+                .error  the masks run into ff_save
+                endif
+                if      ff_v >= SPRBUF_B + 0x800
+                .error  the fill's variables run out of SPRBUF_B
+                endif
