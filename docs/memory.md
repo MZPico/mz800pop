@@ -20,7 +20,7 @@ else all 64 KB are RAM. Code in the low block must never run inside `blit`.
 | 0x01BD-0x01BF, 0x01FD-0x01FF | 6 | free (runtime data) |
 | 0x0200-0x027F | 128 | run_rect's recorded ops (RR_PTRS, 64 pointers) |
 | 0x0280-0x029E | 31 | level-event state EV (objects.asm: next level, time left, bottom text and flash timers, feather fall, upside down, mirror, shadow script, checkpoint, restart / level switch / game over flags, keys (KEYS: bit 0 Ctrl+A, bit 2 Ctrl+G, bits 3-7 a key code, src/m4/keys.asm); for the drawing TEXT_GEN, FLASH_NOW, MI_JUMPED, TXT_GEN_SHOWN, the save overlay's text TEXT_MSG / TEXT_MSG_GEN); set by game_init, runtime only |
-| 0x02A0-0x02AF | 16 | HO_MAIN: the launcher's copy of the handoff block (src/boot/launch.inc; magic "P7" = the game was started by the launcher, M7); zeroed by the launcher otherwise, never written by the harness except KEY_OPT 0x02A8 = HO_OPTIONS: bit 0 the sound off (Ctrl+S, M7 step 10; goes through PRES with the block), bit 1 blind (CHEATS only) |
+| 0x02A0-0x02AF | 16 | HO_MAIN: the launcher's copy of the handoff block (src/boot/launch.inc; magic "P7" = the game was started by the launcher, M7); zeroed by the launcher otherwise, never written by the harness except KEY_OPT 0x02A8 = HO_OPTIONS: bit 0 the sound off (Ctrl+S, M7 step 10; goes through PRES with the block), bit 1 blind (CHEATS only); 0x02AF = HO_RDTOP: the RAM disk's last page as the boot's probe found it (7 = 512 KB, 15 = 1 MB, 255 = 16 MB; set by the launcher at every start; 0 in the harness = the 512 KB layout; read by nothing yet, docs/ramdisk-tiers.md) |
 | 0x02B0-0x02B4 | 5 | m4test only: N_SNAP, the 'N' trace snapshot (snd_snap: queued, started, playing, stops) and its counter |
 | 0x02C0-0x02DB | 28 | m4test only: S_SNAP, the 'S' trace snapshot (state_snap) and its counter |
 | 0x0300-0x03C0 | 193 | M5 drawing (overlay.asm, fx.asm): spr_xor's row SXT 0x0300 (73), the descriptors of slot 5 (the guard's splash when both are hurt) SPR_SP2 0x0350 and slot 6 (the mirror image) SPR_MI 0x0368, the sort keys PP_KEYS 0x0380 (7, slot 6 first), PP_ORD, per slot PP_XD (XOR offset) and PP_CL (left clip), PC_SAVE, and single variables to PP_ANYFX 0x03C0 (FL_SHOWN 0x03B8: the flash shown this tick, read by tests/m4_game.py; UP_SHOWN, TXT_VIS); runtime only |
@@ -135,6 +135,8 @@ Title and cutscene art (title 215 KB, story/cutscene 115 KB) is for the presenta
 decision of 2026-10-30 (docs/m7-design.md section 9) it is read from the floppy (POP800.PRS) per scene into PRES's own
 main RAM; the RAM disk only gets what the swap needs (the launcher 2.2 KB, the game image 24 KB, the handoff block).
 The scratch areas (the shadow room page 1 0x0000-0x7CFF, the torch cache page 6 0x0000-0x287F) are free for PRES.
+
+Pages 8 and up (a 1 MB or 16 MB RAM disk) are used by nothing yet; docs/ramdisk-tiers.md plans the frame and room caches there.
 
 All six guard sets are resident (tests/m4_game.py GUARD_SETS; the floppy loader loads them all too); loading only the
 level's set (at most 20.4 KB) would need a per-level load from floppy and would free ~90 KB of pages 6-7 for the

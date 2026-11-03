@@ -817,3 +817,20 @@ piece used AND/XOR semantics.
    pointer table moved to 0xF58B). perfcheck medians of 3 runs, main (80c4945) -> this: walk 30-60 6.10 -> 5.72, fight
    8.23 -> 7.73, traps 5.96 -> 5.63, walkthrough 190-260 10.73 -> 10.26, level door 17.54 -> 17.06, room change 106.56 ->
    106.05, gate 5.11 -> 4.99 (baseline lowered except the room change). Main end_of_code 0x78D6 -> 0x7900 (768 free).
+48. RAM-disk tiers, design (2026-11-03, docs/ramdisk-tiers.md; for review, the caches not built): measured with
+   tracepoints (tools/fetchstat.py) that the fetch is a sixth RAM-disk reads and two thirds the shift (walk 30-60: 0.899 =
+   setup 0.026, reads 0.153, shift + mirror 0.610, loop 0.110; fight 60-160 1.547 = 0.050 / 0.287 / 1.029 / 0.178); the
+   mirror is done at the fetch (~20 T a byte of the shift's 96-103). Working set over all 71 scripts: 2,553 (chtab, frame,
+   mirror, shift) keys, 1.5 MB of cell buffers (the whole key space 7,184 keys, 4.4 MB); a first pass repeats few keys
+   (walkthrough 12 %, fights 25-66 %). Design: an entry = the cell buffer as char_fetch leaves it plus a 4-byte header,
+   a direct-indexed directory in page 8 (471 ids x 16 keys x 4 bytes = 30 KB; ~350 T a lookup + 21 T a byte), filled on
+   first use (+~800 T + 21 T a byte on that fetch), a FIFO ring on 1 MB (pages 8-15), never full on 16 MB; ~300
+   resident bytes; pixels identical by construction. Estimate: warm walk -0.72, fight -1.22 frames a tick (tick 5.72 ->
+   ~5.0, 7.73 -> ~6.5), first passes up to +0.1-0.25; over one session of all scripts the fetch 0.866 -> 0.301 (16 MB) /
+   0.447 (1 MB, frames only). Room cache (second step): per-room shadow slots (2 a page), revisit ~15-20 frames,
+   invalidated by a per-slot tile snapshot compared at the revisit; 316 rooms fit 16 MB with the frames. Built here, no
+   behaviour change: the boot's probe counts the pages (rd_top 7 / 15 / 255) and the launcher puts it at HO_MAIN + 15
+   (0 = the harness = 512 KB layout; nothing reads it yet), `POP800_RD_SIZE` selects the emulator's size, m5_boot tests
+   the probe at 512 KB / 1 MB / 16 MB. Found: every test so far ran with 1 MB (the INI); mz800emu's MCP reaches only RAM-disk
+   pages 0-51 with 16 MB (128-region limit). Recommended order: the frame cache (~3-4 days), CI with a RAM-disk dimension,
+   the room cache (~4-6 days); open questions in the document's section 8.
