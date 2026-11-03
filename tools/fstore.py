@@ -8,7 +8,7 @@ tools/fetchmodel/run_all.sh): class 1 = the most used per byte up to CLASS1_BUDG
 the rest of them (cards with at least FS_TOP2 + 1 pages, i.e. 16 MB). The sizes come from the image directories, so
 the layout is computed at build time from the user's game data and never committed.
 
-The MZ's fill (src/m4/fstore.asm, the level-start overlay) walks the same masks in the same order and allocates the
+The MZ's fill (src/m4/fstore.asm with the generator src/m4/fsgen.asm, the level-start overlay) walks the same masks in the same order and allocates the
 same way; this tool computes the result it must produce:
   build/assets/fstore_equ.inc   the FS_* constants (the lookup's and the fill's)
   build/assets/fstore_masks.bin the two mask tables (255 ids x 16 variant bits, words) and the build id: the fill's
@@ -71,7 +71,8 @@ def layout():
         m = [0] * FS_IDS
         for (c, f, mi, s) in cls: m[kid_id(c, f)] |= 1 << (mi * 8 + s)
         masks.append(m)
-    # the fill's allocation (src/m4/fstore.asm ff_key): class 1 by id and variant, then class 2
+    # the fill's allocation (src/m4/fsgen.asm fg_put): class 1 by id and variant, then class 2 from class 1's end
+    # (the generator makes both classes in one pass over the ids, with class 2's pointer starting at FS_E1P:FS_E1A)
     page, addr = FS_PAGE, FS_DATA; keys = []; ends = []
     for cls, m in ((1, masks[0]), (2, masks[1])):
         for i in range(FS_IDS):
@@ -88,7 +89,7 @@ def build_id(masks):
     h = 0
     for m in masks: h = zlib.crc32(b''.join(x.to_bytes(2, 'little') for x in m), h)
     for n in ('kid.dir', 'sword.dir', 'kid.pack', 'sword.pack'): h = zlib.crc32(open(os.path.join(A, n), 'rb').read(), h)
-    for n in ('src/m1/kernel_gen.inc', 'src/m1/gfx.asm', 'src/m1/tables.asm', 'src/m4/fstore.asm'):
+    for n in ('src/m1/kernel_gen.inc', 'src/m1/gfx.asm', 'src/m1/tables.asm', 'src/m4/fstore.asm', 'src/m4/fsgen.asm'):
         h = zlib.crc32(open(os.path.join(ROOT, n), 'rb').read(), h)
     return h
 
@@ -119,7 +120,8 @@ def main():
         f.write('; class 2: %d keys, %d bytes, to page %d 0x%04X; build id %08x\n' % (len(n2), b2, ends[1][0], ends[1][1], fid))
         for nm, v in (('FS_PAGE', FS_PAGE), ('FS_SWORD', FS_SWORD), ('FS_IDS', FS_IDS), ('FS_MARK', FS_MARK),
                       ('FS_DATA', FS_DATA), ('FS_TOP1', FS_TOP1), ('FS_TOP2', top2), ('FS_MPAGE', FS_MPAGE), ('FS_MADDR', FS_MADDR),
-                      ('FS_N1', len(n1)), ('FS_N2', len(n2))):
+                      ('FS_N1', len(n1)), ('FS_N2', len(n2)),
+                      ('FS_E1P', ends[0][0]), ('FS_E1A', ends[0][1])):
             f.write('%-15s equ     0x%04x\n' % (nm, v))
     with open(os.path.join(A, 'fstore_masks.bin'), 'wb') as f:   # (the fill's input in the RAM disk, FS_MPAGE:FS_MADDR)
         f.write(b''.join(x.to_bytes(2, 'little') for m in masks for x in m) + fid.to_bytes(4, 'little'))
