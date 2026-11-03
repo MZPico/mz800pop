@@ -30,11 +30,12 @@ and the game used pages 0-7 only. Nothing in mz800emu needs changing for the tie
 
 - its MCP lists at most 128 memory regions (src/emulator/mcp/dispatch.c `MCP_REGIONS_MAX 128`): with 16 MB only RAM-disk
   pages 0-51 can be read or written by `region_read` / `region_write` (the game itself reaches all 256). The harness
-  writes pages 0-7 only, so nothing breaks; a test that inspects the caches above page 51 needs the limit raised (512)
-  or a bank-addressed RAM-disk command: a later PR to MZPico/mz800emu (branch from `wasm`).
-- `mr1r18_type = SRAM` (the INI's) saves the whole RAM disk to its file on every exit (16 MB with the 16M size) and is
-  why instances started in one directory share and corrupt one file; `STD` (no file, filled with 0xFF at start) would
-  remove both. Not changed here (the tests write everything they need; worth considering when CI runs two sizes).
+  writes pages 0-7 only, so nothing breaks; a test that inspects the caches above page 51 needs the limit raised.
+  Done: MZPico/mz800emu#2 lists every region (up to 1024; 332 with 16 MB, all 256 pages), and `tests/m5_boot.py`
+  checks all 256 pages.
+- `mr1r18_type = SRAM` (the INI's until PR #18) saves the whole RAM disk to its file on every exit (16 MB with the 16M
+  size) and is why instances started in one directory share and corrupt one file. The INI now has `STANDARD` (the
+  keyword; no file, filled with 0xFF at every start), which removes both.
 - pico_rd (port 45h, PLAN item 35a) is not emulated at all.
 
 ### The probe (src/boot/boot.asm rd_probe, built in this PR)
@@ -70,8 +71,7 @@ The tier decision belongs in the level-start overlay (W2, once per game start: `
 ### How the tests select the size
 
 `POP800_RD_SIZE=512K|1M|16M|256K|64K` (emu/mz800emu-pop.sh, built in this PR): the launcher writes a copy of the INI
-with that size and its own RAM-disk file (`rd-mz800-<size>.dat` in the current directory) to build/emu/ and starts the
-emulator with it; unset = the INI as it is (1 MB). tools/testrun.py includes the variable in its cache key. Proposed CI
+with that size to build/emu/ and starts the emulator with it (the RAM disk is in memory, no file); unset = the INI as it is (1 MB). tools/testrun.py includes the variable in its cache key. Proposed CI
 use: section 4.
 
 ### pico_rd (PLAN item 35a, later)
@@ -467,4 +467,4 @@ bytes) or not at all.
 6. Resident space: the lookup (~110 bytes) fits next to the parked beam wait (PR #8, ~478) in the 768 free bytes; A's
    fill would not: keep the fill out (16 MB extras later)?
 7. The emulator: raise MCP_REGIONS_MAX (or a bank-addressed RAM-disk command) and consider `mr1r18_type = STD` for the
-   tests?
+   tests? Done (MZPico/mz800emu#2, PR #18: `mr1r18_type = STANDARD`).

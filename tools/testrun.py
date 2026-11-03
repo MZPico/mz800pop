@@ -30,11 +30,12 @@ Affected (tier check): a test is selected when a changed file is one of its repo
 sources of its build artefacts (suite.Build.src: src/, tools/, assets/); *.md files never select. The Makefile, the
 emulator, SDLPoP, pasmo and mzdisk select nothing: after changing one, --tier all (`make check ALL=1`).
 
-Isolation: every test runs in its own working directory build/testrun/work/<id> (mz800emu writes rd-mz800.dat, its
-breakpoint file and other state into its current directory). Tests that write files under build/ that would collide
-between parallel subtests get a scratch tree build/testrun/scratch/<id> (the project's directories as symlinks,
-build/ a directory of symlinks to the real artefacts, the test's disk image a copy); tests that boot the game disk copy
-it themselves (tempfile). A lock (suite.PROGRAMS lock) serialises tests that share an external directory (none now).
+Isolation: every test runs in its own working directory build/testrun/work/<id> (mz800emu writes its breakpoint file and
+other state into its current directory; its RAM disk is in memory only, emu/mz800emu.ini). Tests that write files under
+build/ that would collide between parallel subtests get a scratch tree build/testrun/scratch/<id> (the project's
+directories as symlinks, build/ a directory of symlinks to the real artefacts, the test's disk image a copy); tests that
+boot the game disk copy it themselves (tempfile). A lock (suite.PROGRAMS lock) serialises tests that share an external
+directory (none now).
 
 Watchdog: a test whose log has not grown and whose processes used less than 5 % CPU for --idle seconds (default 120:
 an emulator that hangs at its start-up) is killed and run once more; hanging twice it is reported as hung. A test
