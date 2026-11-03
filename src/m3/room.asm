@@ -78,10 +78,12 @@ R_SAVED         equ     RV + 144        ; room saved across the above-row pass
 RR_C0           equ     RV + 145        ; run_rect: only ops of tiles in columns RR_C0..RR_C1 are examined
 RR_C1           equ     RV + 146
 RR_TAGP         equ     RV + 147        ; 16-bit: tag pointer parallel to OPL_PTR
-RR_K            equ     RV + 149        ; run_rect: key index of the slice being examined
+RR_CB           equ     RV + 149        ; rr_table: columns left in the row (the cell being examined)
 RR_N            equ     RV + 150        ; ops left in the slice
-RR_SLS          equ     RV + 151        ; 16-bit: slice start table of the current list
-RR_SLC          equ     RV + 153        ; 16-bit: slice count table
+RR_CP           equ     RV + 151        ; 16-bit: rr_table's cell pointer in SL_CNT
+RR_RP           equ     RV + 153        ; 16-bit: rr_table's row pointer in rr_rows
+RR_CB0          equ     RV + 164        ; rr_table: SL_CNT's low byte at the list's column RR_C0 of row 0
+RR_NC           equ     RV + 165        ; rr_table: columns a row
 OP_TAG          equ     RV + 155        ; op_patch parameters
 OP_LIST         equ     RV + 156
 OP_CH           equ     RV + 157
@@ -3281,7 +3283,14 @@ rr_fore:
                 jp      blit
 ; lay_fore_rect: lay the fore pieces that touch the compose rect (CRX/CRY/CRW/CRH, V_COMPOSE) over whatever
 ; the compose buffer holds (a character drawn over the restored shadow); candidate tile columns from the rect
-lay_fore_rect:  ld      a, (CRX)
+lay_fore_rect:  call    rect_bounds
+                ld      a, (rr_x1)
+                dec     a
+                rrca
+                rrca
+                and     63
+                ld      (RR_C1), a
+                ld      a, (CRX)
                 sub     6
                 jp      p, lfr1
                 xor     a
@@ -3289,30 +3298,15 @@ lfr1:           rrca
                 rrca
                 and     63
                 ld      (RR_C0), a
-                ld      a, (CRX)
-                ld      hl, CRW
-                add     a, (hl)
-                dec     a
-                rrca
-                rrca
-                and     63
-                ld      (RR_C1), a
-                ld      a, (CRX)
-                ld      hl, CRW
-                add     a, (hl)
-                ld      (rr_x1), a
-                ld      a, (CRY)
-                ld      l, a
-                ld      h, 0
-                ld      (rr_y0), hl
-                ld      a, (CRH)
-                ld      e, a
-                ld      d, 0
-                add     hl, de
-                ld      (rr_y1), hl
                 ld      a, 2
                 ; fall through
-; rr_table: A = table (0 back, 1 mid, 2 fore): lay its candidate ops into the compose rect
+; rr_table: A = table (0 back, 1 mid, 2 fore): lay its candidate ops into the compose rect (rect_bounds set).
+; Lay order: tile rows 2, 1, 0, the above row; in each columns RR_C0..RR_C1; a slice's ops in list order. The
+; cells of a row are walked by pointer in SL_CNT (an empty cell: ~35 T); the slice tables share their low byte
+; tbl*40 + tag: SL_START (L - 0x80) and SL_CNT (L) on one page, SL_Y0 / SL_Y1 (+120) on another.
+                if (SL_CNT & 0xff) != 0x80 or SL_START != SL_CNT - 0x80 or (SL_Y0 & 0xff) != 0 or SL_Y1 != SL_Y0 + 120
+                .error rr_table: the slice tables' layout
+                endif
 rr_table:       ld      (RUN_TBL), a
                 ld      a, (bkt_on)
                 or      a
@@ -3327,7 +3321,7 @@ rr_tbl:         ld      a, (RUN_TBL)
                 ld      h, (hl)
                 ld      l, a
                 ld      (OPL_END), hl   ; list base
-                ld      a, (RUN_TBL)    ; slice tables of this list: base + tbl*40
+                ld      a, (RUN_TBL)    ; RR_CB0 = SL_CNT's low byte at tbl*40 + RR_C0
                 ld      c, a
                 add     a, a
                 add     a, a
@@ -3335,65 +3329,57 @@ rr_tbl:         ld      a, (RUN_TBL)
                 add     a, a
                 add     a, a
                 add     a, a            ; *40
-                ld      c, a
-                ld      hl, SL_START
-                add     a, l
-                ld      l, a
-                ld      (RR_SLS), hl
-                ld      a, c
-                ld      hl, SL_CNT
-                add     a, l
-                ld      l, a
-                ld      (RR_SLC), hl
-                ld      e, c
-                ld      d, 0
-                ld      hl, SL_Y0
-                add     hl, de
-                ld      (rr_sly), hl
-                ld      a, 3            ; row index 3..0 = tbl_line rows 2,1,0 then the above row
-rr_row:         ld      (RR_K), a
-                ld      a, (RR_C0)
-rr_col:         ld      (rr_cc), a
-                ld      c, a
-                ld      a, (RR_K)
-                or      a
-                jp      z, rr_above
-                dec     a
-                ld      hl, tbl_line
-                call    tab_get         ; row*10
-                add     a, c
-                jp      rr_tag
-rr_above:       ld      a, 30
-                add     a, c
-rr_tag:         ld      c, a            ; tag
-rr_k1:          ld      hl, (RR_SLC)
-                ld      a, c
-                call    tab_get
-                or      a
-                jp      z, rr_knext
-                ld      (RR_N), a
-                ld      e, c                    ; the slice's rows miss the rect: skip it whole
-                ld      d, 0
-                ld      hl, (rr_sly)
-                add     hl, de
-                ld      b, (hl)                 ; y0
-                ld      de, 120
-                add     hl, de
-                ld      a, (hl)                 ; y1
-                ld      hl, CRY
-                cp      (hl)
-                jp      c, rr_knext
-                jp      z, rr_knext
-                ld      a, (hl)
-                ld      hl, CRH
+                ld      hl, RR_C0
                 add     a, (hl)
-                cp      b
-                jp      c, rr_knext
-                jp      z, rr_knext
-                ld      hl, (RR_SLS)
-                ld      a, c
-                call    tab_get
+                add     a, SL_CNT & 0xff
+                ld      (RR_CB0), a
+                ld      a, (RR_C1)
+                sub     (hl)
+                inc     a
+                ld      (RR_NC), a      ; columns a row
+                ld      hl, rr_rows
+rr_row:         ld      (RR_RP), hl
+                ld      a, (RR_CB0)
+                add     a, (hl)
                 ld      l, a
+                ld      h, SL_CNT >> 8
+                ld      a, (RR_NC)
+                ld      b, a
+rr_cy:          ld      a, (rr_y1)
+                ld      c, a            ; C = CRY + CRH
+rr_cell:        ld      a, (hl)         ; the cell's op count
+                or      a
+                jr      nz, rr_hit
+rr_cnext:       inc     l
+                djnz    rr_cell
+rr_rnext:       ld      hl, (RR_RP)
+                inc     hl
+                ld      a, l
+                cp      (rr_rows + 4) & 0xff
+                jp      nz, rr_row
+                ret
+rr_hit:         ld      a, l                    ; the slice's rows miss the rect: skip it whole
+                and     0x7f
+                ld      e, a
+                ld      d, SL_Y0 >> 8
+                ld      a, (de)                 ; y0
+                cp      c
+                jr      nc, rr_cnext            ; y0 >= CRY + CRH
+                ld      a, e
+                add     a, 120
+                ld      e, a
+                ld      a, (de)                 ; y1
+                ld      e, a
+                ld      a, (rr_y0)
+                cp      e
+                jr      nc, rr_cnext            ; y1 <= CRY
+                ld      (RR_CP), hl
+                ld      a, b
+                ld      (RR_CB), a
+                ld      a, (hl)
+                ld      (RR_N), a
+                res     7, l
+                ld      l, (hl)                 ; SL_START
                 ld      h, 0
                 add     hl, hl
                 add     hl, hl
@@ -3409,21 +3395,15 @@ rr_op:          ld      hl, (OPL_PTR)
 rr_next:        ld      hl, RR_N
                 dec     (hl)
                 jp      nz, rr_op
-rr_knext:       ld      a, (rr_cc)
-                ld      hl, RR_C1
-                cp      (hl)
-                jp      z, rr_rnext
-                inc     a
-                jp      rr_col
-rr_rnext:       ld      a, (RR_K)
-                or      a
-                jp      z, rr_tbl_done
-                dec     a
-                jp      rr_row
-rr_cc:          db      0
-rr_tbl_done:    ret
+                ld      hl, (RR_CP)
+                ld      a, (RR_CB)
+                ld      b, a
+                inc     l
+                dec     b
+                jp      nz, rr_cy
+                jp      rr_rnext
+rr_rows:        db      20, 10, 0, 30   ; the rows' first tags in lay order
 rr_x1:          db      0
-rr_sly:         dw      0
 rr_y0:          dw      0
 rr_y1:          dw      0
 

@@ -780,3 +780,11 @@ piece used AND/XOR semantics.
    resident bytes, a room change +10-30 frames. Decision: not built (rule: >= 0.2 frames a tick, < 250 bytes, fits the
    RAM disk, < 5 frames a room change). Pointer: a faster fore scan (tile rows from the chunk's rows, SL_CNT walked by
    pointer: ~1.5-2 K T a chunk, walk -0.08, fight -0.15 frames a tick, ~40-80 bytes, run_rect gains too).
+45. M8a part 6, the fore scan (2026-11-03, docs/perf.md "M8a part 6: the fore scan"): rr_table (lay_fore_rect's fore
+   scan and run_rect's tables) walks SL_CNT by pointer along each tile row (an empty cell ~35 T instead of ~300) and
+   tests a non-empty cell's slice rows in registers; lay_fore_rect takes its bounds from rect_bounds. Same rows,
+   columns and op order: the same pixels. The scan of a chunk 4.4-6.3 K T -> 1.7-3.0 K T; main code 67 bytes smaller
+   (end_of_code 0x7870 -> 0x782D; low block and block 2 unchanged). perfcheck medians of 3 runs, main -> this: walk
+   30-60 6.20 -> 6.10, fight 9.13 -> 9.00, traps 6.03 -> 5.96, walkthrough 190-260 11.00 -> 10.70, level door 17.88 ->
+   17.45, room change 106.92 -> 106.58, gate 5.13 -> 5.11 (the tile redraws share the scan: the walkthrough and the
+   door gain more than the estimate). The full regression on the runners passed (regress/fore-scan).
