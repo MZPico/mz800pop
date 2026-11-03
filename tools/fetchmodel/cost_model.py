@@ -32,6 +32,7 @@ if __name__ == '__main__':
              'gate_push': [(200, 260)]}
     print('%-14s %9s %7s %7s %7s %7s %8s' % ('script', 'ticks', 'today', 'first', 'warm', 'gain', 'fills/t'))
     for nm, sp in spans.items():
+        if not os.path.exists(os.path.join(K, nm, 'calls.jsonl')): print('%-14s (no calls.jsonl: its run failed)' % nm); continue
         cs = [json.loads(l) for l in open(os.path.join(K, nm, 'calls.jsonl'))]
         for t0, t1 in sp:
             a, b, c, f, n = model(cs, t0, t1)
@@ -40,6 +41,7 @@ if __name__ == '__main__':
     print('all scripts, the whole run, first pass from an empty cache: frames a tick today / first pass / warm')
     rows = []
     for d in sorted(glob.glob(os.path.join(K, '*'))):
+        if not os.path.exists(os.path.join(d, 'calls.jsonl')): continue    # (a failed fetchstat run: no calls.jsonl)
         cs = [json.loads(l) for l in open(os.path.join(d, 'calls.jsonl'))]
         if not cs: continue
         a, b, c, f, n = model(cs)

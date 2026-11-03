@@ -28,7 +28,7 @@ loader refuses (stops at rd_stop) and the game does not start; the probe finds 5
 emulator's size at HO_MAIN + HO_RDTOP. Prints the boot times in frames (50 per second).
 The disk is mounted from a copy (mz800emu writes a mounted image back on eject, even read-only).
 usage: m5_boot.py [ticks]"""
-import base64, os, shutil, sys, tempfile
+import base64, os, re, shutil, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
 import emu
@@ -176,6 +176,17 @@ def ini_rd_size():
     for l in open(os.path.join(ROOT, 'emu', 'mz800emu.ini')):
         if l.startswith('mr1r18_size'): return l.split('=')[1].strip()
 
+def emu_binary():
+    """the emulator binary itself: emu.EXE when it is one (MZ800EMU_EXE may name a binary), else (the project's
+    wrapper script, emu/mz800emu-pop.sh) MZ800EMU_BIN or the wrapper's default"""
+    try: head = open(emu.EXE, 'rb').read(2)
+    except OSError: head = b''
+    if head != b'#!': return emu.EXE
+    if os.environ.get('MZ800EMU_BIN'): return os.environ['MZ800EMU_BIN']
+    m = re.search(r'MZ800EMU_BIN:-([^}"]+)', open(emu.EXE).read())
+    if not m: raise SystemExit('m5_boot: cannot find the emulator binary in %s' % emu.EXE)
+    return m.group(1)
+
 def rd_emu(tmp, size):
     """a launcher for an emulator with a RAM disk of `size` (a temporary INI, its own RAM-disk file in tmp)"""
     ini = open(os.path.join(ROOT, 'emu', 'mz800emu.ini')).read()
@@ -185,9 +196,9 @@ def rd_emu(tmp, size):
         if l.startswith('mr1r18_filepath'): l = 'mr1r18_filepath = ' + os.path.join(tmp, 'rd%s.dat' % size)
         lines.append(l)
     open(os.path.join(tmp, 'mz800emu.ini'), 'w').write('\n'.join(lines) + '\n')
-    real = open(emu.EXE).read().split('exec ', 1)[1].split()[0]
+    real = emu_binary()
     sh = os.path.join(tmp, 'launch.sh')
-    open(sh, 'w').write('#!/bin/sh\ncd %s\nexec %s --config %s --no-save-ini "$@"\n' % (tmp, real, os.path.join(tmp, 'mz800emu.ini')))
+    open(sh, 'w').write('#!/bin/sh\ncd "%s"\nexec "%s" --config "%s" --no-save-ini "$@"\n' % (tmp, real, os.path.join(tmp, 'mz800emu.ini')))
     os.chmod(sh, 0o755)
     return sh
 

@@ -818,7 +818,8 @@ piece used AND/XOR semantics.
    8.23 -> 7.73, traps 5.96 -> 5.63, walkthrough 190-260 10.73 -> 10.26, level door 17.54 -> 17.06, room change 106.56 ->
    106.05, gate 5.11 -> 4.99 (baseline lowered except the room change). Main end_of_code 0x78D6 -> 0x7900 (768 free).
 48. RAM-disk tiers, design (2026-11-03, docs/ramdisk-tiers.md; for review, the caches not built): measured with
-   tracepoints (tools/fetchstat.py) that the fetch is a sixth RAM-disk reads and two thirds the shift (walk 30-60: 0.899 =
+   tracepoints (tools/fetchstat.py) that RAM-disk reads are about a sixth of the fetch and the shift + mirror about two
+   thirds (walk 30-60: 0.899 =
    setup 0.026, reads 0.153, shift + mirror 0.610, loop 0.110; fight 60-160 1.547 = 0.050 / 0.287 / 1.029 / 0.178); the
    mirror is done at the fetch (~20 T a byte of the shift's 96-103). Working set over all 71 scripts: 2,553 (chtab, frame,
    mirror, shift) keys, 1.5 MB of cell buffers (the whole key space 7,184 keys, 4.4 MB); a first pass repeats few keys

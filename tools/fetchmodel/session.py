@@ -13,7 +13,8 @@ def lvl(name):
         p = os.path.join(ROOT, 'tests', d, name + '.txt')
         if os.path.exists(p): return kidsim.script_level(p)
 seq = []; ticks = 0
-order = sys.argv[1:] or [os.path.basename(d) for d in sorted(glob.glob(os.path.join(K, '*')))]
+order = sys.argv[1:] or [os.path.basename(d) for d in sorted(glob.glob(os.path.join(K, '*')))
+                         if os.path.exists(os.path.join(d, 'calls.jsonl'))]      # (a failed fetchstat run: no calls.jsonl)
 for nm in order:
     cs = [json.loads(l) for l in open(os.path.join(K, nm, 'calls.jsonl'))]
     if not cs: continue

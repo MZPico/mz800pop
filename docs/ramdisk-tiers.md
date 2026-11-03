@@ -151,8 +151,8 @@ same 21 T a byte as reading; it would need a draw that knows the row extents.)
   by the level-start overlay; the shadow on the guard slot uses the kid's images through chtab 2 = the kid set). 471
   ids x 64 = 30,144 bytes. Page 0 = empty (page 0 never holds an entry). The guard set is part of the key, so a level
   change needs no flush.
-- **Data**: 1 MB = page 8 0x7800-0xFFFF and pages 9-15 (~490 KB) as one ring; 16 MB = pages 9-75 (4.3 MB, the whole key
-  space: never full) or, with the room cache (section 5), whatever pages it leaves.
+- **Data**: 1 MB = page 8 0x7800-0xFFFF and pages 9-15 (~490 KB) as one ring; 16 MB = pages 9-80 (72 pages, 4,608 KiB: the whole key
+  space's 4,382 KiB with the 4-byte headers, plus slack for the entries that do not cross a page boundary: never full) or, with the room cache (section 5), whatever pages it leaves.
 - **Lookup** per char_fetch miss of the slot's one-entry cache (the existing SD_LKEY test stays in front): index
   arithmetic ~80 T, seek page 8 ~40 T, 3 INs ~50 T, test, seek the entry ~40 T, the header 4 INs ~50 T, the descriptor
   ~60 T: **~350 T, then 21.1 T a byte** (INIR in 256-byte chunks). The existing dir_entry call (~300 T) is not needed
