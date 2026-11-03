@@ -65,8 +65,6 @@ boot_main:      di
                 call    video_init
                 ld      hl, msg_title
                 call    print_at
-                ld      hl, msg_sub
-                call    print_at
                 call    rd_probe
 rd_probed:      jp      nz, rd_refuse   ; (harness breakpoint: rd_top is set)
                 call    rd_speed        ; the read speed (rd_spd) on the loading screen; too slow: stops there
@@ -880,8 +878,6 @@ bf_row:         ld      (hl), 0xff
 
 msg_title:      dw      48 * 40 + 12
                 db      COL_TEXT, "PRINCE OF PERSIA", 0
-msg_sub:        dw      64 * 40 + 13
-                db      7, "SHARP MZ-800", 0
 msg_load:       dw      100 * 40 + 4
                 db      7, "LOADING...", 0
 msg_rd1:        dw      112 * 40 + 4
