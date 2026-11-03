@@ -31,6 +31,7 @@ def measure(script, t0, t1):
     moves, patches = kidsim.read_script(sp)
     with Emu() as e:
         S = G.setup(e, kidsim.script_level(sp), opts=kidsim.script_opts(sp))
+        size = G.rd_size(e)
         enc = bytes([((x + 1) & 3) | (((y + 1) & 3) << 2) | (0x10 if sh else 0) for (x, y, sh) in moves]) + b'\xff'
         G.write_pack(e, enc, 5, G.SCRIPT)
         e.call('mem_write', addr=G.SCRIPT_PTR, data_hex='%02x%02x' % (G.SCRIPT & 255, G.SCRIPT >> 8))
@@ -49,15 +50,15 @@ def measure(script, t0, t1):
             if t in (t0, t1): marks[t] = (cyc(), hits(e, ids))
     (c0, h0), (c1, h1) = marks[t0], marks[t1]
     n = t1 - t0
-    return (c1 - c0) / n / F, {k: (h1[k] - h0[k]) / n for k in h1}
+    return size, (c1 - c0) / n / F, {k: (h1[k] - h0[k]) / n for k in h1}
 
 def main():
     sel = sys.argv[1:]
-    print('RAM disk %s' % G.rd_size())
     print('%-30s %8s %9s %8s %8s %8s   %s' % ('stretch', 'frames', 'reads', 'writes', 'addr', 'page', '+1 / +2 / +3 T a read (frames a tick)'))
     for name, (sc, t0, t1) in STRETCHES.items():
         if sel and not any(s in name for s in sel): continue
-        fr, h = measure(sc, t0, t1)
+        size, fr, h = measure(sc, t0, t1)
+        if name.startswith('walk_level1 30'): print('RAM disk %s' % size)
         print('%-30s %8.3f %9.0f %8.0f %8.0f %8.0f   %s' % (name, fr, h['rd'], h['wr'], h['addr'], h['page'],
               ' / '.join('%.3f' % (k * h['rd'] / F) for k in (1, 2, 3))))
 

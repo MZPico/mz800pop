@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The frame store (docs/ramdisk-tiers.md "As built: step 1"; src/m4/fstore.asm, src/m4/fslook.asm, tools/fstore.py)
-on the emulated RAM disk's size (POP800_RD_SIZE, else emu/mz800emu.ini's):
+on the emulated RAM disk's size (the emulator's: POP800_RD_SIZE, else emu/mz800emu.ini's):
   - 1 MB and more: the fill (game_start) leaves page 8's key table and marker exactly as tools/fstore.py computes
     them (build/assets/fstore_tab<class>.bin) and every stored entry equal to the kernel's buffer as
     tools/fetchmodel/prebuild.py generates it (its output equals the kernel's: prebuild_check.py), with its header;
@@ -28,19 +28,19 @@ def page_read(e, page, addr, n):
 
 def main():
     S = syms(os.path.join(ROOT, 'build', 'm4game.sym'))
-    top = G.RD_TOPS[G.rd_size()]
     fails = 0
     with Emu() as e:
+        top = G.rd_top(e)
         c0 = e.call('get_raster_pos')['total_cycles']
         G.setup(e, 1)
         c1 = e.call('get_raster_pos')['total_cycles']
         on = struct.unpack('<H', e.mem(S['fs_on'] + 1, 2))[0]
         if top < S['FS_TOP1']:
             ok = on == S['cf_fetch']
-            print('RAM disk %s (rd_top %d): no store, fs_on -> cf_fetch: %s' % (G.rd_size(), top, 'ok' if ok else 'FAIL %04x' % on))
+            print('RAM disk %s (rd_top %d): no store, fs_on -> cf_fetch: %s' % (G.rd_size(e), top, 'ok' if ok else 'FAIL %04x' % on))
             return 0 if ok else 1
         cls = 2 if top >= S['FS_TOP2'] else 1
-        print('RAM disk %s (rd_top %d): class %d; setup with the fill %.1f frames (%.2f s)' % (G.rd_size(), top, cls, (c1 - c0) / F, (c1 - c0) / F / 50))
+        print('RAM disk %s (rd_top %d): class %d; setup with the fill %.1f frames (%.2f s)' % (G.rd_size(e), top, cls, (c1 - c0) / F, (c1 - c0) / F / 50))
         if on != S['fs_look']: print('FAIL fs_on -> %04x, not fs_look' % on); fails += 1
         tab = page_read(e, S['FS_PAGE'], 0, S['FS_DATA'])
         want = open(os.path.join(A, 'fstore_tab%d.bin' % cls), 'rb').read()

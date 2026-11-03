@@ -150,26 +150,29 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     frame_store(e, S, fs_fresh, fs_run)
     return S
 
-RD_TOPS = {'64K': 0, '256K': 3, '512K': 7, '1M': 15, '16M': 255}
-def rd_size():
-    """the emulated RAM disk's size: POP800_RD_SIZE (emu/mz800emu-pop.sh), else the INI's mr1r18_size"""
-    v = os.environ.get('POP800_RD_SIZE')
-    if v: return v
-    for l in open(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'emu', 'mz800emu.ini')):
-        if l.startswith('mr1r18_size'): return l.split('=')[1].strip()
+RD_SIZES = {1: '64K', 4: '256K', 8: '512K', 16: '1M'}
+def rd_top(e):
+    """the emulated RAM disk's last 64 KB page, as the boot's probe finds it (7 = 512 KB, 15 = 1 MB, 255 = 16 MB), from
+    the emulator itself (its RAM-disk regions: the size it really runs with, whatever INI it got; mz800emu's MCP lists at
+    most 52 pages of a 16 MB disk, and no size between 1 MB and 16 MB exists)"""
+    n = sum(r['kind'] == 'ramdisk_std' for r in e.call('regions_list')['regions'])
+    return n - 1 if n <= 16 else 255
+def rd_size(e):
+    top = rd_top(e)
+    return RD_SIZES.get(top + 1, '16M')
 
 def fs_clear(e, S):
     """the frame store's marker cleared (1 MB and more only: below, page 8 is page 0): the next game start fills it"""
-    if RD_TOPS[rd_size()] >= S['FS_TOP1']: write_pack(e, bytes(5), S['FS_PAGE'], S['FS_MARK'])
+    if rd_top(e) >= S['FS_TOP1']: write_pack(e, bytes(5), S['FS_PAGE'], S['FS_MARK'])
 
 def frame_store(e, S, fresh=True, run=True):
-    """the size as the boot's probe hands it over (HO_MAIN + HO_RDTOP, src/boot/launch.inc), then the program runs to
+    """the size (rd_top: the emulator's) as the boot's probe hands it over (HO_MAIN + HO_RDTOP, src/boot/launch.inc), then the program runs to
     the end of the frame store's fill (src/m4/fstore.asm fs_fill, in game_start; docs/ramdisk-tiers.md \"As built: step
     1\"): 1 MB and more generate the store once per RAM disk (the marker), so the tests' frame counts start after it.
     fresh: the marker is cleared first, so every run fills anew (0.6 s of host time on 1 MB, 1.6 s on 16 MB) and no
     store left in the RAM-disk file by another build or run is trusted. run=False: the program stays at `start` (the fill
     then runs inside game_start, as in a launched game: tests/m5_boot.py)"""
-    top = RD_TOPS[rd_size()]
+    top = rd_top(e)
     e.call('mem_write', addr=0x02AF, data_hex='%02x' % top)
     if top < S['FS_TOP1']: return
     if fresh: fs_clear(e, S)
