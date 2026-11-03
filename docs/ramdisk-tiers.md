@@ -135,8 +135,12 @@ block has no spare byte) at every start. 0 = the harness (not measured). Nothing
 **Tested** (m5_boot): 512 KB, 1 MB and 16 MB give 21.0 everywhere (every value 21.0 +-0.1; mz800emu models no wait
 states), the boot goes on and the game gets 105; with rd_max patched to 15.0 in the loaded image the boot halts at
 rs_stop with the message and never launches (build/m5_rdslow.png), the same with rd_min patched to 25.0 (the timer
-fault, build/m5_rdfault.png). If mz800emu gets a configurable RAM-disk wait (mz800emu branch feature/regions-memdisk),
-the test should boot with +1 (22.0 must pass, "+1.0 WAIT") and +30 (the stop without patching).
+fault, build/m5_rdfault.png). With an emulator that has `mr1r18_wait` (MZPico/mz800emu#2; `POP800_RD_WAIT`, PR #18)
+it also boots with +1 T a RAM-disk port access (22.0 in every column, "+1.0 WAIT", the boot goes on;
+build/m5_rdwait1.png) and +30 (the stop without patching; build/m5_rdwait30.png); with an older emulator these two
+are reported as not tested. Found there: mz800emu's mr1r18_wait is linear only up to 9 (+2 23.0, +5 26.0, +9 30.0
+clocks a byte, then +10 37.1, +16 43.2, +20 53.2, +30 69.4); the emulator's own cycle counter over op_chunk gives the
+same numbers, so the measurement is right and the jump is the emulator's (reported to the emulator task).
 
 To check on real hardware: the values on a chip-based card (21.0 expected) and on an MZPico Deluxe (22 or more, the
 spread of MIN / MAX), and that GATE0 through 0xE008 works in the MZ-800 mode on the real machine as in mz800emu.
