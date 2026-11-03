@@ -64,7 +64,7 @@ boot_main:      di
                 ld      hl, msg_sub
                 call    print_at
                 call    rd_probe
-                jp      nz, rd_refuse
+rd_probed:      jp      nz, rd_refuse   ; (harness breakpoint: rd_top is set)
                 ld      a, LN_RD_PAGE   ; the launcher: this image as it is now (nothing in it has changed yet)
                 ld      de, LN_RD_ADDR
                 call    rd_seek
@@ -116,6 +116,8 @@ launch_main:    di
                 ld      de, HO_MAIN
                 ld      bc, HO_SIZE
                 ldir
+                ld      a, (rd_top)     ; the RAM disk's last page (the probe), for the program started
+                ld      (HO_MAIN + HO_RDTOP), a
                 ld      a, (ho_buf + HO_ACTION)
                 bit     ACT_PRES_BIT, a
                 jr      nz, ln_pres
@@ -669,51 +671,74 @@ ra_end:         in      a, (FD_CMD)
                 include "fdc.asm"           ; fd_read, fd_cmd, fd_type1, the delays (shared with the save overlay)
 
 ; ---------------------------------------------------------------- RAM disk probe
-; Pages 0-7 must be distinct pages: a marker at offset 0 of each, written 7 down to 0 (an aliased page takes a
-; later marker), read back; the original bytes are put back. Z = 512 KB or more.
+; The size of the RAM disk (docs/ramdisk-tiers.md section 1): a 2-byte marker (p, p xor 0x5A) at offset 0 of each page p,
+; written from page 255 down to 0 (a card that ignores the high page bits aliases page p to a lower page, whose later
+; write replaces the marker; a page with no memory behind it does not keep one), then read back from page 0 up: the
+; pages up to the first wrong marker are the RAM disk. rd_top = its last page (7 = 512 KB, 15 = 1 MB, 255 = 16 MB; the
+; launcher hands it to the programs it starts, launch.inc HO_RDTOP). The original bytes are saved in TRKBUF (free until
+; the directory is read) and put back. Z = 512 KB or more.
 rd_probe:       in      a, (RD_RESET)
-                ld      hl, rd_save
+                ld      hl, TRKBUF      ; save offsets 0-1 of pages 0-255
                 ld      d, 0
 rp_1:           ld      a, d
                 call    rd_at0
                 in      a, (RD_DATA)
                 ld      (hl), a
                 inc     hl
+                in      a, (RD_DATA)
+                ld      (hl), a
+                inc     hl
                 inc     d
-                ld      a, d
-                cp      8
                 jr      nz, rp_1
-                ld      d, 7
+                ld      d, 255          ; the markers, 255 down to 0
 rp_2:           ld      a, d
                 call    rd_at0
                 ld      a, d
-                add     a, 0xa0
+                out     (RD_DATA), a
+                xor     0x5a
                 out     (RD_DATA), a
                 dec     d
-                jp      p, rp_2
-                ld      de, 0           ; D = page, E = bad pages
+                ld      a, d
+                inc     a
+                jr      nz, rp_2
+                ld      d, 0            ; read back: D = the first page without its marker
 rp_3:           ld      a, d
                 call    rd_at0
                 in      a, (RD_DATA)
-                sub     0xa0
                 cp      d
-                jr      z, rp_4
-                inc     e
-rp_4:           inc     d
-                ld      a, d
-                cp      8
+                jr      nz, rp_4
+                ld      e, a
+                in      a, (RD_DATA)
+                xor     0x5a
+                cp      e
+                jr      nz, rp_4
+                inc     d
                 jr      nz, rp_3
-                ld      d, 7
-                ld      hl, rd_save + 7
-rp_5:           ld      a, d
+                ld      a, 255          ; all 256 pages
+                jr      rp_5
+rp_4:           ld      a, d            ; the page before D (D = 0, no RAM disk: 0, refused below)
+                sub     1
+                adc     a, 0
+rp_5:           ld      (rd_top), a
+                ld      d, 255          ; put the bytes back, 255 down to 0 (an aliased page gets its own bytes last)
+                ld      hl, TRKBUF + 511
+rp_6:           ld      a, d
                 call    rd_at0
+                dec     hl
+                ld      a, (hl)
+                out     (RD_DATA), a
+                inc     hl
                 ld      a, (hl)
                 out     (RD_DATA), a
                 dec     hl
+                dec     hl
                 dec     d
-                jp      p, rp_5
-                ld      a, e
-                or      a
+                ld      a, d
+                inc     a
+                jr      nz, rp_6
+                ld      a, (rd_top)
+                cp      7               ; 8 pages or more
+                sbc     a, a
                 ret
 rd_at0:         out     (RD_PAGE), a
                 ld      bc, RD_ADDR     ; B = 0: address 0
@@ -869,6 +894,7 @@ f_idx:          db      0
 f_cnt:          db      0
 ho_title:       dw      HO_MAGIC        ; the boot's handoff block: the title
                 db      ACT_TITLE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+rd_top:         db      0               ; the RAM disk's last page (rd_probe; in the image: the launcher's copy keeps it)
 end_of_image:
                 if end_of_image - LOAD > LN_MAX
                 .error the launcher's image is larger than its RAM-disk area
@@ -890,7 +916,6 @@ r_pay:          ds      2
 r_bar:          ds      1
 up_neg:         ds      2
 bar_cur:        ds      1
-rd_save:        ds      8
 s_src:          ds      1               ; the stream: 0 the floppy, 1 the RAM disk
 bar_on:         ds      1               ; the progress bar is drawn (the boot)
 ho_buf:         ds      HO_SIZE         ; the handoff block as read by the launcher

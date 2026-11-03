@@ -102,6 +102,10 @@ whole set through the local runner without the cache; the full regression is nor
 `tools/testrun.py` runs the tests of `tools/ci/suite.py` in parallel and skips each test that passed before with the
 same inputs. It builds first (`make ci-build`, then what the selected tests need: `make cheats`, the M3 programs).
 
+`POP800_RD_SIZE=512K` (or 256K, 1M, 16M) runs every emulator test with that RAM-disk size (emu/mz800emu-pop.sh writes an
+INI copy to build/emu/; unset = emu/mz800emu.ini's 1M); it is part of each test's cache key. A change under emu/ makes
+`make check` select every emulator test: run those on the runners instead (docs/ramdisk-tiers.md section 4).
+
 | Target | What | Use |
 |---|---|---|
 | `make check` | the full regression's tests that the changes since `BASE` can affect, plus those that failed last time; each cached | after a change |

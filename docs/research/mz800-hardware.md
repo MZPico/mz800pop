@@ -115,7 +115,8 @@ Sources: mz800emu source + docs/agent (local checkout at ~/src/mz800emu), Hučí
 - MZ-1R18 in mz800emu: the 16-bit address auto-increments without carrying into the page register (keep a
   transfer inside one 64 KB page); the page register is ANDed with the size mask (256 KB = 3, 512 KB = 7), so a
   smaller RAM disk aliases pages: the loader writes a marker to offset 0 of pages 7 down to 0, reads them back
-  (all distinct = 512 KB or more) and restores the bytes. `mr1r18_size = 256K` in a copy of the INI (with its own
+  (all distinct = 512 KB or more) and restores the bytes (since 2026-11-03 pages 255 down to 0: it counts the pages,
+  rd_top, docs/ramdisk-tiers.md; mz800emu supports 64K / 256K / 512K / 1M / 16M, its MCP reaches pages 0-51 only with 16M). `mr1r18_size = 256K` in a copy of the INI (with its own
   `mr1r18_filepath`) tests the refusal.
 - To check on real hardware (not emulated): the real drive's timing (latency, the 1Bh step rate on the
   installed drive), booting from a drive other than 0 (the loader always uses drive 0), the MZ-1R18 page aliasing

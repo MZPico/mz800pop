@@ -817,3 +817,30 @@ piece used AND/XOR semantics.
    pointer table moved to 0xF58B). perfcheck medians of 3 runs, main (80c4945) -> this: walk 30-60 6.10 -> 5.72, fight
    8.23 -> 7.73, traps 5.96 -> 5.63, walkthrough 190-260 10.73 -> 10.26, level door 17.54 -> 17.06, room change 106.56 ->
    106.05, gate 5.11 -> 4.99 (baseline lowered except the room change). Main end_of_code 0x78D6 -> 0x7900 (768 free).
+48. RAM-disk tiers, design (2026-11-03, docs/ramdisk-tiers.md; for review, the caches not built): measured with
+   tracepoints (tools/fetchstat.py) that RAM-disk reads are about a sixth of the fetch and the shift + mirror about two
+   thirds (walk 30-60: 0.899 =
+   setup 0.026, reads 0.153, shift + mirror 0.610, loop 0.110; fight 60-160 1.547 = 0.050 / 0.287 / 1.029 / 0.178); the
+   mirror is done at the fetch (~20 T a byte of the shift's 96-103). Working set over all 71 scripts: 2,553 (chtab, frame,
+   mirror, shift) keys, 1.5 MB of cell buffers (the whole key space 7,184 keys, 4.4 MB); a first pass repeats few keys
+   (walkthrough 12 %, fights 25-66 %). Design: an entry = the cell buffer as char_fetch leaves it plus a 4-byte header,
+   a direct-indexed directory in page 8 (471 ids x 16 keys x 4 bytes = 30 KB; ~350 T a lookup + 21 T a byte), filled on
+   first use (+~800 T + 21 T a byte on that fetch), a FIFO ring on 1 MB (pages 8-15), never full on 16 MB; ~300
+   resident bytes; pixels identical by construction. Estimate: warm walk -0.72, fight -1.22 frames a tick (tick 5.72 ->
+   ~5.0, 7.73 -> ~6.5), first passes up to +0.1-0.25; over one session of all scripts the fetch 0.866 -> 0.301 (16 MB) /
+   0.447 (1 MB, frames only). Room cache (second step): per-room shadow slots (2 a page), revisit ~15-20 frames,
+   invalidated by a per-slot tile snapshot compared at the revisit; 316 rooms fit 16 MB with the frames. Built here, no
+   behaviour change: the boot's probe counts the pages (rd_top 7 / 15 / 255) and the launcher puts it at HO_MAIN + 15
+   (0 = the harness = 512 KB layout; nothing reads it yet), `POP800_RD_SIZE` selects the emulator's size, m5_boot tests
+   the probe at 512 KB / 1 MB / 16 MB. Found: every test so far ran with 1 MB (the INI); mz800emu's MCP reaches only RAM-disk
+   pages 0-51 with 16 MB (128-region limit). The full regression passed with the INI at 512K and at 16M. Follow-ups
+   (user): prefetching (sections 7: the ticks idle only 0.05-2.3 frames a second, so prefetch = work at boot / level
+   start; pages 8+ survive levels and PRES) and prebuilt / boot-generated fixed layouts and the hybrid (section 8: a key
+   table, lookup ~110 resident bytes, no fill or eviction; 1 MB store kid + sword 400 KB + the level's guard set 80 KB
+   chosen from the scripts' use: fetch 0.866 -> 0.397 a tick with no cold pass, against the run-time cache's 0.447 with
+   +0.1-0.25 first passes; the kid's set on the floppy needs an 80-track image (88 KB PZ for 400 KB; the full set 475
+   KB) and ~16 s of boot, generated at boot from the packs ~6 s (a dedicated generator) / ~15 s (today's code); the
+   guard's 80 KB at a level start +1.2 / +3.0 s; MZPico's [ramdisk] takes a flat image file, persistent). Recommended
+   (section 9): the fixed-layout store with the kid core generated at boot (~3-4 days), a dedicated generator and the
+   level's guard set (~2-3 days), CI with a RAM-disk dimension, 16 MB extras, then the room cache (~4-6 days); open
+   questions in section 10.
