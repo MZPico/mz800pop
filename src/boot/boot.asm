@@ -2,7 +2,9 @@
 ; the disk). The ROM IPL reads it to 0x1200, moves it to LOAD and jumps to `boot`. It
 ;   1. switches to 320x200/16 colours and shows the title and a progress bar,
 ;   2. probes the RAM disk (MZ-1R18 / STD protocol, ports E9-EB, F8): pages 0-7 must be distinct (512 KB or more),
-;      else it shows a message and stops (rd_refuse); then it copies its own image to the RAM disk (LN_RD_PAGE:
+;      else it shows a message and stops (rd_refuse); it measures the RAM disk's read speed (rd_speed, rdspeed.asm: a
+;      table on the loading screen; too slow, or a timer that cannot be right: a message and a stop at rs_stop);
+;      then it copies its own image to the RAM disk (LN_RD_PAGE:
 ;      LN_RD_ADDR, launch.inc): that copy is the launcher the game loads to swap itself out,
 ;   3. finds the data files POP800.D1, D2, ... in the FSMZ directory and reads them with its own WD2793 code
 ;      (multi-sector reads of whole tracks, as the ROM IPL does them),
@@ -38,7 +40,9 @@ RD_ADDR         equ     0xeb
 RD_RESET        equ     0xf8
 ; FD_CMD .. FD_SIDE: fdc.asm
 
-BAR_ROW         equ     128             ; progress bar: 8 rows from this line, 32 bytes from byte column 4
+PORT_CTC1       equ     0xd5            ; 8253 counter 1, clocked by HSYNC (rd_speed)
+PORT_CTCC       equ     0xd7            ; 8253 control
+BAR_ROW         equ     112             ; progress bar: 8 rows from this line, 32 bytes from byte column 4
 BAR_COL         equ     4
 COL_TEXT        equ     15
 COL_BAR_BG      equ     1
@@ -63,10 +67,10 @@ boot_main:      di
                 call    video_init
                 ld      hl, msg_title
                 call    print_at
-                ld      hl, msg_sub
-                call    print_at
                 call    rd_probe
 rd_probed:      jp      nz, rd_refuse   ; (harness breakpoint: rd_top is set)
+                call    rd_speed        ; the read speed (rd_spd) on the loading screen; too slow: stops there
+rd_measured:                            ; (harness breakpoint: rd_speed done)
                 ld      a, LN_RD_PAGE   ; the launcher: this image as it is now (nothing in it has changed yet)
                 ld      de, LN_RD_ADDR
                 call    rd_seek
@@ -140,6 +144,8 @@ launch_main:    di
                 ldir
                 ld      a, (rd_top)     ; the RAM disk's last page (the probe), for the program started
                 ld      (HO_MAIN + HO_RDTOP), a
+                ld      a, (rd_spd)     ; and its read speed (rd_speed)
+                ld      (HO_RDSPD_MAIN), a
                 ld      a, (ho_buf + HO_ACTION)
                 bit     ACT_PRES_BIT, a
                 jr      nz, ln_pres
@@ -894,17 +900,15 @@ bf_row:         ld      (hl), 0xff
 
 msg_title:      dw      48 * 40 + 12
                 db      COL_TEXT, "PRINCE OF PERSIA", 0
-msg_sub:        dw      64 * 40 + 13
-                db      7, "SHARP MZ-800", 0
-msg_load:       dw      112 * 40 + 4
+msg_load:       dw      100 * 40 + 4
                 db      7, "LOADING...", 0
 msg_rd1:        dw      112 * 40 + 4
                 db      10, "SORRY, THIS GAME NEEDS A 512 KB", 0
 msg_rd2:        dw      124 * 40 + 4
                 db      10, "RAM DISK (MZ-1R18 OR COMPATIBLE).", 0
-msg_disk:       dw      148 * 40 + 4
+msg_disk:       dw      84 * 40 + 4
                 db      10, "DISK ERROR", 0
-msg_data:       dw      148 * 40 + 4
+msg_data:       dw      84 * 40 + 4
                 db      10, "DATA ERROR", 0
 
                 include "font.inc"
@@ -923,6 +927,7 @@ ho_fill:        dw      HO_MAGIC        ; on 1 MB and more: the frame store's fi
 msg_prep:       dw      0               ; (msg_load's place)
                 db      7, "PREPARING SPRITES", 0
 rd_top:         db      0               ; the RAM disk's last page (rd_probe; in the image: the launcher's copy keeps it)
+rd_spd:         db      0               ; its read speed: GAME clocks/byte x 5 (rd_speed, rdspeed.asm; as rd_top)
 end_of_image:
                 if end_of_image - LOAD > LN_MAX
                 .error the launcher's image is larger than its RAM-disk area
@@ -950,4 +955,12 @@ ho_buf:         ds      HO_SIZE         ; the handoff block as read by the launc
 end_of_vars:
                 if end_of_vars > STACK - 0x100
                 .error loader variables run into the stack
+                endif
+; the boot only (not in the image): rd_speed (src/boot/rdspeed.asm), assembled over the variables above (the later
+; bytes win in the binary): it runs before any of them is used
+                org     end_of_image
+                include "rdspeed.asm"
+end_of_boot:
+                if end_of_boot > STACK - 0x100
+                .error rd_speed runs into the stack
                 endif

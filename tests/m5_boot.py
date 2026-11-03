@@ -25,7 +25,14 @@ to silent at level_ready, as every harness run is (live decisions only change wh
 Also: the loader's progress bar is full when PRES starts, and with a 256 KB RAM disk (a temporary emulator INI) the
 loader refuses (stops at rd_stop) and the game does not start; the probe finds 512 KB, 1 MB and 16 MB RAM disks
 (rd_top 7, 15, 255; docs/ramdisk-tiers.md section 1) and puts back the bytes it wrote, and the launched game gets the
-emulator's size at HO_MAIN + HO_RDTOP. Prints the boot times in frames (50 per second).
+emulator's size at HO_MAIN + HO_RDTOP. The read-speed measurement (src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1):
+with each size every area's MIN / MAX / ALIGN / MISAL / GAME / AVG is 21.0 clocks/byte +-0.1 (mz800emu has no wait
+states), the boot goes on, and the launched game gets HO_RDSPD_MAIN = 105 (21.0 x 5); with a stop limit patched in
+the image (the defaults: 36.0 and 15.0; rd_max 15.0: "too slow", rd_min 25.0: "timer fault") the boot halts at
+rs_stop with the message (build/m5_rdslow.png, build/m5_rdfault.png) and the game does not start. With an emulator
+that has mr1r18_wait (POP800_RD_WAIT): +1 T a RAM-disk access reads 22.0 everywhere and the boot goes on, +14 reads
+GAME 35.4 (21 + 14 + 14/32 for the address OUT) and goes on, +16 reads 37.5 and stops it (above 36.0;
+build/m5_rdwait1.png, m5_rdwait14.png, m5_rdwait16.png); without it these are reported as not tested. Prints the boot times in frames (50 per second).
 The disk is mounted from a copy (mz800emu writes a mounted image back on eject, even read-only).
 usage: m5_boot.py [ticks]"""
 import base64, os, re, shutil, sys, tempfile
@@ -47,6 +54,7 @@ REAL_GAME = dict(guards=True, place=[], sword=False)   # guard_opts zero, ev_opt
 TICKS = int(sys.argv[1]) if len(sys.argv) > 1 else 300
 SND_MODE_LAUNCHED = None
 RD_TOP_LAUNCHED = None
+RD_SPD_LAUNCHED = None
 
 def fill_ramdisk(e):
     for p in range(PAGES):
@@ -180,6 +188,8 @@ def floppy_run(dsk):
         t_start = t_title + run_to(e, G['start'])
         global RD_TOP_LAUNCHED                          # the probe's size, as the launcher handed it to the game
         RD_TOP_LAUNCHED = e.mem(BS['HO_MAIN'] + BS['HO_RDTOP'], 1)[0]
+        global RD_SPD_LAUNCHED                          # the measured read speed, as the launcher handed it over
+        RD_SPD_LAUNCHED = e.mem(BS['HO_RDSPD_MAIN'], 1)[0]
         s0 = snapshot(e, RESERVED + PRES_SCRATCH)
         t_ready = t_start + run_to(e, G['level_ready'])
         global SND_MODE_LAUNCHED                        # M7: the launched game plays sound live (psg.asm SND_MODE 1);
@@ -209,12 +219,16 @@ def emu_binary():
     if not m: raise SystemExit('m5_boot: cannot find the emulator binary in %s' % emu.EXE)
     return m.group(1)
 
-def rd_emu(tmp, size):
-    """a launcher for an emulator with a RAM disk of `size` (a temporary INI; the RAM disk is in memory, as the INI's)"""
+def rd_emu(tmp, size, wait=None):
+    """a launcher for an emulator with a RAM disk of `size` (a temporary INI; the RAM disk is in memory, as the INI's)
+    and `wait` extra T-states on each of its port accesses (mz800emu's mr1r18_wait; None: the INI's)"""
     ini = open(os.path.join(ROOT, 'emu', 'mz800emu.ini')).read()
     lines = []
     for l in ini.splitlines():
-        if l.startswith('mr1r18_size'): l = 'mr1r18_size = ' + size
+        if l.startswith('mr1r18_wait') and wait is not None: continue
+        if l.startswith('mr1r18_size'):
+            l = 'mr1r18_size = ' + size
+            if wait is not None: lines.append('mr1r18_wait = %d' % wait)
         lines.append(l)
     open(os.path.join(tmp, 'mz800emu.ini'), 'w').write('\n'.join(lines) + '\n')
     real = emu_binary()
@@ -240,10 +254,15 @@ def refuse_run(dsk):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+def rd_results(e):
+    """rd_speed's results (clocks/byte x 10): {page: (MIN, MAX, ALIGN, MISAL, GAME, AVG)}"""
+    n = e.mem(BS['rs_n'], 1)[0]; pages = e.mem(BS['rs_pg'], n); res = e.mem(BS['rs_res'], 12 * n)
+    return {p: tuple(res[i * 12 + k] | res[i * 12 + k + 1] << 8 for k in range(0, 12, 2)) for i, p in enumerate(pages)}
+
 def probe_run(dsk, size):
     """boot with a RAM disk of `size` up to the end of the probe (rd_probed): (rd_top, the bytes at offsets 0-1 of every
-    page put back, the probe accepted it); offsets 0-1 of each page the emulator lets the test reach hold a pattern before
-    the boot"""
+    page put back, the probe accepted it, rd_speed's results at rd_measured, the boot went on); offsets 0-1 of each page
+    the emulator lets the test reach hold a pattern before the boot"""
     tmp = tempfile.mkdtemp(prefix='m5probe')
     try:
         with Emu(exe=rd_emu(tmp, size)) as e:
@@ -260,9 +279,52 @@ def probe_run(dsk, size):
             zf = bool(e.call('get_registers')['AF'] & 0x40)
             top = e.mem(BS['rd_top'], 1)[0]
             kept = all(e.region(RAMDISK[0] + p, 0, 2) == pat(p) for p in range(pages))
-        return top, kept, zf
+            e.call('bp_clear'); e.call('bp_add', addr=BS['rd_measured']); e.call('bp_add', addr=BS['rs_stop'])
+            r = e.run(100); went_on = r['stopped_by'] == 'breakpoint' and e.call('get_registers')['PC'] == BS['rd_measured']
+            res = rd_results(e)
+        return top, kept, zf, res, went_on
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+def has_rd_wait():
+    """the emulator binary knows mr1r18_wait (MZPico/mz800emu#2; the project's POP800_RD_WAIT)"""
+    try: return b'mr1r18_wait' in open(emu_binary(), 'rb').read()
+    except OSError: return False
+
+def wait_run(dsk, wait, png):
+    """boot with a 1 MB RAM disk and `wait` T-states on each RAM-disk port access: (rd_speed's results, the boot went on
+    (rd_measured) or stopped (rs_stop): 'on' / 'stop' / '?', the GAME mean x 10)"""
+    tmp = tempfile.mkdtemp(prefix='m5wait')
+    try:
+        with Emu(exe=rd_emu(tmp, '1M', wait)) as e:
+            e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
+            e.call('reset')
+            e.call('bp_add', addr=BS['rd_measured']); e.call('bp_add', addr=BS['rs_stop'])
+            r = e.run(500); pc = e.call('get_registers')['PC']
+            how = '?' if r['stopped_by'] != 'breakpoint' else 'on' if pc == BS['rd_measured'] else 'stop'
+            res = rd_results(e); g = e.mem(BS['rs_gav'], 2); gav = g[0] | g[1] << 8
+            e.call('bp_clear'); e.run(3)
+            e.screenshot(os.path.join(BUILD, png))
+        return res, how, gav
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+def stop_run(dsk, what, value, png):
+    """boot with rd_max or rd_min patched in the loaded image to value: (it halted at rs_stop and stays there, the game
+    never started, rs_mode)"""
+    with Emu() as e:
+        e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
+        e.call('reset')
+        run_to(e, BS['boot'])
+        e.call('mem_write', addr=BS[what], data_hex='%02x%02x' % (value & 255, value >> 8))
+        e.call('bp_add', addr=G['start']); e.call('bp_add', addr=BS['rs_stop']); e.call('bp_add', addr=BS['launch_main'])
+        r = e.run(400); pc = e.call('get_registers')['PC']
+        e.call('bp_clear'); e.call('bp_add', addr=BS['launch_main']); e.call('bp_add', addr=G['start'])
+        r2 = e.run(100)                                 # (it must stay in the loop: no launcher, no game)
+        stuck = r2['stopped_by'] != 'breakpoint' and e.call('get_registers')['PC'] == BS['rs_stop']
+        mode = e.mem(BS['rs_mode'], 1)[0]
+        e.screenshot(os.path.join(BUILD, png))
+    return r['stopped_by'] == 'breakpoint' and pc == BS['rs_stop'] and stuck, mode
 
 def main():
     print('harness run (tests/m4_game.py setup, guards on) ...')
@@ -274,6 +336,9 @@ def main():
         f0, f1, f2, (t_boot, t_launch, t_pres, t_title, t_start, t_ready), bar = floppy_run(dsk)
         ok, pc = refuse_run(dsk)
         probes = {size: probe_run(dsk, size) for size in ('512K', '1M', '16M')}
+        slow = stop_run(dsk, 'rd_max', 150, 'm5_rdslow.png')
+        fault = stop_run(dsk, 'rd_min', 250, 'm5_rdfault.png')
+        waits = {w: wait_run(dsk, w, 'm5_rdwait%d.png' % w) for w in (1, 14, 16)} if has_rd_wait() else None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print('boot: loader entered after %d frames, launcher after %d frames (loader %d frames = %.1f s), %sPRES after %d, '
@@ -306,11 +371,36 @@ def main():
     bad += (not same_kv) + (not same_vram)
     print('256 KB RAM disk: loader %s (PC %04X; screenshot build/m5_refuse.png)' % ('refuses at rd_stop' if ok else 'DID NOT REFUSE', pc))
     bad += not ok
-    for size, (top, kept, zf) in probes.items():      # (docs/ramdisk-tiers.md section 1)
+    for size, (top, kept, zf, res, went_on) in probes.items():      # (docs/ramdisk-tiers.md section 1)
         good = top == RD_TOP[size] and kept and zf
         print('%s RAM disk: the probe found pages 0-%d, %s, the bytes it wrote put back: %s%s' % (
             size, top, 'accepted' if zf else 'REFUSED', 'yes' if kept else 'NO', '' if good else '  FAILED'))
         bad += not good
+        want_pages = sorted({0, 7, RD_TOP[size] // 2 + 1, RD_TOP[size]})
+        fast = sorted(res) == want_pages and all(209 <= v <= 211 for vs in res.values() for v in vs) and went_on
+        print('%s RAM disk: read speed (clocks/byte, MIN MAX ALIGN MISAL GAME AVG) %s; boot %s%s' % (size, ', '.join(
+            'P%d %s' % (p, ' '.join('%.1f' % (v / 10) for v in vs)) for p, vs in sorted(res.items())),
+            'goes on' if went_on else 'STOPPED', '' if fast else '  FAILED (want 21.0 +-0.1 at pages %s)' % want_pages))
+        bad += not fast
+    for name, (ok, mode), want, png in (('too slow (rd_max 15.0)', slow, 1, 'm5_rdslow.png'),
+                                       ('timer fault (rd_min 25.0)', fault, 0, 'm5_rdfault.png')):
+        good = ok and mode == want
+        print('read-speed stop, %s: %s (rs_mode %d; screenshot build/%s)' % (
+            name, 'halts at rs_stop, no launch' if good else 'FAILED', mode, png))
+        bad += not good
+    if waits is None:
+        print('RAM-disk wait states: not tested (the emulator has no mr1r18_wait)')
+    else:       # GAME = 21 + w + w / 32 (the address OUT a 32-byte run): +1 22.0, +14 35.4 (goes on), +16 37.5 (the stop)
+        for w, want_how, lo, hi in ((1, 'on', 219, 221), (14, 'on', 353, 355), (16, 'stop', 374, 376)):
+            res, how, gav = waits[w]
+            good = how == want_how and lo <= gav <= hi and all(lo <= vs[4] <= hi for vs in res.values())
+            print('RAM disk +%d T a port access: GAME %.1f clocks/byte (%s), boot %s%s (screenshot build/m5_rdwait%d.png)' % (
+                w, gav / 10, ', '.join('P%d %s' % (p, ' '.join('%.1f' % (v / 10) for v in vs)) for p, vs in sorted(res.items())),
+                {'on': 'goes on', 'stop': 'stops at rs_stop', '?': 'NEITHER'}[how],
+                '' if good else '  FAILED (want %s, GAME %.1f-%.1f)' % (want_how, lo / 10, hi / 10), w))
+            bad += not good
+    print('the launched game\'s HO_RDSPD_MAIN: %d (%s)' % (RD_SPD_LAUNCHED, 'right' if RD_SPD_LAUNCHED == 105 else 'WRONG, want 105'))
+    bad += RD_SPD_LAUNCHED != 105
     want = RD_TOP.get(ini_rd_size())
     print('the launched game\'s HO_MAIN + HO_RDTOP: %d (the emulator\'s %s RAM disk: %s)' % (
         RD_TOP_LAUNCHED, ini_rd_size(), 'right' if RD_TOP_LAUNCHED == want else 'WRONG, want %s' % want))
