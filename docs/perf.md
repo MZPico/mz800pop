@@ -1111,6 +1111,9 @@ at wait 0 and 1, and 1 T of wait on every port access costs, frames a tick:
 ### Same pixels
 
 VRAM after every tick equal to the Python reference (tests/m4_game.py, the pixel sets) on 512 KB, 1 MB and 16 MB: the
-full regression on the runners for each size (RUNNERS); m5_boot (the floppy boot against the harness, both filling),
+full regression on the runners for each size (all 11 parts: regress/fs2-1m run 41651953731, regress/fs2-16m run
+41651995420, regress/fs2-512 run 41651987545 with perfcheck then failing against the 1 MB baseline and its logic part
+rerun with the 512 KB baseline, regress/fs3-512 run 41659763670; a first 16 MB run had found the cheat tree's size
+mismatch and m7_sound's loop margin, both fixed); m5_boot (the floppy boot against the harness, both filling),
 m7_launch (a round trip against a direct start: the fill leaves main RAM as a start without it) and m8_fstore pass
 locally on 1 MB (m8_fstore also on 512 KB and 16 MB).
