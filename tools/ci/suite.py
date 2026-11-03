@@ -3,8 +3,8 @@
 smoke tier (SMOKE) and, per program, what the local runner (tools/testrun.py) needs to know about it (PROGRAMS: its
 build artefacts and the sources they come from, the tools it uses, its isolation, how its full run splits into
 subtests). tools/ci/check_pr.py runs the steps as they are; tools/testrun.py runs the same commands (a full run as its
-subtests), cached and in parallel. A step is (name, command); 'make' steps are the build steps the steps after them in
-their part need."""
+subtests), cached and in parallel. A step is (name, command) or (name, command, environment); 'make' steps are the
+build steps the steps after them in their part need."""
 import ast, glob, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -42,7 +42,10 @@ PARTS = {
         ('m5_boot', [PY, 'tests/m5_boot.py']),
         ('m5_save', [PY, 'tests/m5_save.py']),
         ('m8_fstore', [PY, 'tests/m8_fstore.py']),
-    ],
+        # the other two full-suite RAM-disk sizes, cheaply (m5_boot probes all three itself): the frame budget against
+        # that size's baseline and the frame store's layout (512K: none; 16M: classes 1 + 2), ~1.5 min together
+    ] + [(n + ' ' + size, [PY, f], {'POP800_RD_SIZE': size}) for size in ('512K', '16M')
+         for n, f in (('perfcheck', 'tools/perfcheck.py'), ('m8_fstore', 'tests/m8_fstore.py'))],
     'b': [
         ('m4_test m7', [PY, 'tests/m4_test.py'] + M7),
         ('oracle_suite subset', [PY, 'tools/oracle_suite.py'] + M7 + EARLY),
@@ -67,7 +70,6 @@ KEYS = [s for s in M7 if os.path.basename(s).startswith('key_')]
 FULL = {
     'logic': [
         ('m4_test all', [PY, 'tests/m4_test.py'] + scripts('m4_scripts', 'm6_scripts', 'm5_scripts', 'm7_scripts')),
-        ('perfcheck', [PY, 'tools/perfcheck.py']),
         ('cut_suite', [PY, 'tools/cut_suite.py']),
     ],
     'oracle-m4m6': [('oracle_suite m4+m6', [PY, 'tools/oracle_suite.py'] + scripts('m4_scripts', 'm6_scripts'))],
@@ -76,6 +78,7 @@ FULL = {
     'pixels-m6': [('m4_game m6 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m6_scripts'))],
     'pixels-m5': [('m4_game m5 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m5_scripts'))],
     'sound': [
+        ('perfcheck', [PY, 'tools/perfcheck.py']),      # (here, not in logic: its baseline is per size)
         ('m7_sound full', [PY, 'tests/m7_sound.py']),
         ('m5_boot', [PY, 'tests/m5_boot.py']),
         ('m5_save', [PY, 'tests/m5_save.py']),
@@ -97,7 +100,8 @@ FULL = {
     ],
     # the early milestones: the colour bars, the M0 boot disk, the M1 compositor, the M3 room renderer and animated
     # tiles on every level, the M3 camera demo (records only). Not here: tests/m2_oracle.py (`make m2`: the M2 Python
-    # renderer against SDLPoP's level maps, a measurement with known differences: 1518 pixels on level 1, 4298 on 4)
+    # renderer against SDLPoP's level maps, a measurement with known differences: 1518 pixels on level 1, 4298 on 4).
+    # Two parts: m3_anim is ~1,350 s of the ~1,450 (the runner), levels 1-6 here, 7-14 in early-anim (~13 / ~12.5 min).
     'early': [
         ('smoke_test', [PY, 'tests/smoke_test.py']),
         ('m0_test', [PY, 'tests/m0_test.py']),
@@ -105,9 +109,27 @@ FULL = {
         ('m1_test', [PY, 'tests/m1_test.py']),
         ('m3 build', ['make', '-s', 'build/m3test.mzf', 'build/m3demo.mzf']),
     ] + [('m3_test %d' % lv, [PY, 'tests/m3_test.py', str(lv)]) for lv in range(1, 15)]
-      + [('m3_anim %d' % lv, [PY, 'tests/m3_anim_test.py', str(lv)]) for lv in range(1, 15)]
+      + [('m3_anim %d' % lv, [PY, 'tests/m3_anim_test.py', str(lv)]) for lv in range(1, 7)]
       + [('m3_demo', [PY, 'tests/m3_demo.py'])],
+    'early-anim': [('m3 build', ['make', '-s', 'build/m3test.mzf'])]
+      + [('m3_anim %d' % lv, [PY, 'tests/m3_anim_test.py', str(lv)]) for lv in range(7, 15)],
 }
+
+# ---- the full regression's RAM-disk dimension (.github/workflows/full-regression.yml, tools/ci/regress_matrix.py;
+# docs/ci.md "The RAM-disk sizes"). Every part runs at 512K, 1M and 16M (POP800_RD_SIZE), except the parts below,
+# whose tests never see the size: kidsim against SDLPoP (no emulator), the logic program m4test (fixed RAM-disk
+# pages, all within 512 KB; it never reads the size: the probe and the frame store are the game's), cutsim, the M0-M3 programs (fixed
+# pages): they run at 1M only. And the parts that also run once at 1M with POP800_RD_WAIT=1 (the MZPico: at least 1 T
+# of wait on every RAM-disk access): the boot from the floppy with the frame store's fill, PRES, the game and the
+# launcher's round trips, the keys: the whole disk path, without a timing reference (the cycle-exact checks,
+# perfcheck, m7_title/m7_cut's step timing, measure a 0-wait card).
+SIZES = ['512K', '1M', '16M']
+SIZE_FREE = {'logic', 'oracle-m4m6', 'oracle-m5m7', 'early', 'early-anim'}
+WAIT_PARTS = ['launch-keys']
+# the parts' job times on the runner (minutes, the whole job: setup ~2.5 + the steps; regress/rd-sizes run
+# 41712495363), to list the longest jobs first (GitHub does not keep to the order when the jobs outnumber the runners)
+PART_MIN = {'sound': 29, 'oracle-m4m6': 28, 'launch-keys': 26, 'story': 18, 'oracle-m5m7': 16, 'early': 16,
+            'early-anim': 15, 'pixels-m4': 13, 'pres': 9, 'pixels-m5': 8, 'pixels-m6': 8, 'logic': 3}
 
 # ---- the smoke tier (`make check-smoke`, ~3 min cold locally): the build, the colour bars, the disk boot, three short
 # logic scripts, one scene every tick, PRES's title (first steps) and one cutscene, the frame budget, cutsim. Each

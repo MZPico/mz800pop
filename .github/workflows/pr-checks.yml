@@ -1,4 +1,5 @@
-# PR checks: build the port (the game disk included) from a clean checkout and run the PR test tier (make check-pr). docs/ci.md.
+# PR checks: build the port (the game disk included) from a clean checkout and run the PR test tier (make check-pr), the
+# RAM disk at the INI's 1M (part a: a few checks at 512K and 16M too). docs/ci.md.
 # The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:
 # no artifact, no cache holds it or anything built from it (the repository is public).
 name: PR checks
@@ -27,13 +28,18 @@ env:
 
 jobs:
   check:
-    name: build + ${{ matrix.part }}
+    # the RAM disk at the INI's 1M; part a also runs perfcheck and m8_fstore at 512K and 16M (tools/ci/suite.py)
+    name: build + ${{ matrix.part }} @ ${{ matrix.sizes }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        part: [a, b, c, d]
+        include:
+          - {part: a, sizes: '1M (perf + fstore also 512K, 16M)'}
+          - {part: b, sizes: 1M}
+          - {part: c, sizes: 1M}
+          - {part: d, sizes: 1M}
     steps:
       - uses: actions/checkout@v4
         with:

@@ -891,6 +891,18 @@ piece used AND/XOR semantics.
    lookup unchanged; nothing resident; the level-start overlay 2,746 -> 3,438 bytes (W2 658 free), the overlay area in
    page 7 608 bytes free (the cheat build 194: the guard sets' code needs room elsewhere, e.g. a fill-only overlay).
    fg_run fills any key list (mask tables + pointers): the follow-up uses it for the level's guard set.
+52. CI: the RAM-disk sizes (2026-11-03, docs/ci.md "The RAM-disk sizes"; numbered 52: 51 is the frame-store generator,
+   perf/fstore-gen; docs/ramdisk-tiers.md section 9 "PR C"). The full regression's matrix comes from
+   tools/ci/regress_matrix.py (a first job, `matrix`): every part at 512K, 1M and 16M (POP800_RD_SIZE), except the
+   parts whose tests never see the size (logic, oracle-m4m6, oracle-m5m7, early, early-anim: 1M only), and
+   launch-keys also at 1M with POP800_RD_WAIT=1 (the MZPico: the whole disk path, no cycle reference); 27 jobs named
+   `full + PART @ SIZE`. Sizes and parts by the inputs of a manual run or tools/ci/regress_sizes / regress_only on
+   the branch (`every-size`: the 1M-only parts at every size too). perfcheck moved from logic to sound (its baseline
+   is per size); early split in two (m3_anim levels 7-14: early-anim). The PR tier stays at 1M, part a also runs
+   perfcheck and m8_fstore at 512K and 16M (a step may carry its own environment). First run (regress/rd-sizes, run
+   41712495363, 26 jobs before the split): every job passed at every size, 52 min wall with three other full
+   regressions queued (early @ 1M waited 25 min for a runner); before ~27-33 min alone at one size. The
+   per-size regress/ branches by hand (fs5-512, fs5-1m, fs5-16m) are no longer needed.
 53. M8a part 11, spikes (2026-11-03, docs/perf.md "M8a part 11: spikes"; numbered 53: items 51 and 52 are taken by
    open work): fixes 1 and 2 of the gates-and-spikes measurement (PR #24). view.asm vrd_one sends a spike's
    modifier-only change to spike_redraw (src/m4/spike.asm, main): nothing is drawn while spike_frame(modifier) is the
