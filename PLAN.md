@@ -865,7 +865,6 @@ piece used AND/XOR semantics.
    2,051 / 2,142, a room change 53,499: 1 T of wait a read = +0.03-0.05 frames a tick in play, +0.75 on a room change;
    measured with mz800emu's mr1r18_wait = 1 (every port access): +0.03-0.05 / +1.28. Tests: tests/m4_game.py setup
    hands the size over (0x02AF, the emulator's own) and runs the fill, tests/m8_fstore.py checks the layout and every entry; the full
-   regression passed on the runners at 512 KB, 1 MB and 16 MB (regress/fs2-512 + fs3-512, fs2-1m, fs2-16m); perfcheck has a
+   regression passed on the runners at 512 KB, 1 MB and 16 MB (regress/fs5-512, fs5-1m, fs5-16m at 764c9ac, the fill at boot); perfcheck has a
    baseline per size (tests/perf_baseline_512K.json, _16M.json). Next: step 2 (the
-   level's guard set at the level start, a dedicated generator for the boot's 15-45 s), optionally the fill before the
-   title.
+   dedicated generator for the boot's 15-45 s, the next PR; then the level's guard set at the level start).
