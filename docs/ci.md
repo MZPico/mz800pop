@@ -103,7 +103,9 @@ whole set through the local runner without the cache; the full regression is nor
 same inputs. It builds first (`make ci-build`, then what the selected tests need: `make cheats`, the M3 programs).
 
 `POP800_RD_SIZE=512K` (or 256K, 1M, 16M) runs every emulator test with that RAM-disk size (emu/mz800emu-pop.sh writes an
-INI copy to build/emu/; unset = emu/mz800emu.ini's 1M); it is part of each test's cache key. A change under emu/ makes
+INI copy to build/emu/; unset = emu/mz800emu.ini's 1M); `POP800_RD_WAIT=1` (0-255) adds that many wait states (T) to
+every RAM-disk port access (mz800emu's `mr1r18_wait`; unset = the INI's 0; the MZPico asserts WAIT for at least 1 T).
+Both are part of each test's cache key. A change under emu/ makes
 `make check` select every emulator test: run those on the runners instead (docs/ramdisk-tiers.md section 4).
 
 | Target | What | Use |

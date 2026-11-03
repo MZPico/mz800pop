@@ -71,8 +71,10 @@ The tier decision belongs in the level-start overlay (W2, once per game start: `
 ### How the tests select the size
 
 `POP800_RD_SIZE=512K|1M|16M|256K|64K` (emu/mz800emu-pop.sh, built in this PR): the launcher writes a copy of the INI
-with that size to build/emu/ and starts the emulator with it (the RAM disk is in memory, no file); unset = the INI as it is (1 MB). tools/testrun.py includes the variable in its cache key. Proposed CI
-use: section 4.
+with that size to build/emu/ and starts the emulator with it (the RAM disk is in memory, no file); unset = the INI as it
+is (1 MB). `POP800_RD_WAIT=<T>` likewise sets mz800emu's `mr1r18_wait` (MZPico/mz800emu#2): that many wait states on
+every RAM-disk port access, default 0; the MZPico asserts WAIT for at least 1 T, so INIR takes 22 T a byte instead of
+21. tools/testrun.py includes both variables in its cache key. Proposed CI use: section 4.
 
 ### pico_rd (PLAN item 35a, later)
 
