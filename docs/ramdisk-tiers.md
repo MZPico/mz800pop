@@ -520,8 +520,10 @@ per RAM disk (later launches find the marker: 0). It runs at the first game star
 screen meanwhile. Running it before the title instead (the launcher starting the game once in a "fill" action) or
 showing progress is a possible follow-up; the dedicated generator (section 9 PR B) would cut it to ~6 s / ~20 s.
 
-**The harness**: tests/m4_game.py setup writes the masks, puts the size at 0x02AF (from `POP800_RD_SIZE`, else the
-INI's `mr1r18_size`: 512K = 7, 1M = 15, 16M = 255), clears the marker (every run fills anew: 0.6 s of host time on 1
+**The harness**: tests/m4_game.py setup writes the masks, puts the size at 0x02AF (the emulator's own, from the
+number of its RAM-disk regions: 512 KB = 7, 1 MB = 15, 16 MB = 255; not from the INI: the cheat tree build/cheat has no
+emu/, so emu/mz800emu-pop.sh cannot cd to its directory there and the emulator runs with its built-in defaults, a 1 MB
+RAM disk, whatever `POP800_RD_SIZE` says), clears the marker (every run fills anew: 0.6 s of host time on 1
 MB, 1.6 s on 16 MB; no store left in a RAM-disk file is trusted) and runs to the fill's end (fs_done), so every test's
 frame counts start after it (`fs_run=False`: the fill runs in game_start, as in a launched game: m5_boot's harness run).
 tests/m8_fstore.py (PR part a, full part sound): on 1 MB+ the key table and the marker equal tools/fstore.py's, every

@@ -860,7 +860,7 @@ piece used AND/XOR semantics.
    data-port reads a tick (tools/rdreads.py): walk 2,312 today / 2,416 with the store (1 MB), fight 3,086 / 3,176, traps
    2,051 / 2,142, a room change 53,499: 1 T of wait a read = +0.03-0.05 frames a tick in play, +0.75 on a room change;
    measured with mz800emu's mr1r18_wait = 1 (every port access): +0.03-0.05 / +1.28. Tests: tests/m4_game.py setup
-   hands the size over (0x02AF) and runs the fill, tests/m8_fstore.py checks the layout and every entry; the full
+   hands the size over (0x02AF, the emulator's own) and runs the fill, tests/m8_fstore.py checks the layout and every entry; the full
    regression passed on the runners at 512 KB, 1 MB and 16 MB (regress/fs-512, fs-1m, fs-16m). Next: step 2 (the
    level's guard set at the level start, a dedicated generator for the boot's 15-45 s), optionally the fill before the
    title.
