@@ -260,7 +260,14 @@ fl_beam:        push    bc                      ; carry: in the playfield
 ; PP_KU, PP_GU stay (oc_kidtouch: no torch chunk from the cache over a character).
 ST_KEY          equ     0x01ca                  ; 50: per slot SD_DX .. SD_COMPOSE + 1 (9) and PP_XD, as last tick
 ST_OK           equ     0x01fc                  ; 0: the last tick had no overlay op, no splash, no room drawn after it
-st_look:        ld      a, (OV_NM)
+st_look:        ld      a, (SPR_G + SD_DX)      ; no guard shown: no comparison (the kid alone gains nothing: the
+                or      a                       ; traps' saving goes into the beam wait), and the snapshot is
+                jr      nz, stl_go              ; stale: ST_OK makes the next comparison find a change
+                ld      (st_res), a
+                inc     a
+                ld      (ST_OK), a
+                ret
+stl_go:         ld      a, (OV_NM)
                 ld      hl, OV_NF
                 or      (hl)
                 ld      hl, SPR_SP + SD_DX
