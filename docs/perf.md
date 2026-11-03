@@ -900,3 +900,120 @@ spread of that stretch. The
 traps stretch saves 0.17 frames a tick of chunk work but no tick time: most likely its ticks end waiting for the beam
 over the traps' own chunks, which takes the saving back (not traced further). The fight baseline is lowered
 8.99 -> 8.23; the others stay.
+
+## M8a part 8: small items (2026-11-03)
+
+Status: **three built, two measured and not built.** A pass over the candidates parts 4-7 left (narrow tail chunks, the
+background restore's per-row cost) and over the per-routine profile after parts 6-7 for whatever is cheap per byte.
+Each built item is its own commit. Walking 6.10 -> 5.72 frames a tick, fights 8.23 -> 7.73, for 123
+resident bytes (main +42, low block +81).
+
+### The profile after parts 6 and 7 (tools/profile.py, main 80c4945, frames per tick, the routine's own cycles)
+
+| Routine | walk_level1 30-60 | fight1 60-160 | What it is |
+|---|---:|---:|---|
+| lay_piece16 | 0.66 | 0.39 | the piece layers (fore pieces, tile redraws, overlays; per piece ~4 K T of setup: M8a list item 3) |
+| spr_draw | 0.39 | 0.77 | the sprites into the compose chunk (per cell ~260 T drawn, ~82 T empty, ~190 T a row) |
+| char_fetch (+ shr_* kernels) | 0.34 (+0.55) | 0.60 (+0.80) | the image from the RAM disk, shifted and mirrored (~180 T a plane-row outside the kernels) |
+| restore_shadow (+ inr_* chains) | 0.26 (+0.21) | 0.37 (+0.35) | the background from the shadow room (124 T a plane-row outside the INIs) |
+| view_redraw + view_snapshot + vs_get | 0.20 + 0.09 + 0.16 | 0.18 + 0.09 + 0.17 | which tiles changed: 2 x 53 entries a tick, ~270-400 T each |
+| blq_* (the copy kernels) | 0.43 | 0.53 | the chunk copies (pf_blit1) |
+| k_get_tile, k_tbl, get_row_collision_data | 0.28, 0.10, 0.12 | 0.36, 0.14, 0.12 | kid / guard logic (M8a list item 6) |
+| cmx_* | 0.11 | 0.36 | masked pieces combined from the RAM-disk port |
+| lay_fore_rect | 0.05 | 0.20 | the fore scan (part 6) |
+| tc_try | 0.13 | 0.04 | the torch cache lookup |
+
+### 1. Narrow tail chunks (measured, not built)
+
+Tracepoints at obj_chunk (the chunk and its dirty rect), its return, the mid-pass flushes, restore_shadow and oc_base,
+pf_blit1 and its returns (a scratch tool in the worktree's build/, not committed), main 80c4945:
+
+| Stretch | chunks a tick | dirty rects 9-11 wide: tail chunks a tick | their compose + copy | per tail chunk |
+|---|---:|---:|---:|---:|
+| walk_level1 30-60 | 3.17 | 0.033 | 0.037 + 0.006 frames a tick | 92 K T |
+| fight1 60-160 | 2.49 | 0.06 | 0.044 + 0.012 frames a tick | 67 K T |
+
+Part 4 counted ~0.12 tails a tick in fights (~0.13 frames); part 7 halved them (a standing guard's box is no longer
+joined with the kid's). Merging a tail into a wider chunk still pays its bytes (~160 T a byte-row), so the gain is at
+most ~0.03-0.05 frames a tick. Shifting the split does not help: the cost is per chunk and per row, and a 9-11 byte box
+needs two 8-wide chunks however it is split. Wider chunks need a compose row stride other than 8 everywhere a chunk is
+addressed (restore_shadow, the four piece-laying modes, spr_draw, spr_xor, the torch cache, the text overlay) and new
+copy and INI kernels for widths 9-16: several hundred bytes. **Not built** (gain < 0.1 frames a tick).
+
+### 2. The background restore's per-row cost (chunk-major shadow measured, not built; the row loop built)
+
+Same tracepoints: the restore costs 0.469 frames a tick walking (37.7 rows a tick, 886 T a row of 4 planes) and 0.719
+fighting (53.1 rows, 963 T a row). Per plane-row the loop spent 134 T besides the INIs (16 T a byte): the seek (ld b,d /
+out (c),e / dec c / inc c) 24 T, the next shadow row (+40) 27 T, the call into the INI chain and its ret 27 T, the
+compose row advance 27 T (also for full 8-byte rows, where it adds 0), the row counter in A' 29 T.
+
+- **A chunk-major shadow** (one seek per chunk) removes at most the seek and the +40: 51 T a plane-row, 0.11 frames a
+  tick walking, 0.15 fighting. But object chunks start at the dirty rect's left edge, any byte column: in a layout of
+  8-byte strips an unaligned chunk crosses two strips (two runs a row, two seeks), and aligning the chunks to the strips
+  gives every box that crosses a strip boundary one more chunk (~31 K T + 1,140 T a row, the cost of a narrow tail).
+  shadow_write (room change, tile redraws) would write strips at about today's cost. **Not built.**
+- **The row loop** (built, commit "restore_shadow: ..."): a jump into restore_shadow's own INI chain (10 T instead of
+  27), the compose advance skipped for full rows (a patched jr, 12 T instead of 27), the row count in B' (exx / dec b /
+  exx, 22 T instead of 29), the plane count in C', and the next plane's shadow address from the last one + 8000 instead
+  of shadow_addr for each plane. 110 T a plane-row besides the INIs (95 for full rows). restore_shadow 0.47 -> 0.41
+  frames a tick walking, 0.72 -> 0.62 fighting (tools/profile.py). Main +23 bytes.
+
+### 3. The tile-change snapshot (built)
+
+view_snapshot (before the tick logic) stored, and view_redraw (after it) compared, the 53 entries that can change the
+room on screen (its 30 tiles, the left room's column 9, the row above, the row below) one by one, each through a
+pointer table and vs_get (the tile byte, its modifier, a button's pressed state): ~0.45 frames a tick in every tick,
+walking or fighting, for ~2 entries that change (the torch flames).
+
+**The change** (src/m4/view.asm): both walk the entries as 6 runs of consecutive tile bytes (vs_runs: the room's 30,
+the left room's 3 rows of column 9, the row above, the row below; a run without a room is skipped by both), copying or
+comparing the tile byte and the modifier inline (~75-90 T an entry). The pressed state is kept only for the buttons on
+screen, listed when the pointer table is built at a room change (VS_BTN, up to 8; levels 0-14 show at most 5; tiles
+never become buttons, a button can only become debris, which the tile byte shows): a button pressed or released gets its
+snapshot tile byte changed, so the compare takes it in its turn. An entry that changed goes through the old per-entry
+code (vrd_one: the torch, gate, potion and tile cases, unchanged), in the same order as before. view_snapshot 0.18 ->
+0.07 frames a tick, view_redraw's own part with vs_get 0.36 -> 0.12 (walk_level1 30-60; fight1 the same). Low block
++187 bytes of code; the 106-byte pointer table moves from the low block to runtime RAM after the snapshot (0xF58B), so
+the low block grows by 81 bytes (end_of_low 0x1F91 -> 0x1FE2, 30 free).
+
+### 4. spr_draw's row loop (built)
+
+spr_draw kept the row's source and compose pointers in memory and reloaded them every row (~190 T a row: 33 rows a tick
+walking, 62 fighting, with 126 / 281 cells). Now they stay in HL and DE (patched advances: the source (ow - px) * 4, the
+compose from the row start + 8, since the last cell's inc e can wrap E), the row count in B', and inc l inside a cell
+(the image buffers are 4-aligned): ~75 T a row, 18 T less a drawn cell. spr_draw 0.41 -> 0.35 frames a tick walking,
+1.33 -> 1.21 fighting (inclusive). Main +19 bytes.
+
+### Measured, not built
+
+- char_fetch's row loop (~180 T a plane-row outside the shift kernels): the row counter in B' would save ~7 T, < 0.02
+  frames a tick. The mirrored shift kernels (84 T a byte: the bit-reverse lookup, then the shift tables) would need a
+  combined reverse-and-shift table per shift (4 KB).
+- shadow_write's row loop (the room change): the same B' counter saves ~0.4 frames a room change.
+- lay_piece16's per-piece setup (~4 K T) and per-row costs: M8a list item 3, not a small item.
+
+### Result
+
+Same pixels: VRAM after every tick identical to main's (80c4945) in fight1, walk_level1, traps_b1, fight_unarmed,
+level2_fight and gate_push (3,058 ticks; a scratch tool), and the full regression on the runners (regress/small) passed.
+Resident: main +42 (end_of_code 0x78D6 -> 0x7900, 768 free), low block +81 (end_of_low 0x1F91 -> 0x1FE2, 30 free),
+block 2 unchanged (0xEB24); runtime RAM 0xF5AF-0xF5F4 (70 bytes, unused before) now holds the end of the pointer table.
+VRAM is unchanged because every change is a faster loop over the same bytes in the same order: the same chunks, the same
+pixels composed into them, the same tiles redrawn in the same order.
+
+tools/perfcheck.py, medians of 3 runs each, main (80c4945) -> spr_draw -> + restore_shadow -> + the snapshot (this):
+
+| Stretch | main | spr_draw | + restore_shadow | + snapshot (this) | change |
+|---|---:|---:|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 6.10 | 6.04 | 5.95 | 5.72 | **-0.38** |
+| fight (fight1 60-160, guard on) | 8.23 | 8.07 | 7.95 | 7.73 | **-0.50** |
+| traps (traps_b1 0-300) | 5.96 | 5.90 | 5.85 | 5.63 | -0.33 |
+| walkthrough 190-260 | 10.73 | 10.63 | 10.55 | 10.26 | -0.47 |
+| level door step (walkthrough 203-207) | 17.54 | 17.47 | 17.24 | 17.06 | -0.48 |
+| room change (walkthrough 89) | 106.56 | 106.25 | 106.16 | 106.05 | -0.51 |
+| gate (gate_push 200-260) | 5.11 | 5.11 | 5.09 | 4.99 | -0.12 |
+
+Per item (walking / fighting, frames a tick): spr_draw -0.06 / -0.16 for 19 bytes, restore_shadow -0.09 / -0.12 for
+23 bytes, the snapshot -0.23 / -0.22 for 81 (the rule: >= ~0.1 on walks or fights for < ~100 bytes). The room change
+gets no slower (-0.5). Walking is now 6.2 % faster, fights 6.1 %. The baseline (tests/perf_baseline.json) is lowered to
+the new medians except the room change, whose baseline (105.92) is below this run's median.
