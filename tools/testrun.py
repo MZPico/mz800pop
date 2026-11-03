@@ -205,7 +205,9 @@ def git_head(repo):
 def repo_files(t):
     """the repository files a test reads: its program and the modules it imports, the control scripts it is given or
     names, its data, COMMON, emu/ (the emulator's script and settings), the SDLPoP patch"""
-    prog = os.path.join(ROOT, t.prog)
+    # a program of the CHEATS=1 tree (build/cheat/tests/...): its tests/ and tools/ are symlinks to the repository's
+    # (Makefile: cheats), so read the repository's file: the tree need not exist yet (`make cheats` runs after selection)
+    prog = os.path.join(ROOT, t.prog[len(CHEAT) + 1:] if t.prog.startswith(CHEAT + '/') else t.prog)
     mods = imports(prog)
     files = [os.path.relpath(m, ROOT) for m in mods]
     files += sorted(set(named_scripts(prog, mods) + t.data + [a for a in t.args if a.endswith('.txt')]))
