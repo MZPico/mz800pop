@@ -28,11 +28,10 @@
 ; The stop: the GAME average over the areas above RD_SPEED_MAX or below RD_SPEED_MIN (faster than an INIR can be: the
 ; timer is wrong) shows the message and halts (rs_stop): no launch, nothing more loaded. Both are words of the boot's
 ; image (rd_max, rd_min: tests/m5_boot.py patches them). rd_spd (-> HO_RDSPD_MAIN) = the GAME average x 5.
-; RD_SPEED_MAX = 50.0 clocks/byte (user, 2026-11-03): about where RAM-disk waits would slow the kid's walk by 10 % once
-; the 1 MB frame store is in (~1,200 RAM-disk bytes a tick at ~5.25 frames a tick: +29 clocks a byte x 1,200 = ~35 K
-; clocks = ~0.5 frames); today's game (~500 bytes a tick) would reach 10 % only at ~100. To revisit with the frame
-; store PR's exact byte counts (docs/ramdisk-tiers.md section 1).
-RD_SPEED_MAX    equ     500             ; clocks/byte x 10: the slowest GAME average the boot accepts
+; RD_SPEED_MAX = 36.0 clocks/byte (user, 2026-11-03): where RAM-disk waits slow the kid's walk by about 10 %. Measured
+; (#19, tools/rdreads.py, mr1r18_wait): 1 T of wait on every RAM-disk port access costs +0.035 frames a tick walking
+; (~2,700 accesses a tick), so 10 % of a ~5.2-frame tick is ~15 waits; the GAME pattern reads 21 + w + w/32, 15 -> 36.5.
+RD_SPEED_MAX    equ     360             ; clocks/byte x 10: the slowest GAME average the boot accepts
 RD_SPEED_MIN    equ     150             ; and the fastest (15.0)
 PORT_CTC0       equ     0xd4            ; 8253 counter 0 (CLK0 = 1.108 MHz)
 PORT_PPIC       equ     0xd2            ; 8255 port C (PC0: the CTC0 audio, 0 = muted)

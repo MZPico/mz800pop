@@ -850,8 +850,8 @@ piece used AND/XOR semantics.
    under DI, the fixed part calibrated: per area (page 0, the ends of page 7, the middle and the last page) 32 chunks
    of 128 bytes (address OUT + INIR; 16 aligned, 16 misaligned to a 128-byte window) and 32 runs of the game's pattern
    (address OUT + INIR of 32 at scattered addresses). The loading screen shows MIN / MAX / ALIGN / MISAL / GAME per area
-   in "clocks/byte" (21.0 = no wait states) and the GAME mean with "+x.x WAIT". GAME above 50.0 (RD_SPEED_MAX 500,
-   user: ~10 % on the walk once the 1 MB frame store reads ~1,200 bytes a tick; revisit with its byte counts) or below
+   in "clocks/byte" (21.0 = no wait states) and the GAME mean with "+x.x WAIT". GAME above 36.0 (RD_SPEED_MAX 360,
+   user: ~10 % on the walk, measured: +0.035 frames a tick per wait state, ~15 waits) or below
    15.0 (a timer fault) stops the boot with a message. The launcher hands GAME x 5 to the programs at 0x029F
    (HO_RDSPD_MAIN; nothing reads it yet). mz800emu: 21.0 everywhere at 512 KB / 1 MB / 16 MB; +0.22 s of boot (719
    frames). Expected on hardware: chip-based cards 21.0 (+0), the MZPico 22 or more (it always asserts WAIT).
