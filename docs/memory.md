@@ -38,8 +38,8 @@ else all 64 KB are RAM. Code in the low block must never run inside `blit`.
 | 0x0B00-0x0BFF | 256 | the kid's sprite descriptor SPR_A, trap state (OV), TROBS (30), MOBS (14) |
 | 0x0C00-0x0FFF | 1 KB | MASKBUF, DATABUF (piece laying; MASKBUF is also scratch for pc_col's clip column and the text overlay's bitmap) |
 | 0x1000-0x119B | 412 | the kid's sword image buffer, its sprite descriptor SPR_S (ROM monitor work area: runtime data only) |
-| 0x1200-0x1FFF | 3.5 KB | low code block (kid2.asm, view.asm, sprite.asm, evres.asm, fx.asm; end_of_low 0x1F91: 111 bytes free) |
-| 0x2000-0x7BFF | 23 KB | main code (people2.asm after objects.asm, then sndobj.asm; end_of_code 0x78D6: 810 bytes free below W1 (M8a part 7's st_look: +169); PACE_MODE (0x213C) is a byte in game.asm's code: 0 in the release, 1 in `make pace`) |
+| 0x1200-0x1FFF | 3.5 KB | low code block (kid2.asm, view.asm, sprite.asm, evres.asm, fx.asm; end_of_low 0x1FE2: 30 bytes free (M8a part 8's run-wise tile snapshot: +81, its 106-byte pointer table moved to 0xF58B)) |
+| 0x2000-0x7BFF | 23 KB | main code (people2.asm after objects.asm, then sndobj.asm; end_of_code 0x7900: 768 bytes free below W1 (M8a part 7's st_look: +169; part 8's spr_draw and restore_shadow row loops: +42); PACE_MODE (0x213C) is a byte in game.asm's code: 0 in the release, 1 in `make pace`) |
 | 0x7C00-0x7FFF | 1 KB | overlay window W1 (src/m4/ovl.asm): the room overlay (938 bytes, 86 free), the events overlay (1,009 bytes, 15 free), the guard-leave overlay (342 bytes, 682 free), the guard-enter overlay (943 bytes, 81 free), the keys overlay (469 bytes, 555 free; CHEATS=1 832 bytes, 192 free) or the rare overlay (423 bytes, 601 free) |
 | 0x8000-0x80FF | 256 | bit-reverse table |
 | 0x8100-0x81F7 | 248 | room renderer slice tables |
@@ -51,7 +51,7 @@ else all 64 KB are RAM. Code in the low block must never run inside `blit`.
 | 0xA000-0xBFFF | 8 KB | COMPOSE_A, COMPOSE_B, SPRBUF_A (kid image), SPRBUF_B (third compose chunk; in a tick with the mirror image (slot 6, at 0xB800) or two hurt splashes (slot 5, at 0xBC80) it holds those images and stays out of the chunk rotation); 0xA000-0xAFFF (COMPOSE_A/B) is also overlay window W2 while a level starts, a bottom text is drawn or the game is saved (the level-start overlay, 2,201 bytes, 1,895 free; the text overlay, 1,021 bytes, 3,075 free; the save overlay, 697 bytes, its sector buffer at 0xA700 and the directory buffer 0xA800-0xAFFF) |
 | 0xC000-0xEBFF | 11 KB | tables block (tables.inc; the kid width and guard size tables moved to logic.bin) + overlay.asm (the people on screen: objects, overlays, order, guard hit points), tcache.asm, rcache.asm, guard.asm (code ~5.1 KB, then its harness option blocks guard_opts, ev_opts; G_SNAP and the records/globals are in low RAM 0x0148 since M7 step 5; addresses in build/m4game.sym; the room-change parts are W1 overlays: src/m4/gleave.asm, genter.asm), sound.asm (M7: the sound model and the waits on sound, ~640 bytes), psg.asm (M7: the PSG player, its ISR part with the envelopes, the ring refill; 321 bytes), keyres.asm (M7 step 10: key_scan), gate.asm (M8a part 2: gate_redraw, 76 bytes); block2_end 0xEB24: 220 bytes free (M8a part 7: +19) |
 | 0xEC00-0xF500 | 2305 | the current level's blueprint |
-| 0xF510-0xF5AE | 159 | tile-change snapshot |
+| 0xF510-0xF5F4 | 229 | the tile-change snapshot (view.asm, runtime only): VIEW_SNAP 0xF510 (53 x tile byte, modifier), VS_BTN 0xF57A (up to 8 x (entry, pressed) of the buttons on screen, then 0xff), vs_ptrs 0xF58B (53 x the entry's tile byte address, 0 = no room; rebuilt when the room on screen changes) |
 | 0xF600-0xFA7B | 1,148 | the guard's image buffer SPRBUF_G (largest guard image 1,092 bytes in the kernel's format, kid images for the shadow 1,148) |
 | 0xFA80-0xFC87 | 520 | the hurt splash's image buffer SPLBUF (slot 4; a second splash in the same tick: SPRBUF_B + 0x480) |
 | 0xFCE0-0xFDFF | 288 | stack |
