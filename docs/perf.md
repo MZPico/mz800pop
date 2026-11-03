@@ -1061,8 +1061,10 @@ store's gain).
 
 tests/m8_fstore.py and an I/O count around fs_fill (frames of 71,136 T): **1 MB (class 1, 891 keys, 409,512 bytes) 774
 frames = 15.5 s** (318,505 data-port reads, 442,910 writes); **16 MB (classes 1 + 2, 2,153 keys, 1,232,824 bytes)
-2,250 frames = 45.0 s** (968,945 reads, 1,270,008 writes). Once per RAM disk (a marker), at the first game start
-after the title's key (m5_boot: game start -> level_ready 819 frames on 1 MB, 44 without). On MZPico with w wait
+2,250 frames = 45.0 s** (968,945 reads, 1,270,008 writes). At every boot from the floppy, on the loading screen
+before the title ("PREPARING SPRITES" and the loader's bar; the boot clears the marker, so a store left in the RAM disk
+is never trusted; later starts in the session find the marker): boot -> PRES 1 MB 1,666 frames = 33.3 s, 16 MB 3,150
+= 63.0 s, 512 KB 815 = 16.3 s (tests/m5_boot.py; docs/ramdisk-tiers.md section 11 has the timeline). On MZPico with w wait
 states on every port access the fill takes w x (data-port reads + writes) more: +10.7 / +31.5 frames a T of wait (1 MB / 16 MB).
 
 ### RAM-disk accesses per tick (tools/rdreads.py)

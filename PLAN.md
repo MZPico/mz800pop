@@ -853,9 +853,13 @@ piece used AND/XOR semantics.
    and sword keys, 409,512 bytes, every card from 1 MB; class 2: 1,262 more, 823,312 bytes, from 2 MB); page 8 holds
    the key table (471 ids x 16 x 4 bytes) and a marker, the entries follow (to page 14 0xC2F4 / page 27 0x6130); the
    lookup (src/m4/fslook.asm, 95 bytes of main + 3 of the low block) copies a stored buffer, any other key is today's
-   fetch; the fill (src/m4/fstore.asm, the level-start overlay, game_start) makes every stored key with today's
-   spr_fetch, once per RAM disk: 1 MB 15.5 s, 16 MB 45.0 s at the first game start; its masks (1 KB) in page 6 0xE400 on
-   every size; 512 KB: nothing changes. perfcheck walk 30-60 5.72 -> 5.20 (1 MB) / 5.03 (16 MB), fight 7.72 -> 7.20 /
+   fetch; the fill (src/m4/fstore.asm, the level-start overlay) makes every stored key with today's spr_fetch. The
+   user's second-round decisions (2026-11-03): the fill runs in the loading, before the title, with a progress bar
+   (the loader clears the marker, writes "PREPARING SPRITES" and starts the game with ACT_FILL; then the title): 1 MB
+   15.5 s, 16 MB 45.0 s (boot -> PRES 33.3 s / 63.0 s, 512 KB 16.3 s); every boot from the floppy fills (a store left
+   in the RAM disk is never trusted; the marker only spares relaunches in the session); 16 MB keeps classes 1 + 2;
+   the faster dedicated generator is step 2, the next PR (it replaces ff_pass / ff_key behind fs_fill). Its masks (1 KB)
+   in page 6 0xE400 on every size; 512 KB: nothing changes. perfcheck walk 30-60 5.72 -> 5.20 (1 MB) / 5.03 (16 MB), fight 7.72 -> 7.20 /
    6.86, traps 5.63 -> 5.30 / 5.23; 512 KB unchanged; the baseline (measured at the default 1 MB) lowered. RAM-disk
    data-port reads a tick (tools/rdreads.py): walk 2,312 today / 2,416 with the store (1 MB), fight 3,086 / 3,176, traps
    2,051 / 2,142, a room change 53,499: 1 T of wait a read = +0.03-0.05 frames a tick in play, +0.75 on a room change;
