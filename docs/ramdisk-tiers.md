@@ -606,7 +606,7 @@ in page 7 has 1.3 KB left (the cheat build ~0.9 KB); the launcher's image +~70 b
 The interface step 2 replaces: fs_fill checks the marker and calls `ff_pass` with HL = a key list (a mask table) per
 class; ff_pass / ff_key make one key at a time with spr_fetch (~1,800 T + ~125 T an image byte, + the write). Step 2's
 dedicated generator (all 16 variants of an image from one read of its rows, ~50 T an output byte) replaces ff_pass /
-ff_key behind the same call; the layout (tools/fstore.py), the marker, the bar and the lookup stay.
+ff_key behind the same call; the layout (tools/fstore.py), the marker, the bar and the lookup stay. **Built: section 12** (the 1 MB fill 15.5 -> 7.0 s, 16 MB 45.0 -> 18.7 s).
 
 **The boot timeline** (tests/m5_boot.py, emulator frames, 50 a second; the loader's time as before, the PRES and title
 steps unchanged):
@@ -639,3 +639,64 @@ header, fs_on points at the lookup, a second start does not fill; on 512 KB fs_o
 
 **Results**: docs/perf.md "M8a part 9: the frame store" (perfcheck per size, the RAM-disk accesses per tick and the
 cost of wait states on MZPico).
+
+## 12. As built: step 2, the dedicated generator (2026-11-03, PLAN.md item 51)
+
+**What it does** (src/m4/fsgen.asm, in the level-start overlay W2 with fs_fill): fs_fill keeps its marker check, the
+table clear and the marker, and now makes both classes in **one pass over the ids** (`fg_run`: HL = class 1's mask
+table, DE = class 2's or 0, BC = the number of ids, fg_id = the first id; class 1 allocates from page 8 FS_DATA, class 2
+from class 1's end FS_E1P:FS_E1A, which tools/fstore.py now exports: the same addresses as filling class 1 first, then
+class 2). Per id and mirror with any variant stored (in either class):
+
+1. the image is read once (its directory entry: dir_entry, as before) into SPRBUF_A, directly at the **lowest stored
+   shift**: at shift 0 a plain copy (mirrored: the columns from the right, each byte through the bit-reverse table),
+   otherwise through the kernel's own lo / hi shift tables (the same lookups spr_fetch's routines do; mirrored, the
+   carry runs from the right: hi | the carry, lo the next carry), the extra column written last;
+2. each stored variant is written to its entry (ow, h, the count, then the buffer with OUTI, 64 at a time; the slot in
+   the key table as before), the bar advanced per entry as before;
+3. the next shift is the buffer shifted **one more bit**: per plane and row `sla (ix+p)`, then `rl (ix+p+4c)` up to the
+   extra column (a row of a plane is a little-endian number of ow bytes; nothing reaches past the extra column up to
+   shift 7), until no higher shift of this mirror is stored.
+
+The row code (the four read kinds and the step) is made at run time for the image's width (`fg_mk`, a template per
+kind, kept while the width is the same) into SPRBUF_B 0xBC80-0xBE4D; the generator's variables at 0xBC20; the masks at
+0xB800 as before. Interrupts stay off; VRAM is mapped only for the bar's cells (the bit-reverse table is behind it).
+The table clear uses the same OUTI block (480 x 64 zero bytes: 10.8 -> 7.1 frames). The layout, the marker, the bar
+and the lookup are unchanged; tools/fstore.py's build id now also covers src/m4/fsgen.asm.
+
+**For the guard sets** (the follow-up): fg_run fills any key list given as a mask table and a pointer; fg_dir maps an
+id to its directory entry (today: the kid's and the sword's ids) and is the place for the guards' ids 255-470.
+
+**Measured first** (a prototype of the generator assembled at 0xA000 and called on single images after the harness
+start, 1 MB; build/proto, not committed): with all 16 variants of an image stored, **46 T an output byte** (images of
+384-816 bytes: 45.1-47.1), against the estimate of ~50 (section 7): the estimate holds per byte. With the real masks it
+is more, because a mirror's stored shifts are spread out (on average 3.8 of 8 stored, the steps between them still
+cost): the first build (shift 0, then one step a shift) filled 1 MB in 381 frames (66 T an output byte); reading
+straight at the lowest stored shift saved 26 frames (the model said ~37), the table clear 4 more: 351 (61 T).
+
+**Profile of the 1 MB fill** (the emulator's call profiler, before the table-clear change, frames of 71,136 T): the
+steps 131 (37 %; 23 T a byte), the OUTI writes 93 (16.2 T a byte), the reads 87 (shift 0 10, mirrored 28, shifted 32,
+mirrored and shifted 17), fg_put's seeks and the slots 12, the table clear 11, making the row code 7, the rest 4.
+
+**The fill's time** (tests/m8_fstore.py, the harness start with the fill minus the start without it, frames):
+
+| | step 1 (spr_fetch per key) | step 2 (the generator) |
+|---|---:|---:|
+| 1 MB (class 1: 891 keys, 409,512 bytes) | 774 = 15.5 s | **351 = 7.0 s** (2.2x) |
+| 16 MB (classes 1 + 2: 2,153 keys, 1,232,824 bytes) | 2,250 = 45.0 s | **933 = 18.7 s** (2.4x) |
+
+**The boot timeline** (tests/m5_boot.py, frames from the reset; the loader now includes #20's read-speed measurement,
++13 frames against the table in section 11):
+
+| | the loader (floppy) | the fill ("PREPARING SPRITES", incl. the game image's start) | PRES starts | the title's step a | level_ready (a key at step a) |
+|---|---:|---:|---:|---:|---:|
+| 512 KB | 723 = 14.5 s | - | 830 = 16.6 s | 1,053 = 21.1 s | 1,161 = 23.2 s |
+| 1 MB | 725 = 14.5 s | 426 = 8.5 s (was 851) | 1,259 = 25.2 s (was 1,666) | 1,482 = 29.6 s (was 1,886) | 1,590 = 31.8 s |
+| 16 MB | 725 = 14.5 s | 1,012 = 20.2 s (was 2,334) | 1,845 = 36.9 s (was 3,150) | 2,068 = 41.4 s (was 3,370) | 2,176 = 43.5 s |
+
+**Wait states** (MZPico): every port access 1 T longer (mr1r18_wait = 1, tests/m8_fstore.py with POP800_RD_WAIT=1) costs the fill **+7.1 frames on 1 MB, +20.7 on 16 MB** (step 1: +10.7 / +31.5): the generator reads each image once per mirror instead of once per key, so w wait states add w x 0.14 s (1 MB) / w x 0.41 s (16 MB).
+
+**Memory**: the level-start overlay 2,746 -> 3,438 bytes (W2: 658 free); the overlay area in page 7 to 0xFD9F (608
+bytes free; the cheat build to 0xFF3D, 194 bytes free: the next W2 growth needs another place, e.g. a fill-only overlay); main RAM, the low block and block 2 unchanged (nothing resident). The fill's scratch is
+SPRBUF_A/SPRBUF_B as before (both free between ticks and overwritten by the compose; the swap to PRES replaces them),
+dir_buf put back: main RAM after the fill is as after a start without it (tests/m7_launch.py).

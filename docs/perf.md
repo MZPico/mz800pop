@@ -1117,6 +1117,38 @@ found the cheat tree's size mismatch, m7_sound's loop margin and perfcheck's sin
 m7_launch (a round trip against a direct start: the fill leaves main RAM as a start without it) and m8_fstore pass
 locally on 1 MB (m8_fstore also on 512 KB and 16 MB).
 
+## M8a part 10: the frame store's generator (2026-11-03)
+
+Status: **built** (RAM-disk tiers step 2, docs/ramdisk-tiers.md section 12; PLAN.md item 51). The frame store's fill
+(1 MB and more, at every floppy boot on the loading screen) no longer makes each key with spr_fetch: src/m4/fsgen.asm
+reads each image once per mirror, straight at its lowest stored shift, makes every further shift by shifting the
+buffer one more bit (SLA / RL, 23 T a byte) and writes each stored variant with OUTI (16 T a byte). Same layout,
+marker, bar and lookup; the play-time speed is unchanged (no resident code changed, perfcheck as part 9).
+
+Measured before building it (a prototype on single images): **46 T an output byte with all 16 variants of an image
+stored** (estimate ~50, ramdisk-tiers section 7); with the real masks (3.8 of a mirror's 8 shifts stored on average,
+spread out) the fill steps ~0.95 buffer bytes per stored byte: 66 T an output byte at first (shift 0, then a step a
+shift), 61 after reading at the lowest stored shift and the faster table clear.
+
+| | step 1 | step 2 | |
+|---|---:|---:|---|
+| 1 MB fill (class 1, 409,512 bytes) | 774 frames = 15.5 s | **351 frames = 7.0 s** | 2.2x |
+| 16 MB fill (classes 1 + 2, 1,232,824 bytes) | 2,250 frames = 45.0 s | **933 frames = 18.7 s** | 2.4x |
+| boot -> the title's step a, 1 MB (tests/m5_boot.py) | 1,886 = 37.7 s | 1,482 = 29.6 s | |
+| boot -> the title's step a, 16 MB | 3,370 = 67.4 s | 2,068 = 41.4 s | |
+| boot -> the title's step a, 512 KB (no fill) | 1,035 = 20.7 s | 1,053 = 21.1 s (#20's read-speed check) | |
+
+Profile of the 1 MB fill (frames): the steps 131, the OUTI writes 93, the image reads 87, the entries' seeks and slots
+12, the table clear 11 (now 7), making the row code 7. Not built: a plan per mirror that reloads at a later stored
+shift instead of stepping over a gap (the model: -6 frames on 1 MB, -10 on 16 MB, for ~100 more bytes of an overlay
+area that has 194 bytes left in the cheat build).
+
+Wait states (MZPico): every port access 1 T longer (mr1r18_wait = 1, tests/m8_fstore.py with POP800_RD_WAIT=1) costs the fill **+7.1 frames on 1 MB, +20.7 on 16 MB** (step 1: +10.7 / +31.5): the generator reads each image once per mirror instead of once per key, so w wait states add w x 0.14 s (1 MB) / w x 0.41 s (16 MB).
+
+Same pixels: tests/m8_fstore.py checks every entry against tools/fetchmodel/prebuild.py's generator (byte-identical to
+the kernel) on 1 MB and 16 MB: all 891 / 2,153 entries equal, the key table and marker as tools/fstore.py computes
+them. The full regression on the runners at 512 KB, 1 MB and 16 MB at 40332ec passed, all 11 parts each (regress/fsgen-512 run 41712562421, regress/fsgen-1m run 41712557377, regress/fsgen-16m run 41712567946); locally m5_boot (512 KB, 1 MB, 16 MB), m7_launch (1 MB) and the smoke tier.
+
 ## Gates and spikes: per-tick measurements (2026-11-03)
 
 Status: **measured, nothing built.** The playtest of main 60e7a83 (1 MB, no waits): walking is fine, but the game slows
