@@ -2,7 +2,8 @@
 """Speed regression check for the M4 game: run fixed stretches of the test scripts in the emulator, measure
 frames per tick (1 frame = 71136 T) and compare with tests/perf_baseline.json. The cycle counts come from a
 tracepoint at tick_done (tools/emu.py collect; POP800_EMU_TRACE=0: a breakpoint stop per tick, the old way). A stretch more than the
-tolerance slower than its baseline fails the check.
+tolerance slower than its baseline fails the check. The baseline is the default RAM-disk size's (1 MB: with the frame
+store); tests/perf_baseline_<size>.json, when it exists, is the one for another size (512K, 16M).
 usage: perfcheck.py [--root DIR] [--update] [--tol PCT]
   --update  write the measured values as the new baseline (after an intended change)"""
 import json, os, sys
@@ -37,6 +38,7 @@ def measure(script, spans):
     moves, patches = kidsim.read_script(sp)
     out = {}
     with Emu() as e:
+        SIZE.add(G.rd_size(e) if hasattr(G, 'rd_size') else '1M')     # (--root: an older tree's harness)
         S = G.setup(e, kidsim.script_level(sp), opts=kidsim.script_opts(sp))     # (guard options as the tests run it)
         enc = bytes([((x + 1) & 3) | (((y + 1) & 3) << 2) | (0x10 if sh else 0) for (x, y, sh) in moves]) + b'\xff'
         G.write_pack(e, enc, 5, G.SCRIPT)
@@ -63,6 +65,7 @@ def measure(script, spans):
         for t0, t1 in spans: out[(t0, t1)] = ((marks[t1] - marks[t0]) & 0xFFFFFFFF) / (t1 - t0) / FRAME
     return out
 
+SIZE = set()                # the emulator's RAM-disk size (the frame store: docs/perf.md "M8a part 9")
 by_script = {}
 for name, (script, t0, t1) in STRETCHES.items(): by_script.setdefault(script, []).append((t0, t1))
 got = {}
@@ -70,6 +73,10 @@ for script, spans in by_script.items():
     m = measure(script, spans)
     for name, (s, t0, t1) in STRETCHES.items():
         if s == script: got[name] = round(m[(t0, t1)], 2)
+# the baseline is the default size's (1 MB, the INI's); another size has its own file if there is one
+# (tests/perf_baseline_512K.json: no frame store; _16M: the store's classes 1 + 2)
+size, = SIZE
+if size != '1M' and os.path.exists(BASE.replace('.json', '_%s.json' % size)): BASE = BASE.replace('.json', '_%s.json' % size)
 if '--update' in args:
     json.dump(got, open(BASE, 'w'), indent=1)
     print('baseline written:', BASE)

@@ -844,6 +844,30 @@ piece used AND/XOR semantics.
    (section 9): the fixed-layout store with the kid core generated at boot (~3-4 days), a dedicated generator and the
    level's guard set (~2-3 days), CI with a RAM-disk dimension, 16 MB extras, then the room cache (~4-6 days); open
    questions in section 10.
+49. M8a part 9, the frame store = RAM-disk tiers step 1 (2026-11-03, docs/ramdisk-tiers.md section 11, docs/perf.md
+   "M8a part 9: the frame store"). The user's decisions (2026-11-03): the hybrid with a fixed layout, no run-time fill;
+   the kid's set built at boot is acceptable (+~1.2 s at a level start for the guard set: step 2); the keys chosen from
+   the test scripts; **on 1 MB the RAM disk above the base layout goes to the frame store only (no room cache on 1 MB;
+   the room cache later, from 2 MB up)**; the same behaviour and pixels on every size. Built: tools/fstore.py computes
+   the layout at build time from assets/fstore_uses.txt (the scripts' key counts) and the image sizes (class 1: 891 kid
+   and sword keys, 409,512 bytes, every card from 1 MB; class 2: 1,262 more, 823,312 bytes, from 2 MB); page 8 holds
+   the key table (471 ids x 16 x 4 bytes) and a marker, the entries follow (to page 14 0xC2F4 / page 27 0x6130); the
+   lookup (src/m4/fslook.asm, 95 bytes of main + 3 of the low block) copies a stored buffer, any other key is today's
+   fetch; the fill (src/m4/fstore.asm, the level-start overlay) makes every stored key with today's spr_fetch. The
+   user's second-round decisions (2026-11-03): the fill runs in the loading, before the title, with a progress bar
+   (the loader clears the marker, writes "PREPARING SPRITES" and starts the game with ACT_FILL; then the title): 1 MB
+   15.5 s, 16 MB 45.0 s (boot -> PRES 33.3 s / 63.0 s, 512 KB 16.3 s); every boot from the floppy fills (a store left
+   in the RAM disk is never trusted; the marker only spares relaunches in the session); 16 MB keeps classes 1 + 2;
+   the faster dedicated generator is step 2, the next PR (it replaces ff_pass / ff_key behind fs_fill). Its masks (1 KB)
+   in page 6 0xE400 on every size; 512 KB: nothing changes. perfcheck walk 30-60 5.72 -> 5.20 (1 MB) / 5.03 (16 MB), fight 7.72 -> 7.20 /
+   6.86, traps 5.63 -> 5.30 / 5.23; 512 KB unchanged; the baseline (measured at the default 1 MB) lowered. RAM-disk
+   data-port reads a tick (tools/rdreads.py): walk 2,312 today / 2,416 with the store (1 MB), fight 3,086 / 3,176, traps
+   2,051 / 2,142, a room change 53,499: 1 T of wait a read = +0.03-0.05 frames a tick in play, +0.75 on a room change;
+   measured with mz800emu's mr1r18_wait = 1 (every port access): +0.03-0.05 / +1.28. Tests: tests/m4_game.py setup
+   hands the size over (0x02AF, the emulator's own) and runs the fill, tests/m8_fstore.py checks the layout and every entry; the full
+   regression passed on the runners at 512 KB, 1 MB and 16 MB (regress/fs5-512, fs5-1m, fs5-16m at 764c9ac, the fill at boot); perfcheck has a
+   baseline per size (tests/perf_baseline_512K.json, _16M.json). Next: step 2 (the
+   dedicated generator for the boot's 15-45 s, the next PR; then the level's guard set at the level start).
 50. RAM-disk read speed at boot (2026-11-03, src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1 "The read speed";
    numbered 50: item 49 is kept for the frame store, perf/frame-store): after the probe the boot times the RAM disk
    against the 8253's counter 0 (CLK0 = 17.734475 MHz / 16: one count = 3.2 CPU clocks of real time, waits included),

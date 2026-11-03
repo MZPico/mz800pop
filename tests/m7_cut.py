@@ -90,7 +90,7 @@ def boot_pres(e, dsk, level, rem_min):
     M5.fill_ramdisk(e)
     e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
     e.call('reset')
-    M5.run_to(e, PS['pres'], 3000)
+    M5.to_pres(e)
     ho = bytearray(e.mem(HO, 16))
     ho[2] = BS['ACT_CUTSCENE']; ho[3] = level; ho[4] = rem_min; ho[5:7] = (431).to_bytes(2, 'little'); ho[7] = 4
     e.call('mem_write', addr=HO, data_hex=bytes(ho).hex())

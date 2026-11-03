@@ -41,7 +41,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join
 import emu
 from emu import Emu
 from m3_test import syms, RAMDISK
-from m4_game import setup
+from m4_game import setup, fs_plant, rd_top as emu_rd_top
 import mkgamedisk
 BUILD = os.path.join(ROOT, 'build')
 DSK = os.path.join(BUILD, 'pop800.dsk')
@@ -60,6 +60,15 @@ def fill_ramdisk(e):
     for p in range(PAGES):
         for off in range(0, 65536, 4096):
             e.call('region_write', region_id=RAMDISK[p], offset=off, data_b64=base64.b64encode(PATTERN).decode())
+    fs_plant(e, G)          # (1 MB and more: a valid-looking frame store marker; every boot must fill anew anyway)
+
+def to_pres(e, limit=8000):
+    """from the boot: run to PRES's start, past the frame store's fill (1 MB and more: the launcher starts the game with
+    ACT_FILL first, at the same address); returns the frames"""
+    n = run_to(e, PS['pres'], limit)
+    if e.mem(BS['HO_MAIN'] + BS['HO_ACTION'], 1)[0] == BS['ACT_FILL']:
+        n += run_to(e, PS['pres'], limit)
+    return n
 
 RESERVED = mkgamedisk.reserved()        # [(page, address, length, what)]: written by the boot only
 # M7 step 6: the RAM-disk scratch PRES uses for the title (its screen in the shadow room's place, its sound bank in the
@@ -143,7 +152,7 @@ def ticks(e, n):
 def harness_run():
     with Emu() as e:
         fill_ramdisk(e)
-        setup(e, 1, opts=REAL_GAME)
+        setup(e, 1, opts=REAL_GAME, fs_run=False)   # (the frame store's fill then runs in game_start, as launched)
         assert e.call('get_registers')['PC'] == G['start']
         s0 = snapshot(e, RESERVED + PRES_SCRATCH)
         run_to(e, G['level_ready'])
@@ -154,14 +163,27 @@ def harness_run():
 
 def floppy_run(dsk):
     with Emu() as e:
-        fill_ramdisk(e)
+        fill_ramdisk(e)                             # (with a valid-looking frame store marker on 1 MB and more)
         e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
         e.call('reset')
         t_boot = run_to(e, BS['boot'])
         t_launch = t_boot + run_to(e, BS['launch_main'])
         bar = e.mem(BS['bar_cur'], 1)[0]
         e.screenshot(os.path.join(BUILD, 'm5_loader.png'))
-        t_pres = t_launch + run_to(e, PS['pres'])
+        global FILL                                 # the frame store's fill (ACT_FILL), on the loading screen
+        FILL = None
+        if emu_rd_top(e) >= G['FS_TOP1']:
+            act = e.region(RAMDISK[0] + BS['HO_RD_PAGE'], BS['HO_RD_ADDR'] + BS['HO_ACTION'], 1)[0]   # (the boot's block)
+            n = run_to(e, BS['launch_main'], 5000)  # (the fill hands over to the launcher: the title)
+            e.screenshot(os.path.join(BUILD, 'm5_fill.png'))
+            top = emu_rd_top(e); cls = 2 if top >= G['FS_TOP2'] else 1
+            tab = b''.join(e.region(RAMDISK[0] + G['FS_PAGE'], off, 4096) for off in range(0, G['FS_DATA'], 4096))[:G['FS_DATA']]
+            want = open(os.path.join(BUILD, 'assets', 'fstore_tab%d.bin' % cls), 'rb').read()
+            pl = e.vram_planes()                    # the bar full in the bar's colour
+            full = all(pl[p][(BS['BAR_ROW'] + r) * 40 + BS['BAR_COL'] + i] == (0xFF if BS['COL_BAR'] >> p & 1 else 0)
+                       for p in range(4) for r in range(8) for i in range(32))
+            FILL = dict(act=act, frames=n, table=tab == want, cls=cls, bar=full)
+        t_pres = t_launch + (FILL['frames'] if FILL else 0) + run_to(e, PS['pres'])
         t_title = t_pres + title_start(e)
         t_start = t_title + run_to(e, G['start'])
         global RD_TOP_LAUNCHED                          # the probe's size, as the launcher handed it to the game
@@ -319,15 +341,24 @@ def main():
         waits = {w: wait_run(dsk, w, 'm5_rdwait%d.png' % w) for w in (1, 14, 16)} if has_rd_wait() else None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    print('boot: loader entered after %d frames, launcher after %d frames (loader %d frames = %.1f s), PRES after %d, '
+    print('boot: loader entered after %d frames, launcher after %d frames (loader %d frames = %.1f s), %sPRES after %d, '
           'its title\'s step a after %d (a key: the game), game start after %d frames, level_ready after %d frames = %.1f s' % (
-          t_boot, t_launch, t_launch - t_boot, (t_launch - t_boot) / 50.0, t_pres, t_title, t_start, t_ready, t_ready / 50.0))
+          t_boot, t_launch, t_launch - t_boot, (t_launch - t_boot) / 50.0,
+          'the frame store\'s fill %d frames = %.1f s, ' % (FILL['frames'], FILL['frames'] / 50.0) if FILL else '',
+          t_pres, t_title, t_start, t_ready, t_ready / 50.0))
     print('RAM-disk scratch of PRES not compared: %s (the screen at start and level_ready; then only its shadow rows '
           '192-199, which the game never writes)' % ', '.join('%s page %d %04X-%04X' % (w, p, a, a + n - 1) for p, a, n, w in PRES_SCRATCH))
     print('progress bar when the launcher starts: %d of 32 bytes' % bar)
     print('RAM-disk areas not compared (written by the boot only): %s' % ', '.join(
         '%s page %d %04X-%04X' % (w, p, a, a + n - 1) for p, a, n, w in RESERVED))
     bad = (bar != 32)
+    if FILL is not None:
+        fill_ok = FILL['act'] == BS['ACT_FILL'] and FILL['table'] and FILL['frames'] > 300 and FILL['bar']
+        print('the frame store (class %d): the boot started the game with ACT_FILL: %s, the fill on the loading screen %d frames '
+              '= %.1f s (screenshot build/m5_fill.png), a valid-looking marker left before the boot was not trusted: the key '
+              'table as tools/fstore.py computes it: %s, the bar full: %s%s' % (FILL['cls'], FILL['act'] == BS['ACT_FILL'], FILL['frames'],
+              FILL['frames'] / 50.0, FILL['table'], FILL['bar'], '' if fill_ok else '  FAILED'))
+        bad += not fill_ok
     print('the launched game\'s sound mode (psg.asm SND_MODE): %d (%s); set to 0 (silent, as the harness) for the comparison' % (
         SND_MODE_LAUNCHED, 'live' if SND_MODE_LAUNCHED == 1 else 'NOT LIVE'))
     bad += SND_MODE_LAUNCHED != 1

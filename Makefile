@@ -37,7 +37,7 @@ $(BUILD)/boot.bin: src/boot/boot.asm src/boot/rdspeed.asm src/boot/fdc.asm src/b
 	cd src/boot && $(PASMO) --bin boot.asm ../../$(BUILD)/boot.bin ../../$(BUILD)/boot.sym
 $(BUILD)/boot.mzf: $(BUILD)/boot.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 B000
-GAME_ASSETS = $(wildcard $(BUILD)/assets/*.pack $(BUILD)/assets/*.dir $(BUILD)/assets/level*.bin) $(BUILD)/assets/logic.bin $(BUILD)/assets/sound.bin
+GAME_ASSETS = $(wildcard $(BUILD)/assets/*.pack $(BUILD)/assets/*.dir $(BUILD)/assets/level*.bin) $(BUILD)/assets/logic.bin $(BUILD)/assets/sound.bin $(BUILD)/assets/fstore_masks.bin
 # M7: the PSG sound bank (effects re-made for 50 Hz from the DOS sound data, the MIDI music arranged by tools/midi2psg.py;
 # src/m4/psg.asm plays it); the notes' OPL level curves: assets/opl/levels.json (committed: assets/opl/README.md)
 $(BUILD)/assets/sound.bin: tools/sndconv.py tools/midi2psg.py tools/sndsim.py tools/datfile.py assets/opl/levels.json
@@ -168,15 +168,19 @@ m3demo: $(BUILD)/m3demo.mzf
 # M4: the prince. m4test = logic versus tools/kidsim.py, m4game = the playable program and its screen test
 $(BUILD)/m4test.bin: src/m4/m4test.asm src/m4/kid.asm src/m4/kid2.asm src/m4/objects.asm src/m4/rare.asm src/m4/guard.asm src/m4/levelstart.asm src/m4/evres.asm src/m4/events.asm src/m4/gleave.asm src/m4/genter.asm src/m4/shadinit.asm src/m4/sound.asm src/m4/keys.asm src/m4/sndobj.asm src/m3/room.asm src/m3/roomfull.asm src/m3/altmods.asm src/m3/prbuild.asm src/m1/gfx.asm src/m1/tables.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc | $(BUILD)
 	cd src/m1 && $(PASMO) --bin ../m4/m4test.asm ../../$(BUILD)/m4test.bin ../../$(BUILD)/m4test.sym
-$(BUILD)/m4game.bin: src/m4/game.asm src/m4/ovl.asm src/m4/kid.asm src/m4/objects.asm src/m4/evres.asm src/m4/fx.asm src/m4/sprite.asm src/m4/overlay.asm src/m4/people2.asm src/m4/kid2.asm src/m4/view.asm src/m4/tcache.asm src/m4/rcache.asm src/m4/guard.asm src/m4/sound.asm src/m4/psg.asm src/m4/keyres.asm src/m4/gate.asm src/m4/sndobj.asm src/m3/room.asm src/m1/gfx.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc | $(BUILD)
+$(BUILD)/m4game.bin: src/m4/game.asm src/m4/ovl.asm src/m4/kid.asm src/m4/objects.asm src/m4/evres.asm src/m4/fx.asm src/m4/sprite.asm src/m4/overlay.asm src/m4/people2.asm src/m4/kid2.asm src/m4/view.asm src/m4/tcache.asm src/m4/rcache.asm src/m4/guard.asm src/m4/sound.asm src/m4/psg.asm src/m4/keyres.asm src/m4/gate.asm src/m4/sndobj.asm src/m4/fslook.asm src/m3/room.asm src/m1/gfx.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc $(BUILD)/assets/fstore_equ.inc | $(BUILD)
 	cd src/m1 && $(PASMO) --bin ../m4/game.asm ../../$(BUILD)/m4game.bin ../../$(BUILD)/m4game.sym
+# the frame store's fixed layout (docs/ramdisk-tiers.md "As built: step 1"): the keys from assets/fstore_uses.txt, the
+# sizes from the image directories (fstore_equ.inc, the fill's masks fstore_masks.bin for the RAM disk, the tables for the tests)
+$(BUILD)/assets/fstore_equ.inc $(BUILD)/assets/fstore_masks.bin $(BUILD)/assets/fstore_tab1.bin &: tools/fstore.py assets/fstore_uses.txt src/m4/fstore.asm src/m1/kernel_gen.inc src/m1/gfx.asm src/m1/tables.asm $(BUILD)/assets/kid.dir $(BUILD)/assets/sword.dir $(BUILD)/assets/kid.pack $(BUILD)/assets/sword.pack
+	$(PY) tools/fstore.py
 # code overlays (src/m4/ovl.asm): assembled after the main program against its symbols (build/m4game.sym, written
 # with the .bin), packed into build/m4ovl.bin for the RAM disk (tests/m4_game.py setup writes it)
 $(BUILD)/ovl_%.inc: src/m4/ovl_%.asm $(BUILD)/m4game.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym $< src/m1 $@
 $(BUILD)/ovl_room.bin: src/m4/ovl_room.asm src/m3/roomfull.asm $(BUILD)/ovl_room.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_room.asm ../../$(BUILD)/ovl_room.bin ../../$(BUILD)/ovl_room.sym
-$(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc $(BUILD)/ovl_level.inc
+$(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fstore.asm $(BUILD)/assets/fstore_equ.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc $(BUILD)/ovl_level.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_level.asm ../../$(BUILD)/ovl_level.bin ../../$(BUILD)/ovl_level.sym
 $(BUILD)/ovl_event.bin: src/m4/ovl_event.asm src/m4/events.asm src/m4/shadinit.asm $(BUILD)/ovl_event.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_event.asm ../../$(BUILD)/ovl_event.bin ../../$(BUILD)/ovl_event.sym
@@ -197,7 +201,7 @@ $(BUILD)/ovl_rare.bin: src/m4/ovl_rare.asm src/m4/hpstrip.asm src/m4/rare.asm $(
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_rare.asm ../../$(BUILD)/ovl_rare.bin ../../$(BUILD)/ovl_rare.sym
 $(BUILD)/ovl_rare.inc: src/m4/hpstrip.asm src/m4/rare.asm
 $(BUILD)/ovl_room.inc: src/m3/roomfull.asm
-$(BUILD)/ovl_level.inc: src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc
+$(BUILD)/ovl_level.inc: src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fstore.asm $(BUILD)/assets/fstore_equ.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc
 $(BUILD)/ovl_event.inc: src/m4/events.asm src/m4/shadinit.asm
 $(BUILD)/ovl_gleave.inc: src/m4/gleave.asm
 $(BUILD)/ovl_genter.inc: src/m4/genter.asm src/m4/shadinit.asm

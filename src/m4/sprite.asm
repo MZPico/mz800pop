@@ -831,7 +831,7 @@ char_fetch:     ld      a, (iy+SD_X)
                 ld      a, c
                 cp      (iy+SD_LKEY2)
                 jp      nz, cfdo
-                ld      a, (iy+SD_X)            ; cached: only the byte column changes
+cf_xb:          ld      a, (iy+SD_X)            ; cached: only the byte column changes
                 ld      e, a
                 ld      d, (iy+SD_X+1)
                 srl     d
@@ -845,7 +845,8 @@ char_fetch:     ld      a, (iy+SD_X)
 cfdo:           ld      (iy+SD_LKEY2), c
                 ld      a, (iy+SD_FRAME)
                 ld      (iy+SD_LKEY), a
-                ld      c, a
+fs_on:          jp      cf_fetch                ; (patched: fs_look, the frame store's lookup, src/m4/fslook.asm)
+cf_fetch:       ld      c, a
 cf_ch:          ld      a, CH_KID               ; (patched: the sword's chtab)
                 call    dir_entry
                 push    hl

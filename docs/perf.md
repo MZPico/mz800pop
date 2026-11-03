@@ -1018,3 +1018,101 @@ Per item (walking / fighting, frames a tick): spr_draw -0.06 / -0.16 for 19 byte
 23 bytes, the snapshot -0.23 / -0.22 for 81 (the rule: >= ~0.1 on walks or fights for < ~100 bytes). The room change
 gets no slower (-0.5). Walking is now 6.2 % faster, fights 6.1 %. The baseline (tests/perf_baseline.json) is lowered to
 the new medians except the room change, whose baseline (105.92) is below this run's median.
+
+## M8a part 9: the frame store (2026-11-03)
+
+Status: **built** (RAM-disk tiers step 1, docs/ramdisk-tiers.md section 11; PLAN.md item 49). On a RAM disk of 1 MB and
+more the kid's and the sword's most used (frame, mirror, shift) keys are generated once at the first game start with
+today's spr_fetch into RAM-disk pages 8+ (a fixed layout computed at build time by tools/fstore.py); a stored key is
+then a copy of the finished cell buffer (~300 T + 21 T a byte) instead of today's fetch (~63 K T on average). 512 KB:
+no store, today's fetch. Resident 98 bytes (main +95, low +3).
+
+### perfcheck, medians of 3 runs per size (frames a tick)
+
+The base is design/ramdisk-tiers 1388c51 (= main cc72e14's game; it uses pages 0-7 only, so its speed is the same on
+every size). The emulator gave the same value in all 3 runs of each case here.
+
+| Stretch | base 512 KB | new 512 KB | base 1 MB | new 1 MB | base 16 MB | new 16 MB |
+|---|---:|---:|---:|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 5.72 | 5.72 | 5.72 | **5.20** | 5.72 | **5.03** |
+| fight (fight1 60-160, guard on) | 7.73 | 7.72 | 7.73 | **7.20** | 7.73 | **6.86** |
+| traps (traps_b1 0-300) | 5.63 | 5.63 | 5.63 | 5.30 | 5.63 | 5.23 |
+| walkthrough 190-260 | 10.26 | 10.26 | 10.26 | 10.06 | 10.26 | 9.69 |
+| level door step (walkthrough 203-207) | 17.05 | 17.16 | 17.05 | 16.23 | 17.05 | 16.23 |
+| room change (walkthrough 89) | 106.05 | 106.05 | 106.05 | 106.05 | 106.05 | 105.22 |
+| gate (gate_push 200-260) | 4.99 | 4.99 | 4.99 | 4.99 | 4.99 | 4.99 |
+
+512 KB is unchanged but for the level door step's +0.11 and the fight's -0.01, which are the measurement: with a
+breakpoint stop at every tick_done instead of perfcheck's tracepoint (tools/emu.py collect, which runs the emulation
+in 200-frame steps) the door step's ticks 204-207 are 19.40 / 15.21 / 14.93 / 19.08 frames in both builds; with the
+tracepoint, base's tick 205 takes 14.74 (one frame-phase wait fewer), the new build's 15.21 as with breakpoints.
+1 MB is 9 %
+faster walking (5.72 -> 5.20) and 7 % in the fight (7.72 -> 7.20), 16 MB 12 % / 11 % (5.03, 6.86). The room change
+does not get faster on 1 MB (it fetches the kid once; the room draw is the cost) and 0.8 frames faster on 16 MB. The
+gate stretch has no fetches. tests/perf_baseline.json is measured at the tests' default size, **1 MB** (the INI's
+`mr1r18_size`): it is lowered to the new 1 MB medians where they beat it (walk, door step, 190-260, traps, fight; not
+the room change, 106.05 against 105.92, nor the gate, equal), in its own commit. tools/perfcheck.py now takes the
+RAM disk's size from the emulator and compares with tests/perf_baseline_<size>.json when there is one:
+perf_baseline_512K.json = the baseline before the store (today's game), perf_baseline_16M.json = the 16 MB medians
+above (regress/fs2-512's perfcheck had failed against the 1 MB baseline: 4 stretches more than 5 % slower, i.e. the
+store's gain).
+
+### The fill (boot time)
+
+tests/m8_fstore.py and an I/O count around fs_fill (frames of 71,136 T): **1 MB (class 1, 891 keys, 409,512 bytes) 774
+frames = 15.5 s** (318,505 data-port reads, 442,910 writes); **16 MB (classes 1 + 2, 2,153 keys, 1,232,824 bytes)
+2,250 frames = 45.0 s** (968,945 reads, 1,270,008 writes). At every boot from the floppy, on the loading screen
+before the title ("PREPARING SPRITES" and the loader's bar; the boot clears the marker, so a store left in the RAM disk
+is never trusted; later starts in the session find the marker): boot -> PRES 1 MB 1,666 frames = 33.3 s, 16 MB 3,150
+= 63.0 s, 512 KB 815 = 16.3 s (tests/m5_boot.py; docs/ramdisk-tiers.md section 11 has the timeline). On MZPico with w wait
+states on every port access the fill takes w x (data-port reads + writes) more: +10.7 / +31.5 frames a T of wait (1 MB / 16 MB).
+
+### RAM-disk accesses per tick (tools/rdreads.py)
+
+Counted by the emulator's I/O breakpoints (IORQ_R / IORQ_W on the ports, a `continue` action: they count every byte of
+an INIR / OTIR and never stop), read at tick_done; the same stretches and setup as perfcheck. Reads = the data port
+(0xEA); writes = the data port; addr = the address port (0xEB, one per seek); page = 0xE9. Per tick:
+
+| Stretch | size | frames | reads | writes | addr | page | +1 / +2 / +3 T a read (frames a tick) |
+|---|---|---:|---:|---:|---:|---:|---|
+| walk_level1 30-60 | 512 KB (today) | 5.718 | 2,312 | 130 | 200 | 41 | 0.032 / 0.065 / 0.097 |
+| | 1 MB | 5.199 | 2,416 | 130 | 200 | 42 | 0.034 / 0.068 / 0.102 |
+| | 16 MB | 5.032 | 2,444 | 130 | 200 | 41 | 0.034 / 0.069 / 0.103 |
+| room change (walk_level1 89) | 512 KB | 106.05 | 53,499 | 30,720 | 5,253 | 1,270 | 0.752 / 1.504 / 2.256 |
+| | 1 MB | 106.06 | 53,500 | 30,720 | 5,254 | 1,271 | 0.752 / 1.504 / 2.256 |
+| | 16 MB | 105.22 | 53,650 | 30,720 | 5,253 | 1,270 | 0.754 / 1.508 / 2.263 |
+| fight1 60-160 | 512 KB | 7.719 | 3,086 | 144 | 275 | 50 | 0.043 / 0.087 / 0.130 |
+| | 1 MB | 7.200 | 3,176 | 144 | 276 | 50 | 0.045 / 0.089 / 0.134 |
+| | 16 MB | 6.863 | 3,237 | 144 | 275 | 50 | 0.045 / 0.091 / 0.136 |
+| traps_b1 0-300 | 512 KB | 5.632 | 2,051 | 301 | 219 | 40 | 0.029 / 0.058 / 0.086 |
+| | 1 MB | 5.301 | 2,142 | 301 | 219 | 40 | 0.030 / 0.060 / 0.090 |
+| | 16 MB | 5.226 | 2,170 | 301 | 219 | 40 | 0.030 / 0.061 / 0.091 |
+
+The store reads slightly more than today's fetch (+3-5 %: a stored entry has the empty extra byte column and a 7-byte
+table slot + header that the image does not), so it does not make the game more sensitive to a slow RAM disk:
+the per-tick cost of wait states is ~0.03-0.05 frames a T of wait in play (< 1 % of a 5-7 frame tick at 1 T, ~2 % at 3
+T) and ~0.75 frames a T on a room change (0.7 %). Counting every port access (reads, writes, seeks), as the MZPico's
+WAIT would stretch each one, adds 15 % in play and 70 % on a room change (the shadow write's 30,720 OUTs).
+
+**Measured with wait states** (MZPico/mz800emu#2's `mr1r18_wait`, the emulator of PR #18 test/memdisk, 9ccd087;
+POP800_RD_WAIT=N there, here a temporary INI with `mr1r18_wait` and the in-memory RAM disk): the counts are the same
+at wait 0 and 1, and 1 T of wait on every port access costs, frames a tick:
+
+| Stretch | 512 KB w0 -> w1 | 1 MB w0 -> w1 | 16 MB w0 -> w1 |
+|---|---|---|---|
+| walk_level1 30-60 | 5.718 -> 5.757 (+0.039) | 5.199 -> 5.233 (+0.034) | 5.032 -> 5.067 (+0.035) |
+| room change | 106.05 -> 107.33 (+1.28) | 106.06 -> 107.33 (+1.28) | 105.22 -> 106.50 (+1.28) |
+| fight1 60-160 | 7.719 -> 7.768 (+0.049) | 7.200 -> 7.240 (+0.040) | 6.863 -> 6.915 (+0.052) |
+| traps_b1 0-300 | 5.632 -> 5.662 (+0.030) | 5.301 -> 5.331 (+0.030) | 5.226 -> 5.250 (+0.024) |
+
+(= the access counts x 1 T, within the rounding of the per-tick mean; 2 and 3 T scale linearly.) The store's gain
+(-0.5 / -0.7 frames a tick) is ten times the cost of a wait state.
+
+### Same pixels
+
+VRAM after every tick equal to the Python reference (tests/m4_game.py, the pixel sets) on 512 KB, 1 MB and 16 MB: the
+full regression on the runners for each size, with the fill at boot and main merged (764c9ac; all 11 parts passed:
+regress/fs5-512 run 41662255045, regress/fs5-1m run 41662249445, regress/fs5-16m run 41662260287; earlier runs had
+found the cheat tree's size mismatch, m7_sound's loop margin and perfcheck's single baseline, all fixed); m5_boot (the floppy boot with the fill on the loading screen, against the harness),
+m7_launch (a round trip against a direct start: the fill leaves main RAM as a start without it) and m8_fstore pass
+locally on 1 MB (m8_fstore also on 512 KB and 16 MB).

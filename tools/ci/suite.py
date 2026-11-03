@@ -41,6 +41,7 @@ PARTS = {
         ('m4_test early', [PY, 'tests/m4_test.py'] + EARLY),
         ('m5_boot', [PY, 'tests/m5_boot.py']),
         ('m5_save', [PY, 'tests/m5_save.py']),
+        ('m8_fstore', [PY, 'tests/m8_fstore.py']),
     ],
     'b': [
         ('m4_test m7', [PY, 'tests/m4_test.py'] + M7),
@@ -79,6 +80,7 @@ FULL = {
         ('m5_boot', [PY, 'tests/m5_boot.py']),
         ('m5_save', [PY, 'tests/m5_save.py']),
         ('m8_pace', [PY, 'tests/m8_pace.py']),
+        ('m8_fstore', [PY, 'tests/m8_fstore.py']),
     ],
     'pres': [
         ('m7_title', [PY, 'tests/m7_title.py']),
@@ -174,9 +176,10 @@ PROGRAMS = {
     'tools/oracle_suite.py': dict(build=[ASSETS_GAME], uses={'sdlpop'}, by_script=True, expect=30),
     'tests/m4_game.py': dict(build=[M4GAME, ASSETS_GAME], by_script=True, expect=60),
     'tools/cut_suite.py': dict(build=[ASSETS_ALL], uses={'sdlpop'}, expect=10),
-    'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json'], expect=40),
+    'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
     'tests/m8_pace.py': dict(build=[M4GAME, ASSETS_GAME],
                              split=lambda: [([s], {}) for s in sorted(literal('tests/m8_pace.py', 'STRETCHES'))], expect=120),
+    'tests/m8_fstore.py': dict(build=[M4GAME, ASSETS_GAME], expect=30),
     'tests/m7_sound.py': dict(build=[M4GAME, ASSETS_ALL], uses={'emu', 'pasmo'}, expect=400),
     'tests/m5_boot.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=90),
     'tests/m5_save.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=40),

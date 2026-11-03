@@ -1,9 +1,9 @@
 # RAM-disk tiers: design and measurements (2026-11-03)
 
-Status: **design for review**; measured, nothing of the caches built. Sections 7-8 (prefetching; prebuilt layouts and
+Status: **step 1 built** (section 11: the frame store, the kid and sword keys; PR perf/frame-store); the rest is the design. Sections 7-8 (prefetching; prebuilt layouts and
 the hybrid) answer the user's follow-up questions; the recommendation (section 9) rests on them. The enabling changes
 in the same PR change no behaviour: the boot's probe now counts the RAM disk's pages and the launcher hands the size
-to the program it starts (nothing reads it yet), the emulator launcher takes a size (`POP800_RD_SIZE`),
+to the program it starts (the frame store reads it: section 11), the emulator launcher takes a size (`POP800_RD_SIZE`),
 `tests/m5_boot.py` tests the probe with 512 KB, 1 MB and 16 MB, `tools/fetchstat.py` measures the sprite fetch and
 tools/fetchmodel/ holds the models and measurements behind the tables (run_all.sh / idle_all.sh feed them).
 
@@ -548,3 +548,94 @@ bytes) or not at all.
    fill would not: keep the fill out (16 MB extras later)?
 7. The emulator: raise MCP_REGIONS_MAX (or a bank-addressed RAM-disk command) and consider `mr1r18_type = STD` for the
    tests? Done (MZPico/mz800emu#2, PR #18: `mr1r18_type = STANDARD`).
+
+## 11. As built: step 1, the frame store (2026-11-03, PLAN.md item 49)
+
+**The user's decisions (2026-11-03)**: the hybrid with a fixed layout (section 8), no run-time fill (option A dropped);
+building the kid's set at boot is acceptable, and +~1.2 s at a level start for the guard set (step 2, not built
+here); the stored keys are chosen from the test scripts; **on 1 MB the RAM disk above the base layout goes to the
+frame store only: no room cache on 1 MB** (the room cache is a later step, from 2 MB up); the game behaves and looks
+the same on every size (512 KB: no store, today's fetch).
+
+**The layout** (tools/fstore.py, at build time into build/assets; nothing generated is committed):
+
+- The keys: assets/fstore_uses.txt (committed: numbers only) lists every kid and sword key (chtab, frame, mirror,
+  shift) the 71 scripts fetched and how often (2,153 keys; `tools/fstore.py --uses build/meas/k` remakes it from
+  tools/fetchmodel/run_all.sh's output). **Class 1** = the most used per byte up to 400 KB (headers included): 891 keys,
+  409,512 bytes, 80.2 % of the scripts' kid and sword fetches; every card from 1 MB. **Class 2** = the other 1,262 keys
+  (823,312 bytes) from rd_top 29 (2 MB and more; on 16 MB). The guards' keys are step 2.
+- RAM-disk page 8: the key table (471 ids x 16 variants x 4 bytes = 0x75C0 bytes: id = the kid's frame 0-219, the
+  sword's 220 + frame, 255-470 for the guard sets of step 2; slot = id * 64 + (mirror * 8 + shift) * 4 = the entry's
+  page (0 = not stored), address hi, lo), the marker at 0x7700 (the build id: a CRC of the masks, the kid and sword
+  packs and directories, the kernel's and the fill's sources; then the class), the entries from 0x7800 on and in
+  pages 9+: ow, h, the byte count (2 bytes), then the cell buffer exactly as spr_fetch leaves it; an entry that would
+  cross a page starts the next page. Class 1 ends at page 14 0xC2F4 (81.6 KB of 1 MB left: step 2's guard set), class
+  2 at page 27 0x6130.
+- The fill's input: the masks (255 ids x 2 classes, a 16-bit word each: bit v = variant v stored) and the build id,
+  1,024 bytes (build/assets/fstore_masks.bin) at page 6 0xE400, written on every size by the boot's stream
+  (tools/mkgamedisk.py) and by the harness (tests/m4_game.py setup). The fill allocates in mask order (class 1 by id
+  and variant, then class 2); tools/fstore.py computes the same layout (build/assets/fstore_keys.txt,
+  fstore_tab1.bin / fstore_tab2.bin = page 8 0x0000-0x77FF as the fill must leave it).
+
+**The lookup** (src/m4/fslook.asm, main code, 95 bytes; char_fetch in the low block +3 bytes): on a miss of the slot's
+one-entry cache char_fetch jumps through fs_on, which is `jp cf_fetch` (today's fetch) until the fill patches it to
+fs_look. fs_look: the chtab (kid or sword; anything else: today's fetch), the slot address from the id and key2's low
+nibble, one seek to page 8 and 3 INs; page 0: today's fetch; else a seek to the entry, INI x 2 into SD_OW / SD_H, the
+count, INIR into the slot's buffer, then the byte column as on a cache hit. ~300 T + 21 T a byte instead of ~63 K T.
+Resident total: **98 bytes** (main 768 -> 673 free, low block 30 -> 27, block 2 unchanged).
+
+**The fill, at boot** (the user's decisions of 2026-11-03, second round: the fill runs in the loading, before the
+title, with a progress bar; every boot from the floppy fills; 16 MB keeps classes 1 and 2; the faster generator is
+step 2, the next PR). After the floppy load, on 1 MB and more (rd_top >= 15), the loader (src/boot/boot.asm) clears the
+store's marker (page 8 0x7700: five zero bytes), writes "PREPARING SPRITES" in the place of "LOADING..." (msg_load's
+position, read at run time), draws the bar empty again (BAR_ROW, BAR_COL: the loader's own layout) and starts the game
+with the new action ACT_FILL (src/boot/launch.inc; the block carries the bar's first VRAM byte, its width 32 and its
+colour, so the game knows nothing of the loader's layout). game_start (src/m4/gstart.asm gs_fill) keeps the loader's
+screen, runs tables_init and fs_fill (src/m4/fstore.asm: the masks to SPRBUF_B, the marker compared with the build id
+and the class; it differs, so page 8 0x0000-0x77FF is cleared, then for every stored key dir_entry and **spr_fetch,
+today's routine**, into SPRBUF_A, the table slot and the entry written with OTIR, the bar advanced (ff_prog: 32 cells
+over the keys, VRAM mapped only while a cell is drawn: the shift tables are behind it), the marker last) and hands
+over to the title (ho_swap, ACT_TITLE). Every later game start in the session (after the title, PRES's swaps, game
+over) runs fs_fill again from game_start: the marker matches, so it only patches fs_on. A store left in the RAM disk
+by an earlier session, possibly overwritten by another program, is never trusted (tests/m5_boot.py boots with a
+valid-looking marker planted and checks that the fill ran: the key table and the bar). The fill puts spr_fetch's
+patched operands and dir_buf back, so main RAM is as after a start without the fill (tests/m7_launch.py compares a
+round trip with a direct start). The level-start overlay grew 2,201 -> 2,746 bytes (W2: 1,350 free); the overlay area
+in page 7 has 1.3 KB left (the cheat build ~0.9 KB); the launcher's image +~70 bytes.
+
+The interface step 2 replaces: fs_fill checks the marker and calls `ff_pass` with HL = a key list (a mask table) per
+class; ff_pass / ff_key make one key at a time with spr_fetch (~1,800 T + ~125 T an image byte, + the write). Step 2's
+dedicated generator (all 16 variants of an image from one read of its rows, ~50 T an output byte) replaces ff_pass /
+ff_key behind the same call; the layout (tools/fstore.py), the marker, the bar and the lookup stay.
+
+**The boot timeline** (tests/m5_boot.py, emulator frames, 50 a second; the loader's time as before, the PRES and title
+steps unchanged):
+
+| | the loader (floppy) | the fill ("PREPARING SPRITES", incl. the game image's start ~1.3 s) | PRES starts | the title's step a |
+|---|---:|---:|---:|---:|
+| 512 KB | 712 = 14.2 s | - | 815 = 16.3 s | 1,035 = 20.7 s |
+| 1 MB | 712 = 14.2 s | 851 = 17.0 s (the fill itself 774 = 15.5 s) | 1,666 = 33.3 s | 1,886 = 37.7 s |
+| 16 MB | 713 = 14.3 s | 2,334 = 46.7 s (the fill itself 2,250 = 45.0 s) | 3,150 = 63.0 s | 3,370 = 67.4 s |
+
+The game's start after the title's key is as on 512 KB (game start -> level_ready 45 frames). On a real drive the
+loader takes longer; the fill does not depend on the drive. On MZPico with w wait states a port access the fill takes
+w x 10.7 frames (1 MB) / w x 31.5 (16 MB) more (docs/perf.md "M8a part 9").
+
+**With PR #20 (boot/rd-speed)**: #20 moves "LOADING..." and the bar 12 lines up and puts its measurement table below
+them; the fill reuses msg_load's position and BAR_ROW at run time, so nothing collides in either order. A trial merge
+of the two branches has one conflict, PLAN.md (both append an item); the code merges cleanly and the merged loader
+builds (the launcher's image 2,428 of 3,072 bytes). Either order works; #20 first is the simpler one (its PLAN item
+is earlier and #19's follows it).
+
+**The harness**: tests/m4_game.py setup writes the masks, puts the size at 0x02AF (the emulator's own, from the
+number of its RAM-disk regions: 512 KB = 7, 1 MB = 15, 16 MB = 255; not from the INI: the cheat tree build/cheat has no
+emu/, so emu/mz800emu-pop.sh cannot cd to its directory there and the emulator runs with its built-in defaults, a 1 MB
+RAM disk, whatever `POP800_RD_SIZE` says), clears the marker (every run fills anew: 0.6 s of host time on 1
+MB, 1.6 s on 16 MB; no store left in a RAM-disk file is trusted) and runs to the fill's end (fs_done), so every test's
+frame counts start after it (`fs_run=False`: the fill then runs inside game_start: m5_boot's harness run).
+tests/m8_fstore.py (PR part a, full part sound): on 1 MB+ the key table and the marker equal tools/fstore.py's, every
+entry equals tools/fetchmodel/prebuild.py's generator (byte-identical to the kernel: prebuild_check.py) with its
+header, fs_on points at the lookup, a second start does not fill; on 512 KB fs_on is untouched.
+
+**Results**: docs/perf.md "M8a part 9: the frame store" (perfcheck per size, the RAM-disk accesses per tick and the
+cost of wait states on MZPico).

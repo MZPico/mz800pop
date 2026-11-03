@@ -449,10 +449,12 @@ def main():
             # (tick 89: the longest tick, ~106 frames, tools/perfcheck.py; live mode: music is never interrupted)
             rr = os.path.join(ROOT, 'tests', 'm4_scripts', 'walk_level1.txt')
             part_b(e, bank, rr, 'live', None, inject=(80, 41), tag='_41')
-            # (the long streaming piece: Jaffar's piece of the presentation (5,331 bytes, bank B's id 50), looping)
+            # (the long streaming piece: Jaffar's piece of the presentation (5,331 bytes, bank B's id 50), looping;
+            # started at tick 40, so that it wraps before the script ends also when the ticks are short: the frame
+            # store of a 16 MB RAM disk, M8a part 9)
             pres = sndsim.load_bank(os.path.join(BUILD, 'assets', 'sound_pres_b.bin'), 0)
             tb = dict(bank); tb[41] = pres[50]; tbb = sndconv.make_bank(tb, {41: pres.loops[50]})
-            tr = part_b(e, sndsim.load_bank(tbb), rr, 'live', 400, inject=(80, 41), test_bank=tbb, tag='_loop')
+            tr = part_b(e, sndsim.load_bank(tbb), rr, 'live', 400, inject=(40, 41), test_bank=tbb, tag='_loop')
             check('B: the looping piece wrapped through the room draws (%d loops)' % tr.sim.p.loops, tr.sim.p.loops >= 1, tr.sim.p.loops)
     print('FAILED: %s' % FAILS if FAILS else 'all ok')
     sys.exit(1 if FAILS else 0)

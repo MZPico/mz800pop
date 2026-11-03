@@ -57,7 +57,7 @@ def boot(e, dsk):
     M5.fill_ramdisk(e)
     e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
     e.call('reset')
-    t = {'boot -> PRES': M5.run_to(e, PS['pres'], 3000)}
+    t = {'boot -> PRES (1 MB+: the frame store\'s fill included)': M5.to_pres(e)}
     t['PRES -> the title\'s clock (2 floppy loads, step a\'s screen decoded)'] = M5.run_to(e, PS['ts_sync'], 1000)
     return t
 
