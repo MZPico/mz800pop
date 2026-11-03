@@ -879,3 +879,15 @@ piece used AND/XOR semantics.
    15.0 (a timer fault) stops the boot with a message. The launcher hands GAME x 5 to the programs at 0x029F
    (HO_RDSPD_MAIN; nothing reads it yet). mz800emu: 21.0 everywhere at 512 KB / 1 MB / 16 MB; +0.22 s of boot (719
    frames). Expected on hardware: chip-based cards 21.0 (+0), the MZPico 22 or more (it always asserts WAIT).
+51. M8a part 10, the frame store's dedicated generator = RAM-disk tiers step 2 (2026-11-03, docs/ramdisk-tiers.md
+   section 12, docs/perf.md "M8a part 10"). src/m4/fsgen.asm replaces ff_pass / ff_key behind fs_fill (the level-start
+   overlay): per image and mirror one read, straight at the lowest stored shift (the kernel's lo / hi tables; the
+   mirror through the bit-reverse table), every further shift one SLA / RL step of the buffer, each stored variant
+   written with OUTI; one pass over both classes (class 2 allocates from class 1's end, FS_E1P:FS_E1A from
+   tools/fstore.py: the layout unchanged). Measured first: a prototype on single images, 46 T an output byte with all
+   16 variants stored (estimate ~50); with the real masks 61. Fill 1 MB 774 -> 351 frames (15.5 -> 7.0 s), 16 MB 2,250
+   -> 933 (45.0 -> 18.7 s); boot -> title step a 1 MB 37.7 -> 29.6 s, 16 MB 67.4 -> 41.4 s, 512 KB unchanged (21.1 s
+   with #20). Every entry byte-identical (tests/m8_fstore.py, 1 MB and 16 MB); the layout, the marker, the bar and the
+   lookup unchanged; nothing resident; the level-start overlay 2,746 -> 3,438 bytes (W2 658 free), the overlay area in
+   page 7 608 bytes free (the cheat build 194: the guard sets' code needs room elsewhere, e.g. a fill-only overlay).
+   fg_run fills any key list (mask tables + pointers): the follow-up uses it for the level's guard set.
