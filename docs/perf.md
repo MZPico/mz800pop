@@ -1148,3 +1148,136 @@ Wait states (MZPico): every port access 1 T longer (mr1r18_wait = 1, tests/m8_fs
 Same pixels: tests/m8_fstore.py checks every entry against tools/fetchmodel/prebuild.py's generator (byte-identical to
 the kernel) on 1 MB and 16 MB: all 891 / 2,153 entries equal, the key table and marker as tools/fstore.py computes
 them. The full regression on the runners at 512 KB, 1 MB and 16 MB at 40332ec passed, all 11 parts each (regress/fsgen-512 run 41712562421, regress/fsgen-1m run 41712557377, regress/fsgen-16m run 41712567946); locally m5_boot (512 KB, 1 MB, 16 MB), m7_launch (1 MB) and the smoke tier.
+
+## Gates and spikes: per-tick measurements (2026-11-03)
+
+Status: **measured, nothing built.** The playtest of main 60e7a83 (1 MB, no waits): walking is fine, but the game slows
+down visibly whenever the kid walks or runs while a gate opens or closes or spikes rise, anywhere. Measured on that
+build at 1 MB (the INI's), and the main scenes again at 512 KB.
+
+**Tools** (committed): tools/tickcost.py runs a script in the emulator (perfcheck's setup, a tracepoint at tick_done)
+and in kidsim side by side, and labels every tick by what changed on the shown screen: `K`/`.` the kid moved / stood,
+`G` a gate's visible bar position min(mod, 188) / 4 changed (`g`: only its modifier), `S` a spike's picture changed
+(`s`: only its modifier: the 15 ticks the spikes stay out, 0x8F..0x81). `--scene` runs the four scripts of a scene and
+compares them tick by tick; `--profile t,...` profiles single ticks; `--rects t,...` traces the tile regenerations,
+dirty rects, rect runs and object chunks of single ticks. tools/trapscenes.py finds the scenes with kidsim only. It
+tries every button whose gate is drawn on its screen and every spike tile, with the kid starting on or next to it and
+a few run, walk and jump patterns, and keeps the one with the most ticks of kid motion plus a visible trap change before
+a room change or death. It writes each scene as four tick-aligned scripts: **a** the kid moves + the trap animates,
+**b** the same moves with the button or spike patched to floor, **c** the kid stands (after stepping off the button; on
+the spike tile) + the trap, **d** c without the trap. So a - b is the trap's cost while the kid moves, c - d its cost
+while he stands, and a - b - c + d what the combination costs above the sum of its parts. 11 scenes are in
+tests/perf_scripts (levels 4, 7, 9, 10, 14, 2, 6, 8; the finder found 31 on levels 1-14). tests/m4_game.py --every 1
+on six of the a scripts: 0 state diffs, 0 differing pixels.
+
+### Per scene (1 MB, frames a tick, the ticks where the kid moves)
+
+| scene | ticks | n | a: median / p90 / worst | b (walking alone) median | a - b median | c - d median | excess (n) |
+|---|---|---:|---|---:|---:|---:|---|
+| l02 open (the gate opens 4 rows a tick, then closes 1 a tick) | visible | 53 | 8.84 / 10.94 / 15.16 | 4.62 | 3.86 | 3.46 | +0.33 (53) |
+| | not visible | 66 | 4.94 / 5.26 / 5.68 | 4.56 | 0.14 | 0.00 | +0.27 |
+| l04 open (gate_push's gate, the left room's column 9) | visible | 53 | 11.01 / 13.94 / 26.91 | 4.95 | 6.18 | 6.34 | +0.11 (53) |
+| | not visible | 66 | 5.01 / 5.89 / 6.11 | 4.93 | 0.16 | 0.00 | +0.10 |
+| l04 through (the kid runs into the gate's column, col 0-1) | visible | 53 | 11.13 / 14.77 / 26.91 | 4.97 | | | +0.08; standing +0.28 |
+| l07 open | visible | 47 | 10.42 / 13.54 / 25.94 | 5.01 | 5.35 | 5.29 | +0.16 |
+| l09 open | visible | 46 | 13.68 / 19.18 / 21.93 | 6.03 | 5.00 | 5.00 | +0.04 |
+| l04 drop (an open gate drops, then reopens) | visible | 51 | 12.94 / 15.46 / 20.49 | 5.96 | 6.71 | 9.29 (the drop) | +0.00 |
+| l10 drop | visible | 50 | 11.48 / 18.54 / 29.35 | 5.05 | 5.95 | 9.88 (the drop) | +0.00 |
+| l07 drop (room 19: a gate cycling on its own + spikes) | gate visible | 71 | 12.21 / 16.62 / 22.15 | 5.78 | 6.28 | 5.36 | +0.19 (44) |
+| | gate + spike step | 5 | 18.66 / 22.15 / 22.15 | 12.21 | | | |
+| l14 spike | spike step | 9 | 10.90 / 11.96 / 12.42 | 4.57 | 5.87 | (kid on the tile) | |
+| | spikes held | 14 | 5.98 / 6.23 / 6.62 | 4.07 | 1.89 | | |
+| l08 spike | spike step | 18 | 12.57 / 13.57 / 18.16 | 8.71 | 5.26 | | |
+| | spikes held | 31 | 6.02 / 7.10 / 7.97 | 4.59 | 1.96 | | |
+| l06 spike | spike step | 18 | 11.00 / 13.75 / 16.12 | 8.97 | 5.77 | 7.61 | +0.09 (5) |
+| | spikes held | 28 | 6.26 / 6.94 / 8.05 | 5.22 | 1.29 | | |
+| l02 / l04 / l09 spike (not committed) | spike step | 9-21 | 11.3-13.9 (medians) | | 2.4-7.1 | 5.0-7.0 | -0.06 .. +0.66 |
+| | spikes held | 7-14 | 6.0-11.5 | | 1.7-2.0 | | |
+
+Walking alone (b) is 4.0-6.0 in these rooms (perfcheck's walk: 5.20). An opening gate changes its picture **every
+tick** (+4 rows) for ~47 ticks, a closing one every 4th tick, a dropping one every tick for 4-5 ticks (20-60 rows a
+tick, +9-10 frames each). A spike cycle is 5 visible rising ticks, then 15 held ticks with no visible change (or for
+as long as the kid stays on the spikes), then 4 visible retracting ticks. At 512 KB the increments are the same (l04
+open a - b 6.33, l14 spike step 6.31 / held 2.03, l07 drop 6.0); only the kid's own part is 0.4-0.7 slower, as walking
+is there. The frame store plays no part in the traps.
+
+**The combination costs the sum of its parts.** On ticks where a's and c's trap are in the same state, a - b - c + d
+is -0.06 .. +0.33 frames (+0.66 in one spike scene with the kid on the spike's own chunk). There is no super-additive
+work. The kid's rect and the gate's bar column (bytes 0-4 of the screen for a left-room gate) do not overlap: even with
+the kid at the gate his chunk starts at byte 5. The dirty rect does not grow into a whole column either. The game gets
+slow because the trap's redraw costs 5-7 frames by itself, as much again as a whole walking tick. A kid running next
+to an opening gate runs at 11 frames a tick, 4.5 ticks a second, for the ~47 ticks of the opening.
+
+Tick by tick, l04 open (a | b | c), the opening (ticks 1-2 belong to the level start and cost the same in all four):
+```
+tick   3     4     5     6     7     8     9    10    11    12    13    14    15    16    23    31    39    40    46    47
+a  12.97 12.51 12.74 12.62 15.42 12.49 12.02 19.33 12.13 13.94 11.37 11.57 13.94 10.97 14.39 13.75 13.17  9.42  8.88 13.69
+b   4.74  4.99  4.98  4.99  4.97  4.99  4.99  5.10  4.63  5.02  4.31  4.61  5.02  4.25  5.60  4.72  4.07  4.64  4.32  5.45
+c  12.97 12.51 12.74 12.62 15.42 12.49 12.29 19.06 11.83 15.18 11.42 10.97 13.42 11.40 13.77 12.63 12.69  8.55  8.69 13.16
+```
+The cost falls as the bars get shorter: 12.5 at modifier 12, 9 at 160. Every 8th tick costs +3 more (a beam / torch
+phase). The closing, a: 98 13.23, 99 4.88, 100 5.89, 101 5.90, 102 10.49, 103 5.60, 104 5.84, 105 6.03, 106 9.52, ...,
+110 9.09, 114 9.30, 118 9.29 (b is 4.0-5.7 throughout). l14 spike, a | b: rising (ticks 13-17) 11.66 11.33 12.42
+11.96 10.90 | 5.99 5.59 5.35 4.89 3.95; held (19-32) 5.1-6.6 | 3.1-4.8; retracting (33-36) 10.44 9.97 8.94 9.38 |
+4.17 4.10 4.57 4.38. l10 drop, a | b: 21.52 21.34 29.35 27.48 | 12.58 11.95 17.37 17.62 (the drop's 4 ticks, +9-12
+each).
+
+### Where a visible step goes (tools/tickcost.py --profile / --rects, inclusive frames)
+
+| | gate opening at 48 (l04 c 13) | gate opening at 156 (c 40) | gate closing 184->183 (c 102) | spike step 2->3 (l14 a 15) | spikes held (l14 a 20) |
+|---|---:|---:|---:|---:|---:|
+| the tick / the same tick without the change | 11.42 / 4.53 | 8.55 / 4.53 | 8.43 / 4.53 | 12.42 / 5.35 (b) | 6.13 / 4.12 (b) |
+| dirty rect (bytes x rows) | 4 x 56 | 4 x 29 | 4 x 23 | 6 x 27 | empty |
+| tile_regen (2 for a gate, 3 for a spike) | 1.36 | 1.12 | 1.11 | 1.61 | **1.58** |
+| run_rect (shadow only): pieces laid | 4.14: 14 | 2.54: 10 | 2.25: 10 | 3.17: 13 | - |
+| of it lay_piece16 (the masked pieces' cmx_4) | 3.12 (0.82) | 2.18 (0.48) | 2.01 (0.40) | ~2.4 (1.19) | |
+| of it fill_black + shadow_write | 0.50 + 0.65 | 0.25 + 0.35 | 0.20 + 0.28 | 0.28 + 0.38 | |
+| the object pass: the rect's own chunk + copy (+ the beam wait in pend_flush) | ~1.3 | ~0.3 | ~0.4 | +1.75 (+1.13 of it the spikes' fore pieces, laid in the kid's chunk and again in the rect's) | +0.4 (the spikes' fore pieces over the kid) |
+
+The RAM-disk reads are inside the lay pass (the masked pieces, cmx_4) and the shadow write. The beam wait is small
+(pend_flush +0.5 at most). The kid's and the guard's own redraw do not change with the trap (people_place and
+char_fetch cost the same).
+
+### Repeated work found
+
+1. **Spikes held: 15 ticks a cycle of regenerating three tiles for nothing.** Every modifier change of a spike goes
+   through tile_redraw (view.asm vrd_one has no spike case), which regenerates the tile, its right neighbour and the
+   tile above-right (1.58 frames). The regenerated ops are identical and the dirty rect is empty: the picture depends
+   on spike_frame(modifier) only (room.asm dta_spike, dtar_spike, dtf_spike; 0x81-0x8F all give 5). While the kid
+   stands on spikes they stay out and this repeats every tick. a - b on these ticks: 1.3-2.0 frames.
+2. **A spike step regenerates the above-right tile too**, which draws nothing from a spike (draw_tile_anim_topright
+   reads only a gate below-left): one of the 3 tile_regens (~0.5 frames) on every visible spike tick.
+3. **A gate step re-lays the whole bar column**, top to bottom (4 x 23-72 bytes, 10-14 pieces), for a 1-row (closing)
+   or 4-row (opening) move. It also regenerates both tiles' op lists (1.1-1.4 frames) although only the bar records' y
+   and the frame slice change. The ticks without a visible change cost nothing any more (M8a part 2).
+4. **A spike step under the kid composes the overlap twice.** The kid's chunk and the dirty rect's chunk overlap (l14
+   tick 15: 16,85 8 x 34 and 16,97 6 x 27); both lay the spikes' fore pieces and both are copied. For gates this does
+   not happen (no overlap, even with the kid at the gate).
+
+Not found: a gate redrawn without a visible change, a whole-column or full-screen redraw, the kid redrawn twice.
+
+### The speed to aim at
+
+SDLPoP runs gates and spikes on its ordinary ~12 ticks a second. Our tick is at least 4 frames (12.5 a second) and
+walking takes 5.2 (9.6 a second). For a gate or spike tick to look like walking, its extra cost has to be about 0.5
+frames or less (within 10 % of walking). Today it is 5-7 (a gate or spike step), 9-12 (a dropping gate) and 1.3-2
+(spikes held).
+
+### Candidate fixes (not built; pixels must stay identical, the logic tick-exact)
+
+| # | fix | gain (frames a tick) | cost | effort / risk |
+|---|---|---|---|---|
+| 1 | vrd_one: a spike whose spike_frame is unchanged draws nothing (as vrd_gate does for gates) | held ticks -1.6 (6.0 -> ~4.4: walking plus the inherent ~0.3 of the fore spikes); 15 of a cycle's 24 ticks, and every tick while the kid stands on spikes | ~14 B, low block (27 free) | hours / low |
+| 2 | spike redraw without the above-right regeneration | visible spike ticks -0.5 (9 of 24) | ~10 B | hours / low |
+| 3 | spike records patched in place (3 records: own back spikes_fram_left, own fore spikes_fram_fore, the neighbour's spikes_fram_right; op_patch with one dr_run at the end), regenerating only for frames 0 <-> 1 and 9 -> 0 (no record there) | visible spike ticks -1.0 more on 7 of 9 (a step ~11.5 -> ~10 together with 2) | ~60-90 B (main has 673 free, or block 2) | 1-2 days / medium (record extents, slice tables) |
+| 4 | one chunk for the kid's box and an overlapping tile-redraw rect | spike steps under the kid -0.5..-0.9 (estimate: the overlap's restore, fore pieces and copy) | ~50-100 B | days / medium (chunk order, beam scheduling) |
+| 5 | gate: the bar records' y / count and the frame slice patched in place instead of 2 x tile_regen (PLAN M8a list item 1, "records patched in place"); regenerate only when the slice count changes | -1.1..-1.4 on a step without a count change: closing ~-1.2 a visible step, opening ~-0.6 a tick (every 2nd tick changes the count) | ~100-150 B | days / medium-high |
+| 6 | gate column shift: scroll the bar stack by the step in the shadow and in the kept compose buffer (the slices are blit_copy, opaque), then lay only the frame slice, the bottom piece and the revealed rows; the full redraw when a person overlaps the column | -2..-3 a visible step (the lay pass 1.9-3.1 plus the fill, against ~0.5 for the scroll) | ~200-300 B (an overlay: 21 T a byte to load, ~0.07 frames) | a week / high |
+| 7 | lay_piece16's per-piece setup (~4 K T a piece; M8a list item 3) | -0.6..-0.8 a gate step (10-14 pieces); also spike steps, door steps and room changes | main | days / medium |
+
+Ranked by gain per effort: **1** (by far the cheapest; held spikes are the most common spike ticks), **2**, then **5**
+and **3** (the regenerations, ~1 frame each on every visible step), **7** (general), **6** (the largest single gain
+for gates, and the most work) and **4**. With 1-3 a spike cycle would cost ~+4.5 on 9 ticks and ~+0.3 on 15 (from +6
+and +1.8). With 5 + 6 a gate step would cost ~+1.5-2 instead of +5-7: a kid running past an opening gate would take ~7
+frames a tick instead of 11. (Not proposed: drawing fewer ticks, PACE_MODE 1 of M8a part 2, which the user decided
+against.)
