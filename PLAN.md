@@ -912,3 +912,17 @@ piece used AND/XOR semantics.
    wait). Resident: low +5 (22 free), main +60 (613 free). perfcheck unchanged on every size (+-0.01, beam phase);
    baselines lowered where the medians beat them. Next from the list: spike records patched in place (fix 3), the
    gate's records patched in place (5), the gate column shift (6).
+54. M8a part 12, guard frames in the frame store = RAM-disk tiers step 3 (2026-11-03, docs/ramdisk-tiers.md section 13,
+   docs/perf.md "M8a part 12: guard frames"; numbered 54: 52 and 53 are taken). At every level start on 1 MB and more
+   the fill overlay's fs_guard puts the level's guard set into the store with fg_run (ids 255 + 36 x set + frame):
+   1 MB one shared ~81 KB region after class 1 (per set the most used keys from assets/fstore_guses.txt, pooled over
+   the sets; 89 % of the scripts' guard fetches, 76 % cross-validated), refilled when the set changes (the flags and
+   all guard slots cleared first); 16 MB every variant of every set, each in its own region after class 2 (to page
+   61: FS_TOP2 29 -> 61), filled once per session. A flag per set skips restarts and same-set levels. The lookup takes
+   chtab 5 (fsl_g, patched per level: main +11 bytes). fs_fill, fs_guard and the generator moved into a fill-only
+   overlay (src/m4/ovl_fill.asm, 1,453 B, window WF = W2's top 0xAA00, image in page 6 0xEC00): the level-start
+   overlay 3,438 -> 2,273 bytes, page 7's area 608 -> 1,773 free (cheats 194 -> 1,359). Measured first: the guard was
+   0.21-0.66 frames a tick of the fights; now 0.05-0.21 (1 MB) / 0.05-0.16 (16 MB). perfcheck fight1 60-160 7.20 ->
+   6.88 (1 MB), 6.87 -> 6.52 (16 MB), everything else and 512 KB unchanged. Level start +1.3-1.5 s on 1 MB at a set
+   change, +4.2-5.2 s on 16 MB once per set; no indicator. Every stored guard entry byte-identical (tests/m8_fstore.py
+   at a level of each set, 1 MB and 16 MB); the fight scripts pixel-exact at 1 MB and 16 MB.

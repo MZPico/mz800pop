@@ -665,7 +665,7 @@ The table clear uses the same OUTI block (480 x 64 zero bytes: 10.8 -> 7.1 frame
 and the lookup are unchanged; tools/fstore.py's build id now also covers src/m4/fsgen.asm.
 
 **For the guard sets** (the follow-up): fg_run fills any key list given as a mask table and a pointer; fg_dir maps an
-id to its directory entry (today: the kid's and the sword's ids) and is the place for the guards' ids 255-470.
+id to its directory entry (today: the kid's and the sword's ids) and is the place for the guards' ids 255-470. **Built: section 13.**
 
 **Measured first** (a prototype of the generator assembled at 0xA000 and called on single images after the harness
 start, 1 MB; build/proto, not committed): with all 16 variants of an image stored, **46 T an output byte** (images of
@@ -700,3 +700,93 @@ mirrored and shifted 17), fg_put's seeks and the slots 12, the table clear 11, m
 bytes free; the cheat build to 0xFF3D, 194 bytes free: the next W2 growth needs another place, e.g. a fill-only overlay); main RAM, the low block and block 2 unchanged (nothing resident). The fill's scratch is
 SPRBUF_A/SPRBUF_B as before (both free between ticks and overwritten by the compose; the swap to PRES replaces them),
 dir_buf put back: main RAM after the fill is as after a start without it (tests/m7_launch.py).
+
+## 13. As built: step 3, the guard sets (2026-11-03, PLAN.md item 54)
+
+**What it does**: at every level start on 1 MB and more, the level's guard set's frames (chtab 5: the guard and the
+hurt splash) go into the frame store, so a guard is drawn from a stored cell buffer like the kid (~300 T + 21 T a
+byte instead of ~80 K T). The kid's store, the boot fill and 512 KB are unchanged.
+
+**Measured first** (tools/fetchstat.py on main cd60bf4, 1 MB, frames a tick in char_fetch; the guard = chtab 5):
+
+| script (ticks) | all | the guard's part | the guard's fetches |
+|---|---:|---:|---|
+| fight1 60-160 | 1.008 | 0.428 (42 %) | 38 + 3 splashes, all through spr_fetch, ~75 K T each |
+| fight2 (346) | 0.645 | 0.209 | 59, ~87 K T |
+| fight_skill5 (342) | 1.042 | 0.658 (63 %) | 188, ~84 K T |
+| level2_fight (356) | 1.249 | 0.429 | 112, ~95 K T |
+| level13_jaffar (294) | 0.767 | 0.434 | 107, ~82 K T |
+
+So the guard costs about as much as the kid did before step 1 (0.2-0.66 frames a tick in fights); a stored key
+saves ~90 % of it. Expected fill time at the generator's 61 T a byte: ~80 KB = 4.9 M T = ~70 frames = 1.4 s; a whole
+set (~400 KB, all 16 variants: 46 T a byte) ~260 frames = 5.2 s.
+
+**The keys** (assets/fstore_guses.txt, committed: numbers only; `tools/fstore.py --guses build/meas/k` remakes it from
+tools/fetchmodel/run_all.sh's output; tools/fetchstat.py now records the level's set, `gset`, from dir_tab's CH_GUARD
+directory): 1,755 guard fetches of 463 keys in the 71 scripts, most of them the palace guard (set 5: 14 fight scripts,
+1,204 fetches) and the dungeon guard (set 0: 292); the fat guard has none, the skeleton 15. (Two scripts, potion_life
+and potion_upside_down, never finish under fetchstat: it runs until the tick count reaches the script's length, which
+those two apparently never do; they have no guards, so the counts do not need them.)
+
+**The layout** (tools/fstore.py guard_layout, at build time; ids FS_GID 255 + 36 x set + frame, the slot formula as
+for the kid):
+
+- **g 1, 1 MB** (class 1, rd_top 15 up to below FS_TOP2): one region from class 1's end (page 14 0xC2F4) to the end of
+  page 15 (81.2 KB), shared by the six sets. Per set the keys that fit, ranked per byte by the set's own use, then the
+  use pooled over all sets (the guards share their frame numbers), then the use of the frame and mirror: 106-150 keys,
+  81.1 KB a set. The scripts' own fetches stored: 1,569 of 1,755 (89 %); left out one script at a time (the keys
+  chosen from the other 70): 1,327 of 1,755 (76 %; the fights 61-96 %, level2_fight 44 %).
+- **g 2, 16 MB** (class 2, from FS_TOP2): every variant of every image of every set, each set in its own region after
+  class 2: 27:6130, 33:814C, 39:6374, 44:5E24, 50:2FAC, 55:1A04, to page 61 0x390C (2.2 MB; 448-544 keys, 321-399 KB a
+  set). A set is filled at the first level that uses it and kept for the session. **FS_TOP2 is now 61** (class 2 and
+  g 2 together): a card of 2-3.9 MB would get class 1 and g 1, 16 MB is unchanged.
+- page 8 0x7705-0x770A: one flag a set (its entries and slots are there), cleared with the key table by the boot's
+  fill; the table's guard slots 0x3FC0-0x75BF.
+- the fill's input, build/assets/fstore_gmasks.bin (960 bytes) at page 6 0xE800 on every size (the boot's stream and
+  the harness): 12 records of 80 bytes (g 1's six sets, then g 2's): 36 mask words, the region's first page and
+  address. tools/fstore.py also writes build/assets/fstore_gkeys.txt (every stored guard key, its place) for the test.
+  The build id now covers the guard masks and the guard packs and directories too.
+
+**The fill** (src/m4/fstore.asm fs_guard, in the new fill overlay): load_level (the level-start overlay) calls it
+after dir_tab's CH_GUARD is set, with the set (gstart.asm fs_ovl: nothing at all on 512 KB, not even the overlay's
+load). It patches the lookup's guard base (fslook.asm fsl_g = (255 + 36 x set) x 64), then reads the set's flag: set
+-> return (a restart, or the next level with the same set). Else on g 1 every flag and all 216 guard ids' slots are
+cleared first (13.8 KB of zeros with the OUTI block, ~3 frames), so no slot of another set can point into the
+refilled region; then the set's record, and fg_run over its 36 ids (fg_dir maps ids from 255 to CH_GUARD's directory,
+frame = id - the set's first id), the flag last. No bar (none exists at a level start): the time is below. The
+interrupts stay as they are (the ISR touches neither the RAM disk nor IX, IY or the second register set); after each
+entry the fill calls snd_fill, so a music stream that plays keeps its ring fed (it lasts 229 frames, the 16 MB fill
+~260). dir_buf is put back.
+
+**The lookup** (src/m4/fslook.asm, main code): chtab 5 takes the id base from fsl_g, the rest as before: **+11 bytes**
+(main 613 -> 602 free after #26; the low block and block 2 unchanged).
+
+**The fill overlay** (src/m4/ovl_fill.asm, overlay 9): fs_fill, ff_prog, fs_guard and the generator moved out of the
+level-start overlay (3,438 -> 2,273 bytes) into an overlay of 1,453 bytes loaded only for the store's fills (the
+boot's ACT_FILL, the marker check at a game start, the level start's guard set) into window WF = 0xAA00-0xAFFF, the
+top of W2 above the level-start overlay that calls it (it ends at 0xA8E0, 287 bytes below WF; WF has 83 left). Its
+image is not in page 7's overlay area but in page 6 0xEC00-0xF1AC (tools/ovltool.py: an overlay with its own
+ovl_rd_page / ovl_rd_addr gets only its table entry in m4ovl.bin; the stream and the harness write build/ovl_fill.bin
+there on every size). The page-7 area now has 1,773 bytes free (the cheat build 1,359; before 608 / 194). Pages 8+
+exist only on 1 MB and more, the only sizes that fill, but the boot writes the overlay before it knows the size and
+the loader writes pages 0-7 only, so page 6 it is.
+
+**Times** (tests/m8_fstore.py: the harness after the kid's store, fs_done -> level_ready, frames of 71,136 T; before =
+main):
+
+| level (set) | before 512 KB / 1 MB / 16 MB | after 512 KB | after 1 MB: fill / restart | after 16 MB: first / later |
+|---|---|---:|---:|---:|
+| 1 (guard) | 44.4 / 34.2 / 34.2 | 44.0 | 108.9 / 34.7 | 293.2 / 34.7 |
+| 6 (fat) | 43.5 / 33.4 / 33.4 | 43.2 | 98.9 / 33.8 | 281.8 / 33.8 |
+| 3 (skeleton) | 43.4 / 33.2 / 33.2 | 43.0 | 101.2 / 33.7 | 243.0 / 33.7 |
+| 13 (vizier) | 42.5 / 32.3 / 32.3 | 42.1 | 96.1 / 32.8 | 278.8 / 32.8 |
+| 12 (shadow) | 41.2 / 31.1 / 31.1 | 40.9 | 105.7 / 31.5 | 240.3 / 31.5 |
+| 4 (palace guard) | 43.5 / 33.3 / 33.3 | 43.1 | 98.0 / 33.8 | 292.3 / 33.8 |
+
+So a level start with a new set is **+1.3-1.5 s on 1 MB** (64-75 frames for ~81 KB: 57-66 T a byte), **+4.2-5.2 s on
+16 MB** once per set and session; a restart or the next level with the same set +0.5 frames (the overlay's load).
+512 KB starts 0.3-0.4 frames sooner (the smaller level-start overlay). The boot (tests/m5_boot.py, 1 MB): level_ready
+1,590 -> 1,667 frames (the first level's guard set). A game through all levels on 1 MB refills at the set changes, the starts of
+levels 1, 3, 4, 6, 7, 10, 12, 13 and 14 (9 x ~1.4 s); on 16 MB each set once (6 x ~5 s).
+
+**Results**: docs/perf.md "M8a part 12: guard frames" (fight1 60-160 7.20 -> 6.88 on 1 MB, 6.87 -> 6.52 on 16 MB).

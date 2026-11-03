@@ -1351,3 +1351,59 @@ the new medians beat them: 512 KB fight 7.73 -> 7.72, 16 MB walkthrough 190-260 
 tests/m4_game.py --every 1 (state and VRAM every tick) on the l14, l08, l06 spike and l07 drop scenes' a and c
 scripts, traps_b1, b9, b39, b40 and fight_spikes: 0 state diffs, 0 differing pixels; tests/m4_test.py on the same
 scripts: 0 differing (the logic program does not include view.asm). The full regression on the runners: see the PR.
+
+## M8a part 12: guard frames (2026-11-03)
+
+Status: **built** (RAM-disk tiers step 3, docs/ramdisk-tiers.md section 13; PLAN.md item 54). On 1 MB and more the
+level's guard set's frames go into the frame store at the level start (1 MB: the most used ~81 KB of the set in a
+region shared by the sets; 16 MB: every variant of every set, each set once per session), and the lookup serves the
+guard (chtab 5) like the kid. Resident +11 bytes of main; the fills moved to their own overlay (page 6).
+
+**Measured first** (tools/fetchstat.py, frames a tick in char_fetch, all / the guard's chtab 5 part; before = main):
+
+| script (ticks) | 1 MB before | 1 MB after | 16 MB before | 16 MB after |
+|---|---|---|---|---|
+| fight1 60-160 | 1.008 / 0.428 | 0.711 / 0.130 | 0.656 / 0.428 | 0.331 / 0.102 |
+| fight2 (346) | 0.645 / 0.209 | 0.489 / 0.052 | 0.434 / 0.209 | 0.275 / 0.050 |
+| fight_skill5 (342) | 1.042 / 0.658 | 0.593 / 0.208 | 0.925 / 0.658 | 0.425 / 0.158 |
+| level2_fight (356) | 1.249 / 0.429 | 0.967 / 0.146 | 0.693 / 0.428 | 0.353 / 0.088 |
+| level13_jaffar (294) | 0.767 / 0.434 | 0.436 / 0.102 | 0.645 / 0.434 | 0.314 / 0.102 |
+
+The guard was 0.21-0.66 frames a tick of a fight (every guard fetch went through spr_fetch, ~75-95 K T); stored it is
+0.05-0.21 on 1 MB (the keys left out: 11 % of the scripts' guard fetches in sample, 24 % with each script's own keys
+left out of the choice) and 0.05-0.16 on 16 MB (every key stored: the lookup plus the read, ~300 T + 21 T a byte, and
+the splash). The keys are chosen from these scripts, so the 1 MB rows are in-sample.
+
+### perfcheck (frames a tick; before = main ef78865, both measured here; the emulator gives the same value every run)
+
+| Stretch | 512 KB before | after | 1 MB before | after | 16 MB before | after |
+|---|---:|---:|---:|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 5.72 | 5.72 | 5.20 | 5.20 | 5.03 | 5.03 |
+| level door step (walkthrough 203-207) | 17.16 | 17.05 | 16.23 | 16.23 | 16.23 | 16.23 |
+| room change (walkthrough 89) | 106.05 | 106.05 | 106.05 | 106.05 | 105.22 | 105.22 |
+| walkthrough 190-260 | 10.26 | 10.28 | 10.07 | 10.07 | 9.66 | 9.66 |
+| gate (gate_push 200-260) | 4.99 | 4.99 | 4.99 | 4.99 | 4.99 | 4.99 |
+| traps (traps_b1 0-300) | 5.63 | 5.63 | 5.30 | 5.30 | 5.22 | 5.23 |
+| fight (fight1 60-160, guard on) | 7.72 | 7.73 | 7.20 | **6.88** | 6.87 | **6.52** |
+
+The fight is 4.4 % faster on 1 MB and 5.1 % on 16 MB; nothing else changes beyond ±0.1 (512 KB runs none of the new
+code: its ±0.01-0.11 come from the main code's 11 bytes moving what follows fs_look). The fight's baselines are
+lowered (tests/perf_baseline.json 7.20 -> 6.88, perf_baseline_16M.json 6.86 -> 6.52); 512 KB keeps its baseline.
+
+### The level start
+
++64-75 frames (1.3-1.5 s) on 1 MB when the set changes, +210-260 (4.2-5.2 s) on 16 MB at the first level of each set;
+a restart or the same set again +0.5 frames (the fill overlay's load and the flag); 512 KB 0.3-0.4 frames sooner (the
+smaller level-start overlay). No progress indicator exists at that point, so none was added. Per level:
+docs/ramdisk-tiers.md section 13. Wait states (MZPico): the guard fill reads each image once per mirror and writes
+~81 KB / ~400 KB, so as the boot fill's ~+7 frames per 400 KB and wait state: ~+1.4 / +7 frames a set.
+
+### Same pixels
+
+tests/m8_fstore.py at a level start of each set (levels 1, 6, 3, 13, 12, 4, then 1 again): the lookup's base, the
+flags, every guard slot and every stored guard entry against tools/fetchmodel/prebuild.py's generator: all equal on
+1 MB (106-150 entries a set; the region refilled at each change, set 0 filled again at the end) and 16 MB (448-544 a
+set, all six kept; the pages beyond the MCP's 52 read by a Z80 routine in the test); a restart does not fill. 512 KB:
+no store. tests/m4_game.py --every 1 on fight1, fight2, fight_skill5, level2_fight and level13_jaffar at 1 MB and
+16 MB: 0 state diffs, 0 differing pixels; m5_boot (512 KB, 1 MB, 16 MB), m7_launch (1 MB) pass. The full regression on
+the runners: see the PR.

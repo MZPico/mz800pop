@@ -2,16 +2,20 @@
 ; char_fetch (src/m4/sprite.asm, the low block) jumps here on a miss of the slot's one-entry cache once the level-start
 ; overlay's fill (src/m4/fstore.asm) has patched fs_on: IY = the descriptor, A = the frame, C = chtab << 4 | mirror << 3 |
 ; shift. A stored key: the cell buffer from the RAM disk, then cf_xb (the byte column); else today's fetch (cf_fetch).
-; docs/ramdisk-tiers.md "As built: step 1". Key table: page FS_PAGE, id * 64 + (mirror * 8 + shift) * 4 = the entry's page (0: not stored), address hi, lo;
+; docs/ramdisk-tiers.md "As built: step 1"; the guards (chtab 5: the level's set, fsl_g) section 13. Key table: page FS_PAGE, id * 64 + (mirror * 8 + shift) * 4 = the entry's page (0: not stored), address hi, lo;
 ; the entry: ow, h, the byte count (2), then the cell buffer exactly as spr_fetch leaves it.
                 include "../../build/assets/fstore_equ.inc"
 fs_look:        ld      b, a                    ; B = frame
                 ld      a, c
                 and     0xf0                    ; the chtab
+                ld      de, 0
                 jr      z, fsl_sw               ; (CH_SWORD = 0: ids FS_SWORD + frame)
                 cp      CH_KID << 4
-                jr      nz, fsl_no              ; (the guards: not stored)
-                ld      a, b
+                jr      z, fsl_k
+                cp      CH_GUARD << 4
+                jr      nz, fsl_no
+fsl_g:          ld      de, 0                   ; (patched at every level start, fstore.asm fs_guard: the level's guard
+fsl_k:          ld      a, b                    ; set's first slot, (FS_GID + FS_GN * set) * 64; ids = that + frame)
                 jr      fsl_id
 fsl_sw:         ld      a, b
                 add     a, FS_SWORD
@@ -28,7 +32,8 @@ fsl_id:         rrca
                 ld      l, a
                 ld      a, h
                 and     0x3f
-                ld      h, a                    ; HL = the key's slot
+                ld      h, a
+                add     hl, de                  ; HL = the key's slot
                 ld      a, FS_PAGE
                 out     (RD_PAGE), a
                 ld      b, h

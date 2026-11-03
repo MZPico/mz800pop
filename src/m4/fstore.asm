@@ -1,4 +1,4 @@
-; ---------------------------------------------------------------- the frame store's fill (the level-start overlay, W2)
+; ---------------------------------------------------------------- the frame store's fill (the fill overlay, src/m4/ovl_fill.asm)
 ; docs/ramdisk-tiers.md section 11. On a RAM disk of 1 MB and more (HO_RDTOP, the boot's probe; the harness pokes it)
 ; the chosen kid and sword keys (tools/fstore.py: class 1 on every such card, class 2 too from FS_TOP2) are generated
 ; into RAM-disk pages 8+ by the dedicated generator (src/m4/fsgen.asm, step 2: every stored variant of an image from
@@ -14,19 +14,8 @@
 ; FS_MPAGE:FS_MADDR, written by the boot and the harness), the generator's variables and row code and its own
 ; variables, the bit-reverse table (tables_init first). It leaves main RAM as a start without the fill does (dir_buf
 ; put back: tests/m7_launch.py compares it).
-FF_MBUF         equ     SPRBUF_B                ; the masks (2 x FS_IDS words), fs_id (4), ff_class (1)
-fs_mask1        equ     FF_MBUF
-fs_mask2        equ     FF_MBUF + 2 * FS_IDS
-fs_id           equ     FF_MBUF + 4 * FS_IDS
-ff_class        equ     fs_id + 4               ; (right after fs_id: the marker's fifth byte)
-ff_save         equ     FF_MBUF + 0x410         ; dir_buf's copy
-FG_VARS         equ     FF_MBUF + 0x420         ; the generator's (src/m4/fsgen.asm)
-ff_bw           equ     FF_MBUF + 0x460         ; the progress bar (ACT_FILL: the loading screen's): width in bytes
-ff_bcol         equ     ff_bw + 1               ; (0: no bar), colour (right after ff_bw), its next byte in VRAM,
-ff_bptr         equ     ff_bw + 2               ; the error term (keys x width)
-ff_acc          equ     ff_bw + 4
-ff_keys         equ     ff_bw + 6               ; the keys to fill
-FG_CODE         equ     FF_MBUF + 0x480         ; the generator's row code
+; fs_guard (docs/ramdisk-tiers.md section 13): the level's guard set at its start (load_level), see below.
+                include "../m4/fsvars.inc"
 fs_fill:        ld      a, (HO_MAIN + HO_RDTOP)
                 cp      FS_TOP1
                 ret     c                       ; 512 KB: today's fetch
@@ -61,7 +50,9 @@ ffm_cmp:        in      a, (c)
                 inc     hl
                 djnz    ffm_cmp
                 jp      ff_on
-ff_build:       ld      hl, dir_buf
+ff_build:       xor     a
+                ld      (ff_snd), a
+                ld      hl, dir_buf
                 ld      de, ff_save
                 ld      bc, 8
                 ldir
@@ -124,7 +115,7 @@ fs_done:        ret
 ; ff_prog: the progress bar after a key (ff_bw bytes over ff_keys keys)
 ff_prog:        ld      a, (ff_bw)
                 or      a
-                ret     z
+                jr      z, ffp_snd
                 ld      e, a
                 ld      d, 0
                 ld      hl, (ff_acc)
@@ -154,9 +145,139 @@ ffp_row:        ld      (hl), 0xff
 ffp_x:          add     hl, de
                 ld      (ff_acc), hl
                 ret
+ffp_snd:        ld      a, (ff_snd)             ; (no bar: the guard fill; a stream that plays is kept fed, its ring
+                or      a                       ; lasts 229 frames, the 16 MB guard fill ~260: psg.asm)
+                ret     z
+                jp      snd_fill
+
+; fs_guard: A = the level's guard set (game.asm guard_type_tbl's index; dir_tab's CH_GUARD is its directory), at every
+; level start on 1 MB and more after fs_fill. Patches the lookup's fsl_g to the set's first slot, then, unless the
+; set's flag (page 8 FS_GFLAG + set) says it is there, fills it: below FS_TOP2 (1 MB) the six sets share one region
+; (tools/fstore.py g 1: the most used keys, ~80 KB), so every flag and every guard slot (ids FS_GID-470) is cleared
+; first; from FS_TOP2 (16 MB, g 2) each set has its own region with every variant and stays for the session. The
+; fill's input: the set's record (FS_MPAGE FS_GMADDR + FS_GREC * (6 (g - 1) + set): 36 mask words, the region's page
+; and address). The flag last. Keeps the interrupt state (the ISR touches neither the RAM disk nor the generator's
+; registers), no bar; dir_buf put back.
+fs_guard:       ld      (ff_set), a
+                ld      l, a                    ; HL = the set's first id, FS_GID + FS_GN * set
+                ld      h, 0
+                add     hl, hl
+                add     hl, hl
+                ld      e, l
+                ld      d, h
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                add     hl, de
+                ld      de, FS_GID
+                add     hl, de
+                ld      (fg_id), hl
+                ld      a, l
+                ld      (fgd_gb + 1), a         ; (fg_dir: frame = id - the first id)
+                ld      b, 6
+fsg_s:          add     hl, hl
+                djnz    fsg_s
+                ld      (fsl_g + 1), hl         ; (the lookup, main code)
+                ld      a, (ff_set)
+                ld      e, a
+                ld      d, 0
+                ld      hl, FS_GFLAG
+                add     hl, de
+                ex      de, hl
+                ld      a, FS_PAGE
+                call    far_seek
+                dec     c
+                in      a, (c)
+                or      a
+                ret     nz                      ; (filled)
+                ld      a, (ff_set)
+                add     a, 7
+                ld      b, a                    ; (g 2: B = the record's index + 1)
+                ld      a, (HO_MAIN + HO_RDTOP)
+                cp      FS_TOP2
+                jr      nc, fsg_rec
+                ld      a, FS_PAGE              ; g 1: the flags, then the six sets' slots cleared
+                ld      de, FS_GFLAG
+                call    far_seek
+                dec     c
+                xor     a
+                ld      b, 6
+fsg_f:          out     (c), a
+                djnz    fsg_f
+                ld      hl, SPRBUF_A
+                ld      de, SPRBUF_A + 1
+                ld      bc, 63
+                ld      (hl), b
+                ldir
+                ld      a, FS_PAGE
+                ld      de, FS_GID * 64
+                call    far_seek
+                dec     c
+                ld      de, 6 * FS_GN           ; (ids FS_GID to the table's end: 64 bytes each)
+fsg_z:          ld      hl, SPRBUF_A
+                call    fg_o64
+                dec     de
+                ld      a, d
+                or      e
+                jr      nz, fsg_z
+                ld      a, (ff_set)
+                inc     a
+                ld      b, a                    ; (g 1: the record's index + 1)
+fsg_rec:        ld      hl, FS_GMADDR - FS_GREC         ; the record: FS_GMADDR + FS_GREC * (B - 1)
+                ld      de, FS_GREC
+fsg_r:          add     hl, de
+                djnz    fsg_r
+                ex      de, hl
+                ld      hl, FF_MBUF
+                ld      bc, FS_GREC
+                ld      a, FS_MPAGE
+                call    far_copy
+                ld      hl, FF_MBUF + 2 * FS_GN         ; the region's start
+                ld      de, fg_pa
+                ld      bc, 3
+                ldir
+                ld      hl, dir_buf
+                ld      de, ff_save
+                ld      bc, 8
+                ldir
+                xor     a
+                ld      (ff_bw), a
+                inc     a
+                ld      (ff_snd), a
+                ld      hl, FF_MBUF
+                ld      de, 0
+                ld      bc, FS_GN
+                call    fg_run
+                xor     a
+                ld      (ff_snd), a
+                ld      hl, ff_save
+                ld      de, dir_buf
+                ld      bc, 8
+                ldir
+                ld      a, (ff_set)             ; the flag last
+                ld      e, a
+                ld      d, 0
+                ld      hl, FS_GFLAG
+                add     hl, de
+                ex      de, hl
+                ld      a, FS_PAGE
+                call    far_seek
+                dec     c
+                ld      a, 1
+                out     (c), a
+                ret
 
                 include "../m4/fsgen.asm"
 
+                if      FS_GREC - 2 * FS_GN - 3 < 0
+                .error  a guard record holds the masks and the region's start
+                endif
+                if      FS_GN * 2 + 3 > ff_save - FF_MBUF
+                .error  the guard record runs into ff_save
+                endif
+                if      (FS_GID + 6 * FS_GN) * 64 - FS_MARK + 0x140
+                .error  the guard sets' slots end where the key table does (0x75C0)
+                endif
                 if      FS_DATA % 64
                 .error  ffz clears FS_DATA bytes in blocks of 64
                 endif
@@ -166,7 +287,7 @@ ffp_x:          add     hl, de
                 if      FG_VARS + FG_VARS_N > ff_bw
                 .error  the generator's variables run into ff_bw
                 endif
-                if      ff_keys + 2 > FG_CODE
+                if      ff_set + 1 > FG_CODE
                 .error  the fill's variables run into the row code
                 endif
                 if      FS_PAGE - LN_FS_PAGE + FS_MARK - LN_FS_MARK + FS_TOP1 - LN_FS_TOP

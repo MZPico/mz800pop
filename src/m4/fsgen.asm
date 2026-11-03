@@ -11,9 +11,10 @@
 ;   word per id, bit v = variant v = mirror * 8 + shift stored. A variant set in table A gets the next entry at fg_pa,
 ;   one set in table B the next at fg_pb (page, address: each table allocates in id and variant order, an entry that
 ;   would cross a page starts the next page: tools/fstore.py the same), its key table slot (FS_PAGE id * 64 + v * 4)
-;   the entry's page and address; ff_prog after each entry. Interrupts off, VRAM unmapped (the bit-reverse table),
-;   uses SPRBUF_A and the includer's FG_VARS (FG_VARS_N bytes) and FG_CODE (FG_CODE_N bytes); fg_dir (here: kid and
-;   sword ids) reads dir_buf through dir_entry.
+;   the entry's page and address; ff_prog after each entry. VRAM unmapped (the bit-reverse table; interrupts may be
+;   on: the ISR touches neither the RAM disk nor IX, IY or the second register set),
+;   uses SPRBUF_A and the includer's FG_VARS (FG_VARS_N bytes) and FG_CODE (FG_CODE_N bytes); fg_dir (the kid's,
+;   the sword's and the level's guard set's ids) reads dir_buf through dir_entry.
 fg_ma           equ     FG_VARS                 ; the mask tables' next words
 fg_mb           equ     FG_VARS + 2
 fg_cnt          equ     FG_VARS + 4             ; ids left
@@ -164,8 +165,15 @@ fg_rows:        exx
                 exx
                 ret
 
-; fg_dir: fg_id -> HL = its directory entry (dir_entry: dir_buf)
-fg_dir:         ld      a, (fg_id)
+; fg_dir: fg_id -> HL = its directory entry (dir_entry: dir_buf): the kid's ids, the sword's, from FS_GID the level's
+; guard set (dir_tab's CH_GUARD; frame = id - its first id, fs_guard patches fgd_gb)
+fg_dir:         ld      hl, (fg_id)
+                ld      a, h
+                or      a
+                jr      nz, fgd_g
+                ld      a, l
+                cp      FS_GID
+                jr      nc, fgd_g
                 cp      FS_SWORD
                 ld      c, a
                 ld      a, CH_KID
@@ -174,6 +182,11 @@ fg_dir:         ld      a, (fg_id)
                 sub     FS_SWORD
                 ld      c, a
                 ld      a, CH_SWORD
+                jp      dir_entry
+fgd_g:          ld      a, l
+fgd_gb:         sub     0                       ; (patched: the set's first id, low byte)
+                ld      c, a
+                ld      a, CH_GUARD
                 jp      dir_entry
 
 ; fg_load: the image into SPRBUF_A as variant fg_v (the image: plane 0's rows, then planes 1-3): kind = the mirror,

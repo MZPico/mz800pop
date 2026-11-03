@@ -13,7 +13,8 @@ gs_play:        in      a, (0xe0)       ; VRAM on: the screen cleared, the palet
                 call    tables_init
                 xor     a               ; the frame store (1 MB and more: src/m4/fstore.asm; needs the shift tables): the
                 ld      (ff_bw), a      ; boot filled it (ACT_FILL), so this only finds the marker; the harness fills
-                call    fs_fill         ; here (no bar)
+                ld      hl, OVL_WF + 0  ; here (no bar)
+                call    fs_ovl
                 call    irq_init
                 call    sprite_init
                 call    sword_init
@@ -30,13 +31,24 @@ gs_fill:        call    tables_init     ; (the screen and its mode stay the load
                 ld      (ff_bptr), hl
                 ld      hl, (HO_MAIN + HO_BAR + 2)
                 ld      (ff_bw), hl             ; (ff_bw, ff_bcol)
-                call    fs_fill
+                ld      hl, OVL_WF + 0
+                call    fs_ovl
                 ld      a, ACT_TITLE
                 ld      b, 0
                 jp      ho_swap
+; fs_ovl: HL = an entry of the fill overlay (src/m4/ovl_fill.asm: OVL_WF + 0 fs_fill, + 3 fs_guard with A), on a RAM
+; disk of 1 MB and more only (512 KB: nothing, not even the load)
+fs_ovl:         ld      c, a
+                ld      a, (HO_MAIN + HO_RDTOP)
+                cp      FS_TOP1
+                ret     c
+                ld      a, OVL_FILL
+                call    ovl_load                ; (keeps BC, DE, HL)
+                ld      a, c
+                jp      (hl)
                 include "../m1/tables.asm"
                 include "../m3/prbuild.asm"
-                include "../m4/fstore.asm"
+                include "../m4/fsvars.inc"
 pr_ok:          db      0                       ; (pr_build sets it; the game never reads it)
 
 video_init:     ld      a, 0x02

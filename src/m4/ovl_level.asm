@@ -210,7 +210,8 @@ ll_dirs:        ld      a, RD_LV_PAGE           ; the directories stay in the RA
                 or      a
                 jr      z, ll_g1
                 ld      a, 5                            ; plain guard, palace
-ll_g1:          ld      l, a                            ; directory = RD_DIR_GUARD + 0x120 * set
+ll_g1:          push    af
+                ld      l, a                            ; directory = RD_DIR_GUARD + 0x120 * set
                 ld      h, 0
                 add     hl, hl
                 add     hl, hl
@@ -226,6 +227,9 @@ ll_g1:          ld      l, a                            ; directory = RD_DIR_GUA
                 ld      de, RD_DIR_GUARD
                 add     hl, de
                 ld      (dir_tab + 3 * CH_GUARD + 1), hl
+                pop     af                              ; the frame store's guard set (1 MB and more: src/m4/fstore.asm
+                ld      hl, OVL_WF + 3                  ; fs_guard; docs/ramdisk-tiers.md section 13)
+                call    fs_ovl
                 call    alter_mods
                 call    play_level
                 xor     a
@@ -247,6 +251,6 @@ guard_type_tbl: db      0, 0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 4, 3, 0, 0
                 include "../m4/levelstart.asm"
                 include "../m4/gstart.asm"
 ovl_end:
-                if ovl_end > OVL_W2_END
-                .error the level-start overlay is larger than its window W2
+                if ovl_end > OVL_WF
+                .error the level-start overlay runs into the fill overlay's window (OVL_WF)
                 endif

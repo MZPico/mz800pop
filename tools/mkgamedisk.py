@@ -101,6 +101,8 @@ def ramdisk_writes():
     w.append((S['OVL_RD_PAGE'], S['OVL_RD_TAB'], open(os.path.join(B, 'm4ovl.bin'), 'rb').read()))
     w.append((S['SB_PAGE'], S['SB_ADDR'], rd('sound.bin')))          # the PSG sound bank (M7, tools/sndconv.py)
     w.append((S['FS_MPAGE'], S['FS_MADDR'], rd('fstore_masks.bin')))  # the frame store's keys (tools/fstore.py)
+    w.append((S['FS_MPAGE'], S['FS_GMADDR'], rd('fstore_gmasks.bin')))  # ... and the guard sets'
+    w.append((S['OVL_FILL_PAGE'], S['OVL_FILL_RD'], open(os.path.join(B, 'ovl_fill.bin'), 'rb').read()))  # the fill overlay
     return w
 
 def launcher_syms():
