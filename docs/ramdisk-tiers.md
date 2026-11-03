@@ -68,6 +68,79 @@ launched game finds 15 with the 1 MB INI (m5_boot).
 The tier decision belongs in the level-start overlay (W2, once per game start: `rd_top >= 15` = the caches on; a
 16 MB card = never evict); the per-tick code only sees the cache's own variables.
 
+### The read speed (src/boot/rdspeed.asm rd_speed, PLAN item 50)
+
+Why: a RAM disk may hold the CPU's WAIT on its I/O cycles, and the game reads it byte by byte through the data port.
+Chip-based RAM disks (the original MZ-1R18 and similar boards) have no wait states: 21.0 clocks a byte for INIR (+0).
+The MZPico (Deluxe: a file-backed RAM disk behind a 128-byte SD window) always asserts WAIT on its RAM-disk I/O:
+at least +1 on every access, the address and page OUTs too, so 22 or more, and possibly much more on some accesses
+(a window miss). The boot measures what the machine does and shows it; it does not name devices or assume a minimum.
+
+**Method.** Right after the probe, under DI. The clock is the 8253's counter 0: CLK0 = 17.734475 MHz / 16 = 1.108 MHz
+(mz800emu `GDGCLK_CTC0_DIVIDER 16`), the CPU = the same crystal / 5, so one count is exactly 3.2 CPU clock periods of
+real time; a wait state stretches the CPU's I/O cycle but not the counter (the CPU's own instructions are never
+counted). Counter 0 in mode 2 from 65536 (59 ms a turn; a 16-bit difference of two latched values is right across a
+turn), GATE0 = 1 through 0xE008 bit 0 (the ROM's I/O area at 0xE000: `OUT (E3h)`, the write, `OUT (E1h)`), its audio
+muted meanwhile (8255 PC0 = 0, put back after), GATE0 = 0 again after (counter 1, which the game uses, is not touched).
+A timing = latch, read, call the timed routine, latch, read; the fixed part around the routine is measured (16 runs
+with an empty routine: 30 counts = 96 clocks each in mz800emu, exactly the instructions' sum) and the routine's own
+nominal cost besides the bytes (42 clocks) is subtracted, so **clocks/byte = 21 + (the measured clocks - the nominal
+clocks) / n**: no wait states = 21.0, and each wait clock on a data IN or on the address OUT adds 1 / n. The unit is
+"clocks/byte": CPU clock periods of elapsed time, waits included, not instruction T-states. The excess over 21 is
+shown as "+x.x WAIT".
+
+What is timed, in each area of the RAM disk (page 0 from 0x0000; the last 8 KB of page 7, of the middle page
+rd_top / 2 + 1 and of the last page; 3 areas on 512 KB, 4 on more), every routine = the address OUT on EBh then INIR
+(the game's way: set the address, read a row):
+
+- 32 chunks of 128 bytes, each at an address no other chunk touched: 16 aligned to 128 (base + k * 512), 16 misaligned
+  by 64 (base + k * 512 + 320). A RAM disk with a 128-byte window misses once in an aligned chunk and twice in a
+  misaligned one. Shown: MIN and MAX chunk, ALIGN and MISAL (the averages), AVG (all 32, in the last line as CHUNK).
+- GAME: 32 runs of the game's pattern, the address OUT and an INIR of 32 bytes, at scattered addresses all over the
+  page (0x0123 + k * 0x0753); the average. This is what the game's speed depends on.
+
+Precision: a count is 3.2 clocks, so one 128-byte chunk is good to +-0.03 clocks/byte, one 32-byte run to +-0.1,
+the averages of 16-32 to better than +-0.02; the calibration's 16 runs fix the fixed part to +-0.2 clocks. Reads only
+(into TRKBUF): nothing in the RAM disk or main RAM changes (m5_boot compares both with the harness setup). Time: the
+loader takes 719 frames instead of 708 (+0.22 s with the table's drawing; 5 KB read an area).
+
+**Screen** (the loading screen; "LOADING..." and the bar moved up 12 lines to make room, the floppy errors to line 84):
+
+    RAM DISK 1024K, CLOCKS/BYTE
+     PAGE   MIN   MAX ALIGN MISAL  GAME
+     P0    21.0  21.0  21.0  21.0  21.0
+     P7    21.0  21.0  21.0  21.0  21.0
+     P8    21.0  21.0  21.0  21.0  21.0
+     P15   21.0  21.0  21.0  21.0  21.0
+     GAME 21.0 +0.0 WAIT  CHUNK 21.0 +0.0
+
+How to read it: GAME (last line: the mean over the areas) is the number to compare between machines; +x.x WAIT is the
+wait clocks a byte. MAX far above MIN, or MISAL above ALIGN, means non-uniform waits (window misses). The loader's font
+got the glyphs it lacked (3 4 6 7 9 J Q V X + /).
+
+**The stop.** The GAME mean above `RD_SPEED_MAX` = 50.0 clocks/byte (x 10 = 500, the one constant in rdspeed.asm;
+user, 2026-11-03) stops the boot with "RAM DISK TOO SLOW: 51.2 CLOCKS/BYTE" / "GAME PATTERN, MAX 50.0, WORST P7 55.0"
+(the worst area's GAME): no launch, nothing more loaded (rs_stop, the motor off). Why 50.0: about where RAM-disk waits
+would slow the kid's walk by 10 % once the 1 MB frame store is in (~1,200 RAM-disk bytes a tick at ~5.25 frames a tick:
++29 clocks x 1,200 = ~35 K clocks = ~0.5 frames). Today's game reads ~500 bytes a tick and would reach the 10 % point
+only at ~100 clocks/byte. A uniform +1 (22.0) passes with a wide margin. To revisit with the frame store PR's exact
+byte counts. Below `RD_SPEED_MIN` = 15.0 (faster than an INIR can be: the timer is wrong, e.g. GATE0 or CLK0 not as
+expected, or a counter that does not count) it stops too: "RAM DISK TIMER FAULT: ..." with the fastest area. Both
+limits are words in the boot's image (rd_max, rd_min).
+
+**The handoff.** rd_spd = the GAME mean x 5 (rounded; 105 = 21.0, 0.2 a step, 255 = 51.0 or more) is a byte of the
+launcher's image like rd_top; the launcher writes it to HO_RDSPD_MAIN = 0x029F (the byte before HO_MAIN; the 16-byte
+block has no spare byte) at every start. 0 = the harness (not measured). Nothing reads it yet.
+
+**Tested** (m5_boot): 512 KB, 1 MB and 16 MB give 21.0 everywhere (every value 21.0 +-0.1; mz800emu models no wait
+states), the boot goes on and the game gets 105; with rd_max patched to 15.0 in the loaded image the boot halts at
+rs_stop with the message and never launches (build/m5_rdslow.png), the same with rd_min patched to 25.0 (the timer
+fault, build/m5_rdfault.png). If mz800emu gets a configurable RAM-disk wait (mz800emu branch feature/regions-memdisk),
+the test should boot with +1 (22.0 must pass, "+1.0 WAIT") and +30 (the stop without patching).
+
+To check on real hardware: the values on a chip-based card (21.0 expected) and on an MZPico Deluxe (22 or more, the
+spread of MIN / MAX), and that GATE0 through 0xE008 works in the MZ-800 mode on the real machine as in mz800emu.
+
 ### How the tests select the size
 
 `POP800_RD_SIZE=512K|1M|16M|256K|64K` (emu/mz800emu-pop.sh, built in this PR): the launcher writes a copy of the INI

@@ -844,3 +844,14 @@ piece used AND/XOR semantics.
    (section 9): the fixed-layout store with the kid core generated at boot (~3-4 days), a dedicated generator and the
    level's guard set (~2-3 days), CI with a RAM-disk dimension, 16 MB extras, then the room cache (~4-6 days); open
    questions in section 10.
+50. RAM-disk read speed at boot (2026-11-03, src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1 "The read speed";
+   numbered 50: item 49 is kept for the frame store, perf/frame-store): after the probe the boot times the RAM disk
+   against the 8253's counter 0 (CLK0 = 17.734475 MHz / 16: one count = 3.2 CPU clocks of real time, waits included),
+   under DI, the fixed part calibrated: per area (page 0, the ends of page 7, the middle and the last page) 32 chunks
+   of 128 bytes (address OUT + INIR; 16 aligned, 16 misaligned to a 128-byte window) and 32 runs of the game's pattern
+   (address OUT + INIR of 32 at scattered addresses). The loading screen shows MIN / MAX / ALIGN / MISAL / GAME per area
+   in "clocks/byte" (21.0 = no wait states) and the GAME mean with "+x.x WAIT". GAME above 50.0 (RD_SPEED_MAX 500,
+   user: ~10 % on the walk once the 1 MB frame store reads ~1,200 bytes a tick; revisit with its byte counts) or below
+   15.0 (a timer fault) stops the boot with a message. The launcher hands GAME x 5 to the programs at 0x029F
+   (HO_RDSPD_MAIN; nothing reads it yet). mz800emu: 21.0 everywhere at 512 KB / 1 MB / 16 MB; +0.22 s of boot (719
+   frames). Expected on hardware: chip-based cards 21.0 (+0), the MZPico 22 or more (it always asserts WAIT).
