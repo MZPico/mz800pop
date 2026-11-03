@@ -1147,4 +1147,4 @@ Wait states (MZPico): every port access 1 T longer (mr1r18_wait = 1, tests/m8_fs
 
 Same pixels: tests/m8_fstore.py checks every entry against tools/fetchmodel/prebuild.py's generator (byte-identical to
 the kernel) on 1 MB and 16 MB: all 891 / 2,153 entries equal, the key table and marker as tools/fstore.py computes
-them. The full regression on the runners at 512 KB, 1 MB and 16 MB: see the PR (regress/fsgen-512, fsgen-1m, fsgen-16m).
+them. The full regression on the runners at 512 KB, 1 MB and 16 MB at 40332ec passed, all 11 parts each (regress/fsgen-512 run 41712562421, regress/fsgen-1m run 41712557377, regress/fsgen-16m run 41712567946); locally m5_boot (512 KB, 1 MB, 16 MB), m7_launch (1 MB) and the smoke tier.
