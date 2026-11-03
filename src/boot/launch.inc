@@ -54,7 +54,7 @@ HO_RDTOP        equ     15
 HO_RDSPD_MAIN   equ     HO_MAIN - 1     ; 0x029F (outside the block, which has no spare byte): the RAM disk's read
                                         ; speed as the boot measured it (src/boot/rdspeed.asm): the game pattern's
                                         ; average (address OUT + INIR of 32), clocks/byte x 5 (105 = 21.0, no wait
-                                        ; states; 0.2 a step, 255 = 51.0 or more; the boot stops above 50.0); set by
+                                        ; states; 0.2 a step, 255 = 51.0 or more; the boot stops above 36.0); set by
                                         ; the launcher at every start as HO_RDTOP; 0 in the harness (not measured).
                                         ; Nothing reads it yet (docs/ramdisk-tiers.md section 1)
 ACT_PLAY        equ     0x00            ; game: start level HO_LEVEL

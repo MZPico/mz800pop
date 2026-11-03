@@ -118,13 +118,14 @@ How to read it: GAME (last line: the mean over the areas) is the number to compa
 wait clocks a byte. MAX far above MIN, or MISAL above ALIGN, means non-uniform waits (window misses). The loader's font
 got the glyphs it lacked (3 4 6 7 9 J Q V X + /).
 
-**The stop.** The GAME mean above `RD_SPEED_MAX` = 50.0 clocks/byte (x 10 = 500, the one constant in rdspeed.asm;
-user, 2026-11-03) stops the boot with "RAM DISK TOO SLOW: 51.2 CLOCKS/BYTE" / "GAME PATTERN, MAX 50.0, WORST P7 55.0"
-(the worst area's GAME): no launch, nothing more loaded (rs_stop, the motor off). Why 50.0: about where RAM-disk waits
-would slow the kid's walk by 10 % once the 1 MB frame store is in (~1,200 RAM-disk bytes a tick at ~5.25 frames a tick:
-+29 clocks x 1,200 = ~35 K clocks = ~0.5 frames). Today's game reads ~500 bytes a tick and would reach the 10 % point
-only at ~100 clocks/byte. A uniform +1 (22.0) passes with a wide margin. To revisit with the frame store PR's exact
-byte counts. Below `RD_SPEED_MIN` = 15.0 (faster than an INIR can be: the timer is wrong, e.g. GATE0 or CLK0 not as
+**The stop.** The GAME mean above `RD_SPEED_MAX` = 36.0 clocks/byte (x 10 = 360, the one constant in rdspeed.asm;
+user, 2026-11-03) stops the boot with "RAM DISK TOO SLOW: 37.5 CLOCKS/BYTE" / "GAME PATTERN, MAX 36.0, WORST P7 37.5"
+(the worst area's GAME): no launch, nothing more loaded (rs_stop, the motor off). Why 36.0: where RAM-disk waits slow
+the kid's walk by about 10 %. Measured with the frame store (#19, tools/rdreads.py and mz800emu's mr1r18_wait): the game
+makes ~2,700 RAM-disk port accesses a tick walking (~2,400 data reads, the seeks, the page selects, the writes), and 1 T
+of wait on each costs +0.035 frames a tick, so 10 % of a ~5.2-frame tick is ~15 waits; the GAME pattern reads
+21 + w + w/32 clocks/byte, 15 waits -> 36.5. (A first estimate, 50.0, counted only the kid's frame bytes, ~500 a tick.)
+A room change costs +1.28 frames a wait (~19 frames at the limit). A uniform +1 (22.0) passes with a wide margin. Below `RD_SPEED_MIN` = 15.0 (faster than an INIR can be: the timer is wrong, e.g. GATE0 or CLK0 not as
 expected, or a counter that does not count) it stops too: "RAM DISK TIMER FAULT: ..." with the fastest area. Both
 limits are words in the boot's image (rd_max, rd_min).
 
@@ -137,8 +138,8 @@ states), the boot goes on and the game gets 105; with rd_max patched to 15.0 in 
 rs_stop with the message and never launches (build/m5_rdslow.png), the same with rd_min patched to 25.0 (the timer
 fault, build/m5_rdfault.png). With an emulator that has `mr1r18_wait` (MZPico/mz800emu#2; `POP800_RD_WAIT`, PR #18)
 it also boots with +1 T a RAM-disk port access (22.0 in every column, "+1.0 WAIT", the boot goes on;
-build/m5_rdwait1.png), +28 (GAME 49.9 = 21 + 28 + 28/32 for the address OUT: just under the limit, the boot goes on;
-build/m5_rdwait28.png) and +30 (GAME 51.9, the stop without patching; build/m5_rdwait30.png); with an older emulator
+build/m5_rdwait1.png), +14 (GAME 35.4 = 21 + 14 + 14/32 for the address OUT: just under the limit, the boot goes on;
+build/m5_rdwait14.png) and +16 (GAME 37.5, the stop without patching; build/m5_rdwait16.png); with an older emulator
 these are reported as not tested. (Found on the way: mz800emu#2's first builds read mr1r18_wait as hexadecimal, so
 10 and up gave 16+ waits; fixed in 94b7967, the pin since #18.)
 

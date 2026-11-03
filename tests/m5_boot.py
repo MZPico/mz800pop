@@ -28,11 +28,11 @@ loader refuses (stops at rd_stop) and the game does not start; the probe finds 5
 emulator's size at HO_MAIN + HO_RDTOP. The read-speed measurement (src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1):
 with each size every area's MIN / MAX / ALIGN / MISAL / GAME / AVG is 21.0 clocks/byte +-0.1 (mz800emu has no wait
 states), the boot goes on, and the launched game gets HO_RDSPD_MAIN = 105 (21.0 x 5); with a stop limit patched in
-the image (the defaults: 50.0 and 15.0; rd_max 15.0: "too slow", rd_min 25.0: "timer fault") the boot halts at
+the image (the defaults: 36.0 and 15.0; rd_max 15.0: "too slow", rd_min 25.0: "timer fault") the boot halts at
 rs_stop with the message (build/m5_rdslow.png, build/m5_rdfault.png) and the game does not start. With an emulator
-that has mr1r18_wait (POP800_RD_WAIT): +1 T a RAM-disk access reads 22.0 everywhere and the boot goes on, +28 reads
-GAME 49.9 (21 + 28 + 28/32 for the address OUT) and goes on, +30 reads 51.9 and stops it (above 50.0;
-build/m5_rdwait1.png, m5_rdwait28.png, m5_rdwait30.png); without it these two are reported as not tested. Prints the boot times in frames (50 per second).
+that has mr1r18_wait (POP800_RD_WAIT): +1 T a RAM-disk access reads 22.0 everywhere and the boot goes on, +14 reads
+GAME 35.4 (21 + 14 + 14/32 for the address OUT) and goes on, +16 reads 37.5 and stops it (above 36.0;
+build/m5_rdwait1.png, m5_rdwait14.png, m5_rdwait16.png); without it these are reported as not tested. Prints the boot times in frames (50 per second).
 The disk is mounted from a copy (mz800emu writes a mounted image back on eject, even read-only).
 usage: m5_boot.py [ticks]"""
 import base64, os, re, shutil, sys, tempfile
@@ -316,7 +316,7 @@ def main():
         probes = {size: probe_run(dsk, size) for size in ('512K', '1M', '16M')}
         slow = stop_run(dsk, 'rd_max', 150, 'm5_rdslow.png')
         fault = stop_run(dsk, 'rd_min', 250, 'm5_rdfault.png')
-        waits = {w: wait_run(dsk, w, 'm5_rdwait%d.png' % w) for w in (1, 28, 30)} if has_rd_wait() else None
+        waits = {w: wait_run(dsk, w, 'm5_rdwait%d.png' % w) for w in (1, 14, 16)} if has_rd_wait() else None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print('boot: loader entered after %d frames, launcher after %d frames (loader %d frames = %.1f s), PRES after %d, '
@@ -359,8 +359,8 @@ def main():
         bad += not good
     if waits is None:
         print('RAM-disk wait states: not tested (the emulator has no mr1r18_wait)')
-    else:       # GAME = 21 + w + w / 32 (the address OUT a 32-byte run): +1 22.0, +28 49.9 (goes on), +30 51.9 (the stop)
-        for w, want_how, lo, hi in ((1, 'on', 219, 221), (28, 'on', 497, 500), (30, 'stop', 518, 521)):
+    else:       # GAME = 21 + w + w / 32 (the address OUT a 32-byte run): +1 22.0, +14 35.4 (goes on), +16 37.5 (the stop)
+        for w, want_how, lo, hi in ((1, 'on', 219, 221), (14, 'on', 353, 355), (16, 'stop', 374, 376)):
             res, how, gav = waits[w]
             good = how == want_how and lo <= gav <= hi and all(lo <= vs[4] <= hi for vs in res.values())
             print('RAM disk +%d T a port access: GAME %.1f clocks/byte (%s), boot %s%s (screenshot build/m5_rdwait%d.png)' % (
