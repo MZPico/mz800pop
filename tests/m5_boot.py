@@ -188,12 +188,11 @@ def emu_binary():
     return m.group(1)
 
 def rd_emu(tmp, size):
-    """a launcher for an emulator with a RAM disk of `size` (a temporary INI, its own RAM-disk file in tmp)"""
+    """a launcher for an emulator with a RAM disk of `size` (a temporary INI; the RAM disk is in memory, as the INI's)"""
     ini = open(os.path.join(ROOT, 'emu', 'mz800emu.ini')).read()
     lines = []
     for l in ini.splitlines():
         if l.startswith('mr1r18_size'): l = 'mr1r18_size = ' + size
-        if l.startswith('mr1r18_filepath'): l = 'mr1r18_filepath = ' + os.path.join(tmp, 'rd%s.dat' % size)
         lines.append(l)
     open(os.path.join(tmp, 'mz800emu.ini'), 'w').write('\n'.join(lines) + '\n')
     real = emu_binary()
@@ -203,7 +202,7 @@ def rd_emu(tmp, size):
     return sh
 
 def refuse_run(dsk):
-    """boot with a 256 KB RAM disk (a temporary INI and launcher, its own RAM-disk file)"""
+    """boot with a 256 KB RAM disk (a temporary INI and launcher)"""
     tmp = tempfile.mkdtemp(prefix='m5boot')
     try:
         with Emu(exe=rd_emu(tmp, '256K')) as e:
@@ -226,8 +225,9 @@ def probe_run(dsk, size):
     tmp = tempfile.mkdtemp(prefix='m5probe')
     try:
         with Emu(exe=rd_emu(tmp, size)) as e:
-            pages = RD_TOP[size] + 1                    # (mz800emu's MCP lists at most 128 regions: with 16 MB only
-            pages = min(pages, sum(r['kind'] == 'ramdisk_std' for r in e.call('regions_list')['regions']))   # pages 0-51)
+            pages = RD_TOP[size] + 1                    # (mz800emu lists every page, 256 with 16 MB: MZPico/mz800emu#2)
+            listed = sum(r['kind'] == 'ramdisk_std' for r in e.call('regions_list')['regions'])
+            assert listed == pages, 'the emulator lists %d RAM-disk pages of %d (an mz800emu before #2?)' % (listed, pages)
             pat = lambda p: bytes([(p * 7 + 3) & 255, (p * 13 + 200) & 255])
             for p in range(pages):
                 e.call('region_write', region_id=RAMDISK[0] + p, offset=0, data_b64=base64.b64encode(pat(p)).decode())
