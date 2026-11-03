@@ -2,7 +2,8 @@
 """The sprite fetch (sprite.asm char_fetch -> gfx.asm spr_fetch) measured with tracepoints, for the RAM-disk tier
 design (docs/ramdisk-tiers.md). No code change: tracepoints only (tools/emu.py trace_add / collect).
 
-Per char_fetch call it records the slot (the descriptor IY), the key (chtab, frame, mirror, shift), whether the
+Per char_fetch call it records the slot (the descriptor IY), the key (chtab, frame, mirror, shift), the level's guard
+set (gset: dir_tab's CH_GUARD directory, game.asm guard_type_tbl order; for chtab 5), whether the
 one-entry cache of the slot (SD_LKEY / SD_LKEY2) hit, the image's width and height (V_W, V_H) and the CPU cycles of:
   setup  char_fetch's entry to the first row (key compare, dir_entry = an 8-byte RAM-disk read, spr_fetch's patching,
          the seek);
@@ -46,7 +47,7 @@ def run(sp, t1=None, rows=False):
         by_addr = {S['tick_done']: 'tick', S['char_fetch']: 'entry', S['cfdo']: 'miss', S['cf_ch']: 'frame',
                    S['pu2a'] + 5: 'ret'}                # (pu2a + 5: after pp_put's `push iy : call char_fetch`)
         e.trace_add(S['tick_done'])
-        e.trace_add(S['char_fetch'], regs=['IY'], mem=[(S['cf_ch'] + 1, 1)])
+        e.trace_add(S['char_fetch'], regs=['IY'], mem=[(S['cf_ch'] + 1, 1), (S['dir_tab'] + 3 * 5 + 1, 2)])
         e.trace_add(S['cfdo'], regs=['BC'])
         e.trace_add(S['cf_ch'], regs=['BC'])
         e.trace_add(S['pu2a'] + 5)
@@ -63,8 +64,10 @@ def run(sp, t1=None, rows=False):
                 tick += 1; continue
             if k == 'entry':
                 iy = rec['regs']['IY']
+                gd = rec['mem'][1]
                 c = dict(tick=tick, slot=SLOTS.get(iy, hex(iy)), chtab=rec['mem'][0][0], hit=True, t0=cy, t_row0=None,
-                         read=0, shift=0, w=None, h=None, rows=0)
+                         read=0, shift=0, w=None, h=None, rows=0,
+                         gset=((gd[0] | gd[1] << 8) - S['RD_DIR_GUARD']) // 0x120)   # (the level's guard set: dir_tab's CH_GUARD)
             elif c is None: continue
             elif k == 'miss':
                 c['hit'] = False; k2 = rec['regs']['BC'] & 0xFF

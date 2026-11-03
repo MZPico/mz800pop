@@ -41,7 +41,7 @@ $(BUILD)/boot.mzf: $(BUILD)/boot.bin
 ASSET_SETS = dungeon dungeon_wall objects sword kid palace palace_wall guard fat skel vizier shadow guard_palace
 ASSET_OUT = $(BUILD)/assets/tables.inc $(BUILD)/assets/logic.bin $(BUILD)/assets/seqtbl_z80.bin \
             $(foreach s,$(ASSET_SETS),$(BUILD)/assets/$(s).pack $(BUILD)/assets/$(s).dir)
-GAME_ASSETS = $(wildcard $(BUILD)/assets/*.pack $(BUILD)/assets/*.dir $(BUILD)/assets/level*.bin) $(BUILD)/assets/logic.bin $(BUILD)/assets/sound.bin $(BUILD)/assets/fstore_masks.bin
+GAME_ASSETS = $(wildcard $(BUILD)/assets/*.pack $(BUILD)/assets/*.dir $(BUILD)/assets/level*.bin) $(BUILD)/assets/logic.bin $(BUILD)/assets/sound.bin $(BUILD)/assets/fstore_masks.bin $(BUILD)/assets/fstore_gmasks.bin
 # M7: the PSG sound bank (effects re-made for 50 Hz from the DOS sound data, the MIDI music arranged by tools/midi2psg.py;
 # src/m4/psg.asm plays it); the notes' OPL level curves: assets/opl/levels.json (committed: assets/opl/README.md)
 $(BUILD)/assets/sound.bin: tools/sndconv.py tools/midi2psg.py tools/sndsim.py tools/datfile.py assets/opl/levels.json
@@ -180,7 +180,7 @@ $(BUILD)/m4game.bin: src/m4/game.asm src/m4/ovl.asm src/m4/kid.asm src/m4/object
 	cd src/m1 && $(PASMO) --bin ../m4/game.asm ../../$(BUILD)/m4game.bin ../../$(BUILD)/m4game.sym
 # the frame store's fixed layout (docs/ramdisk-tiers.md "As built: step 1"): the keys from assets/fstore_uses.txt, the
 # sizes from the image directories (fstore_equ.inc, the fill's masks fstore_masks.bin for the RAM disk, the tables for the tests)
-$(BUILD)/assets/fstore_equ.inc $(BUILD)/assets/fstore_masks.bin $(BUILD)/assets/fstore_tab1.bin &: tools/fstore.py assets/fstore_uses.txt src/m4/fstore.asm src/m4/fsgen.asm src/m1/kernel_gen.inc src/m1/gfx.asm src/m1/tables.asm $(BUILD)/assets/kid.dir $(BUILD)/assets/sword.dir $(BUILD)/assets/kid.pack $(BUILD)/assets/sword.pack
+$(BUILD)/assets/fstore_equ.inc $(BUILD)/assets/fstore_masks.bin $(BUILD)/assets/fstore_gmasks.bin $(BUILD)/assets/fstore_tab1.bin &: tools/fstore.py assets/fstore_uses.txt assets/fstore_guses.txt src/m4/fstore.asm src/m4/fsgen.asm src/m1/kernel_gen.inc src/m1/gfx.asm src/m1/tables.asm $(BUILD)/assets/kid.dir $(BUILD)/assets/sword.dir $(BUILD)/assets/kid.pack $(BUILD)/assets/sword.pack $(foreach g,guard fat skel vizier shadow guard_palace,$(BUILD)/assets/$(g).dir $(BUILD)/assets/$(g).pack)
 	$(PY) tools/fstore.py
 # code overlays (src/m4/ovl.asm): assembled after the main program against its symbols (build/m4game.sym, written
 # with the .bin), packed into build/m4ovl.bin for the RAM disk (tests/m4_game.py setup writes it)
@@ -188,8 +188,10 @@ $(BUILD)/ovl_%.inc: src/m4/ovl_%.asm $(BUILD)/m4game.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym $< src/m1 $@
 $(BUILD)/ovl_room.bin: src/m4/ovl_room.asm src/m3/roomfull.asm $(BUILD)/ovl_room.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_room.asm ../../$(BUILD)/ovl_room.bin ../../$(BUILD)/ovl_room.sym
-$(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fstore.asm src/m4/fsgen.asm $(BUILD)/assets/fstore_equ.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc $(BUILD)/ovl_level.inc
+$(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fsvars.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc $(BUILD)/ovl_level.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_level.asm ../../$(BUILD)/ovl_level.bin ../../$(BUILD)/ovl_level.sym
+$(BUILD)/ovl_fill.bin: src/m4/ovl_fill.asm src/m4/fstore.asm src/m4/fsgen.asm src/m4/fsvars.inc src/boot/launch.inc $(BUILD)/assets/fstore_equ.inc $(BUILD)/ovl_fill.inc
+	cd src/m1 && $(PASMO) --bin ../m4/ovl_fill.asm ../../$(BUILD)/ovl_fill.bin ../../$(BUILD)/ovl_fill.sym
 $(BUILD)/ovl_event.bin: src/m4/ovl_event.asm src/m4/events.asm src/m4/shadinit.asm $(BUILD)/ovl_event.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_event.asm ../../$(BUILD)/ovl_event.bin ../../$(BUILD)/ovl_event.sym
 $(BUILD)/ovl_gleave.bin: src/m4/ovl_gleave.asm src/m4/gleave.asm $(BUILD)/ovl_gleave.inc
@@ -209,14 +211,15 @@ $(BUILD)/ovl_rare.bin: src/m4/ovl_rare.asm src/m4/hpstrip.asm src/m4/rare.asm $(
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_rare.asm ../../$(BUILD)/ovl_rare.bin ../../$(BUILD)/ovl_rare.sym
 $(BUILD)/ovl_rare.inc: src/m4/hpstrip.asm src/m4/rare.asm
 $(BUILD)/ovl_room.inc: src/m3/roomfull.asm
-$(BUILD)/ovl_level.inc: src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fstore.asm src/m4/fsgen.asm $(BUILD)/assets/fstore_equ.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc
+$(BUILD)/ovl_level.inc: src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fsvars.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc
+$(BUILD)/ovl_fill.inc: src/m4/fstore.asm src/m4/fsgen.asm src/m4/fsvars.inc src/boot/launch.inc
 $(BUILD)/ovl_event.inc: src/m4/events.asm src/m4/shadinit.asm
 $(BUILD)/ovl_gleave.inc: src/m4/gleave.asm
 $(BUILD)/ovl_genter.inc: src/m4/genter.asm src/m4/shadinit.asm
 $(BUILD)/ovl_save.inc: src/m4/save.asm src/boot/fdc.asm
 $(BUILD)/ovl_text.inc: src/m4/text.asm
-$(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin tools/ovltool.py
-	$(PY) tools/ovltool.py pack $(BUILD)/m4game.sym $@ $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin
+$(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_fill.bin tools/ovltool.py
+	$(PY) tools/ovltool.py pack $(BUILD)/m4game.sym $@ $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_fill.bin
 $(BUILD)/m4test.mzf: $(BUILD)/m4test.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 2000
 $(BUILD)/m4game.mzf: $(BUILD)/m4game.bin $(BUILD)/m4ovl.bin $(BUILD)/assets/sound.bin

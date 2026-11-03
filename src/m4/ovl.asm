@@ -5,6 +5,8 @@
 ;   W2 OVL_W2 .. OVL_W2_END (COMPOSE_A/COMPOSE_B): code that runs while nothing is composed (a level start, the
 ;      bottom text after the tick's drawing, the save at a tick start after pend_flush). The compose buffers overwrite
 ;      it at the next draw, so a W2 overlay is loaded at every call.
+;   WF OVL_WF .. OVL_W2_END (W2's top): the fill overlay, loaded by the level-start overlay's code below it (gstart.asm
+;      fs_ovl); its image is in RAM-disk page OVL_FILL_PAGE, not in the overlay area (its own ovl_rd_* symbols).
 ; Overlay k is a separate pasmo assembly (src/m4/ovl_*.asm) at its window, starting with a jump table (entry j at
 ; window + 3 j). It sees every resident symbol through an include of equ's generated from build/m4game.sym
 ; (tools/ovltool.py equ). tools/ovltool.py pack puts the images and the table below into one file
@@ -44,6 +46,10 @@ OVL_GENTER      equ     5               ; W1: a new room's tiles and guard (src/
 OVL_SAVE        equ     6               ; W2: save / restore on the game disk (src/m4/ovl_save.asm)
 OVL_KEYS        equ     7               ; W1: the keys (src/m4/ovl_keys.asm)
 OVL_RARE        equ     8               ; W1: the hit point strips, an item taken, chomped (src/m4/ovl_rare.asm)
+OVL_FILL        equ     9               ; WF: the frame store's fills (src/m4/ovl_fill.asm; 1 MB and more)
+OVL_WF          equ     0xaa00          ; the fill overlay's window: W2's top (the level-start overlay ends below it)
+OVL_FILL_PAGE   equ     6               ; its image in the RAM disk (written on every size; page 7's area is nearly full)
+OVL_FILL_RD     equ     0xec00
 
 ; stubs: the entries resident code calls
 draw_room_full: push    af              ; A = room

@@ -144,6 +144,8 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     write_pack(e, ovl, S['OVL_RD_PAGE'], S['OVL_RD_TAB'])
     write_pack(e, rd('sound.bin'), S['SB_PAGE'], S['SB_ADDR'])     # the PSG sound bank (tools/sndconv.py, src/m4/psg.asm)
     write_pack(e, rd('fstore_masks.bin'), S['FS_MPAGE'], S['FS_MADDR'])    # the frame store's keys (tools/fstore.py)
+    write_pack(e, rd('fstore_gmasks.bin'), S['FS_MPAGE'], S['FS_GMADDR'])  # ... and the guard sets'
+    write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_fill.bin'), 'rb').read(), S['OVL_FILL_PAGE'], S['OVL_FILL_RD'])  # the fill overlay
     e.call('mem_write', addr=S['level_number'], data_hex='%02x' % lv)
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(opts).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(opts).hex())
@@ -185,7 +187,7 @@ def frame_store(e, S, fresh=True, run=True):
     if top < S['FS_TOP1']: return
     if fresh: fs_clear(e, S)
     if not run: return
-    L = syms(os.path.join(ROOT, 'build', 'ovl_level.sym'))
+    L = syms(os.path.join(ROOT, 'build', 'ovl_fill.sym'))
     e.call('bp_add', addr=L['fs_done'])
     for _ in range(40):                     # (16 MB: ~45 s of fill)
         r = e.run(1000)

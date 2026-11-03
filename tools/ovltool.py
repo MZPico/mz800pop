@@ -8,7 +8,8 @@
   ovltool.py pack MAIN.sym OUT.bin OVERLAY.bin...
       the RAM-disk image of the overlays, to be written at OVL_RD_PAGE:OVL_RD_TAB: the table (OVL_MAX entries of
       8 bytes: page, address, length, window address, 0) and then the images. Each overlay's id and window come from
-      its own symbol file (OVERLAY.sym: ovl_id, ovl_entry)."""
+      its own symbol file (OVERLAY.sym: ovl_id, ovl_entry). An overlay that defines ovl_rd_page, ovl_rd_addr and
+      ovl_rd_last lives there instead (its .bin is written to that place separately): only its table entry is here."""
 import os, re, struct, sys
 
 def syms(path):
@@ -47,7 +48,7 @@ def cmd_equ(mainsym, src, base, out):
 def cmd_pack(mainsym, out, bins):
     M = syms(mainsym)
     page, tab, n, end = M['OVL_RD_PAGE'], M['OVL_RD_TAB'], M['OVL_MAX'], M['OVL_RD_LAST'] + 1
-    windows = [(M['OVL_W1'], M['OVL_W1_END'], 'W1'), (M['OVL_W2'], M['OVL_W2_END'], 'W2')]
+    windows = [(M['OVL_W1'], M['OVL_W1_END'], 'W1'), (M['OVL_W2'], M['OVL_W2_END'], 'W2'), (M['OVL_WF'], M['OVL_W2_END'], 'WF')]
     table = bytearray(8 * n); images = b''; addr = tab + 8 * n
     for b in bins:
         S = syms(os.path.splitext(b)[0] + '.sym'); img = open(b, 'rb').read()
@@ -57,6 +58,14 @@ def cmd_pack(mainsym, out, bins):
         assert w, (b, 'not at a window: %04X' % at)
         lo, hi, name = w[0]
         assert at + len(img) <= hi, (b, 'larger than its window')
+        if 'ovl_rd_page' in S:          # (an image with its own place: written there separately, only the entry here)
+            p, a = S['ovl_rd_page'], S['ovl_rd_addr']
+            assert a + len(img) <= S['ovl_rd_last'] + 1, (b, 'larger than its RAM-disk place')
+            table[8 * k:8 * k + 8] = struct.pack('<BHHHB', p, a, len(img), at, 0)
+            print('overlay %d %s: %d bytes at %s %04X-%04X (%d of %d, %d free), RAM disk %d:%04X-%04X (its own place, %d free)'
+                  % (k, os.path.basename(b), len(img), name, at, at + len(img) - 1, len(img), hi - lo, hi - lo - len(img), p, a,
+                     a + len(img) - 1, S['ovl_rd_last'] + 1 - a - len(img)))
+            continue
         assert addr + len(img) <= end, (b, 'the RAM-disk overlay area is full')
         table[8 * k:8 * k + 8] = struct.pack('<BHHHB', page, addr, len(img), at, 0)
         print('overlay %d %s: %d bytes at %s %04X-%04X (%d of %d, %d free), RAM disk %d:%04X'
