@@ -994,8 +994,9 @@ compose from the row start + 8, since the last cell's inc e can wrap E), the row
 
 ### Result
 
-Same pixels: VRAM after every tick identical to main's (80c4945) in fight1, walk_level1, traps_b1, fight_unarmed,
-level2_fight and gate_push (3,058 ticks; a scratch tool), and the full regression on the runners (regress/small) passed.
+Same pixels: VRAM after every tick identical to main's (80c4945) in 32 scripts (the 16 fight scripts of
+tests/m6_scripts and 16 of tests/m4_scripts, walk_level1, traps_b1/9/39/40, gate_push, random1 among them; 12,882
+ticks; a scratch tool), and the full regression on the runners (regress/small) passed.
 Resident: main +42 (end_of_code 0x78D6 -> 0x7900, 768 free), low block +81 (end_of_low 0x1F91 -> 0x1FE2, 30 free),
 block 2 unchanged (0xEB24); runtime RAM 0xF5AF-0xF5F4 (70 bytes, unused before) now holds the end of the pointer table.
 VRAM is unchanged because every change is a faster loop over the same bytes in the same order: the same chunks, the same
