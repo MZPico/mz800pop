@@ -6,6 +6,7 @@ game_start:     in      a, (0xe0)       ; VRAM on: the screen cleared, the palet
                 call    video_init
                 in      a, (0xe1)       ; VRAM window off: 0x8000-0x9FFF is RAM for the renderer's tables
                 call    tables_init
+                call    fs_fill         ; the frame store (1 MB and more: src/m4/fstore.asm; needs the shift tables)
                 call    irq_init
                 call    sprite_init
                 call    sword_init
@@ -19,6 +20,7 @@ game_start:     in      a, (0xe0)       ; VRAM on: the screen cleared, the palet
                 jp      load_level_h    ; (entry 0; returns to game.asm level_ready)
                 include "../m1/tables.asm"
                 include "../m3/prbuild.asm"
+                include "../m4/fstore.asm"
 pr_ok:          db      0                       ; (pr_build sets it; the game never reads it)
 
 video_init:     ld      a, 0x02

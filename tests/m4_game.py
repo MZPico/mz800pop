@@ -146,7 +146,31 @@ def setup(e, lv, start=True, opts=GUARDS_OFF):
     e.call('mem_write', addr=S['level_number'], data_hex='%02x' % lv)
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(opts).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(opts).hex())
+    frame_store(e, S)
     return S
+
+RD_TOPS = {'64K': 0, '256K': 3, '512K': 7, '1M': 15, '16M': 255}
+def rd_size():
+    """the emulated RAM disk's size: POP800_RD_SIZE (emu/mz800emu-pop.sh), else the INI's mr1r18_size"""
+    v = os.environ.get('POP800_RD_SIZE')
+    if v: return v
+    for l in open(os.path.join(ROOT, 'emu', 'mz800emu.ini')):
+        if l.startswith('mr1r18_size'): return l.split('=')[1].strip()
+
+def frame_store(e, S):
+    """the size as the boot's probe hands it over (HO_MAIN + HO_RDTOP, src/boot/launch.inc), then the program runs to
+    the end of the frame store's fill (src/m4/fstore.asm fs_fill, in game_start; docs/ramdisk-tiers.md \"As built: step
+    1\"): 1 MB and more generate the store once per RAM disk (the marker), so the tests' frame counts start after it"""
+    top = RD_TOPS[rd_size()]
+    e.call('mem_write', addr=0x02AF, data_hex='%02x' % top)
+    if top < S['FS_TOP1']: return
+    L = syms(os.path.join(ROOT, 'build', 'ovl_level.sym'))
+    e.call('bp_add', addr=L['fs_done'])
+    for _ in range(40):                     # (16 MB: ~45 s of fill)
+        r = e.run(1000)
+        if r['stopped_by'] == 'breakpoint': break
+    assert r['stopped_by'] == 'breakpoint', r
+    e.call('bp_clear')
 
 def env_h(level_type, img):
     d = open(os.path.join(A, ('palace' if level_type else 'dungeon') + '.dir'), 'rb').read()

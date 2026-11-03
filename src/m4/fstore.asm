@@ -1,0 +1,200 @@
+; ---------------------------------------------------------------- the frame store's fill (the level-start overlay, W2)
+; docs/ramdisk-tiers.md "As built: step 1". On a RAM disk of 1 MB and more (HO_RDTOP, the boot's probe; the harness
+; pokes it) the chosen kid and sword keys (tools/fstore.py: class 1 on every such card, class 2 too from FS_TOP2) are
+; generated with today's fetch (dir_entry + spr_fetch: the kernel's own shift routines, so the pixels are the same by
+; construction) into RAM-disk pages 8+, once: the marker (the build id and the class) at page 8 FS_MARK says the
+; store is there (the game is restarted from its image at every launch; pages 8+ are written by nothing else).
+; Then fs_on (char_fetch, src/m4/sprite.asm) is patched to the lookup (src/m4/fslook.asm). Interrupts are off; uses
+; SPRBUF_A (outside W2) as the buffer and the shift tables (tables_init first).
+fs_fill:        ld      a, (HO_MAIN + HO_RDTOP)
+                cp      FS_TOP1
+                ret     c                       ; 512 KB: today's fetch
+                ld      b, 1
+                cp      FS_TOP2
+                jr      c, ff_cls
+                inc     b
+ff_cls:         ld      a, b
+                ld      (ff_class), a
+                ld      a, FS_PAGE              ; the marker
+                ld      de, FS_MARK
+                call    far_seek
+                dec     c
+                ld      hl, fs_id
+                ld      b, 5                    ; (fs_id, then ff_class)
+ffm_cmp:        in      a, (c)
+                cp      (hl)
+                jr      nz, ff_build
+                inc     hl
+                djnz    ffm_cmp
+                jr      ff_on
+ff_build:       ld      a, FS_PAGE              ; the table and the marker cleared
+                ld      de, 0
+                call    far_seek
+                dec     c
+                ld      d, high FS_DATA
+                xor     a
+                ld      b, a
+ffz:            out     (c), a
+                djnz    ffz
+                dec     d
+                jr      nz, ffz
+                ld      a, RD_LV_PAGE           ; the kid's and the sword's directories (as load_level sets them)
+                ld      (dir_tab + 3 * CH_KID), a
+                ld      (dir_tab + 3 * CH_SWORD), a
+                ld      hl, RD_DIR_KID
+                ld      (dir_tab + 3 * CH_KID + 1), hl
+                ld      hl, RD_DIR_SWORD
+                ld      (dir_tab + 3 * CH_SWORD + 1), hl
+                ld      a, FS_PAGE
+                ld      (ff_page), a
+                ld      hl, FS_DATA
+                ld      (ff_addr), hl
+                ld      hl, fs_mask1
+                call    ff_pass
+                ld      a, (ff_class)
+                cp      2
+                jr      c, ff_mark
+                ld      hl, fs_mask2
+                call    ff_pass
+ff_mark:        ld      a, FS_PAGE              ; the marker last: an interrupted fill is redone
+                ld      de, FS_MARK
+                call    far_seek
+                dec     c
+                ld      hl, fs_id
+                ld      b, 5
+                otir
+ff_on:          ld      hl, fs_look
+                ld      (fs_on + 1), hl
+fs_done:        ret
+
+; ff_pass: HL = the mask table (FS_IDS words: bit v = variant v = mirror * 8 + shift stored)
+ff_pass:        xor     a
+                ld      (ff_id), a
+ffp_id:         ld      e, (hl)
+                inc     hl
+                ld      d, (hl)
+                inc     hl
+                push    hl
+                xor     a
+                ld      (ff_v), a
+ffp_v:          srl     d
+                rr      e
+                push    de
+                call    c, ff_key
+                pop     de
+                ld      hl, ff_v
+                inc     (hl)
+                ld      a, d
+                or      e
+                jr      nz, ffp_v
+                pop     hl
+                ld      a, (ff_id)
+                inc     a
+                ld      (ff_id), a
+                cp      FS_IDS
+                jr      c, ffp_id
+                ret
+
+; ff_key: the entry of (ff_id, ff_v) at (ff_page, ff_addr) (the next page when it does not fit: tools/fstore.py the same)
+ff_key:         ld      a, (ff_id)
+                cp      FS_SWORD
+                ld      c, a
+                ld      a, CH_KID
+                jr      c, ffk_d
+                ld      a, c
+                sub     FS_SWORD
+                ld      c, a
+                ld      a, CH_SWORD
+ffk_d:          call    dir_entry               ; HL = the 8-byte entry
+                push    hl
+                pop     ix
+                ld      a, (ix+3)               ; bytes = (w + 1) * 4 * h
+                inc     a
+                add     a, a
+                add     a, a
+                ld      e, a
+                ld      d, 0
+                ld      b, (ix+4)
+                ld      hl, 0
+ffk_m:          add     hl, de
+                djnz    ffk_m
+                ld      (ff_n), hl
+                ld      de, 4
+                add     hl, de
+                ld      de, (ff_addr)
+                add     hl, de
+                jr      nc, ffk_fit             ; (addr + bytes + 4 > 0xFFFF: the next page)
+                ld      hl, ff_page
+                inc     (hl)
+                ld      hl, 0
+                ld      (ff_addr), hl
+ffk_fit:        ld      a, (ff_v)               ; today's fetch into SPRBUF_A
+                and     7
+                ld      e, a
+                ld      d, 0
+                ld      a, (ff_v)
+                rrca
+                rrca
+                rrca
+                and     1
+                ld      hl, ff_desc
+                call    spr_fetch
+                ld      a, (ff_id)              ; the key's slot: id * 64 + v * 4
+                ld      l, a
+                ld      h, 0
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                ld      a, (ff_v)
+                add     a, a
+                add     a, a
+                or      l
+                ld      e, a
+                ld      d, h
+                ld      a, FS_PAGE
+                call    far_seek
+                dec     c
+                ld      a, (ff_page)
+                out     (c), a
+                ld      a, (ff_addr + 1)
+                out     (c), a
+                ld      a, (ff_addr)
+                out     (c), a
+                ld      a, (ff_page)            ; the entry: ow, h, the byte count, the cell buffer
+                ld      de, (ff_addr)
+                call    far_seek
+                dec     c
+                ld      a, (ff_desc + SD_OW)
+                out     (c), a
+                ld      a, (ff_desc + SD_H)
+                out     (c), a
+                ld      de, (ff_n)
+                out     (c), e
+                out     (c), d
+                ld      hl, SPRBUF_A
+                ld      b, e
+                dec     de
+                inc     d
+ffk_o:          otir
+                dec     d
+                jr      nz, ffk_o
+                ld      hl, (ff_n)
+                ld      de, 4
+                add     hl, de
+                ld      de, (ff_addr)
+                add     hl, de
+                ld      (ff_addr), hl
+                ret
+
+ff_desc:        dw      SPRBUF_A                ; (a sprite descriptor: SD_BUF, the rest spr_fetch's)
+                ds      SD_SIZE - 2
+ff_page:        db      0
+ff_addr:        dw      0
+ff_n:           dw      0
+ff_id:          db      0
+ff_v:           db      0
+                include "../../build/assets/fstore.inc"     ; the masks, then fs_id (4 bytes)
+ff_class:       db      0                                   ; (right after fs_id: the marker's fifth byte)
