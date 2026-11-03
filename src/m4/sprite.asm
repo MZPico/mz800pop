@@ -809,6 +809,8 @@ sprite_forget:  ld      hl, 0
                 ld      (SPR_G + SD_OW2), hl
                 ld      a, l
                 ld      (OMOBR_N), a
+                inc     a                       ; (st_look: no character as last tick)
+                ld      (ST_OK), a
                 ret
 
 ; fetch the frame of the character at IY (shifted/mirrored) into its buffer, unless cached

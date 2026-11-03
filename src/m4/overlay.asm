@@ -803,7 +803,8 @@ pq_s:           ld      hl, PP_DL
                 add     hl, de
                 ld      (hl), a
                 jr      pq_o
-pp_rects:       ld      hl, SPR_A + SD_OXB      ; ---- the dirty rects
+pp_rects:       call    st_look                 ; ---- the dirty rects (a character as last tick: none of his own)
+                ld      hl, SPR_A + SD_OXB
                 ld      de, PP_KU
                 ld      c, 0
                 call    pp_group
@@ -811,6 +812,9 @@ pp_rects:       ld      hl, SPR_A + SD_OXB      ; ---- the dirty rects
                 ld      de, PP_GU
                 ld      c, 2
                 call    pp_group
+                ld      a, (st_res)             ; (one of them as last tick: no join)
+                or      a
+                jr      nz, pp_d1
                 ld      a, (PP_KU + 2)          ; the two meet: one rect
                 or      a
                 jr      z, pp_d1
@@ -827,8 +831,13 @@ pp_rects:       ld      hl, SPR_A + SD_OXB      ; ---- the dirty rects
                 ld      hl, 0
                 ld      (PP_GU), hl
                 ld      (PP_GU + 2), hl
-pp_d1:          ld      hl, PP_KU
-                call    dr_add_rect
+pp_d1:          ld      a, (st_res)
+                rra
+                ld      hl, PP_KU
+                call    nc, dr_add_rect
+                ld      a, (st_res)
+                and     2
+                ret     nz
                 ld      hl, PP_GU
                 jp      dr_add_rect
 ; pp_group: C = a character's slot (0 kid, 2 guard), HL = his old rect (descriptor SD_OXB), DE = his U rect:

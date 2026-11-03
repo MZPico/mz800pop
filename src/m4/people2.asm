@@ -1,7 +1,7 @@
 ; ---------------------------------------------------------------- the people on screen: M5 parts (main block)
 ; Parts of overlay.asm's people drawing that live in the main code block (block 2 is full): the shadow's XOR offset,
-; the level 12 blink, the kid's mirror image (pp_mirror), the left clip's column (pc_col); and the per-tick checks of
-; the bottom text (text_chk) and the flash (flash_tick).
+; the level 12 blink, the kid's mirror image (pp_mirror), the left clip's column (pc_col), the standing characters
+; (st_look); and the per-tick checks of the bottom text (text_chk) and the flash (flash_tick).
 
 ; pp_xd: the XOR copy's offset: A = calc_screen_x_coord(OBJ_X + 1) - PP_SX (1 or 2)
 pp_xd:          ld      hl, (OBJ_X)
@@ -251,3 +251,110 @@ fl_beam:        push    bc                      ; carry: in the playfield
                 add     hl, de
                 ccf
                 ret
+
+; st_look: which character looks as in the last drawn tick (M8a part 7): st_res bit 0 the kid, bit 1 the guard. Each of
+; his slots (the kid 0, 1, 6, the guard 2, 3) has the same visible flag, image (SD_LKEY, SD_LKEY2: frame, chtab, mirror,
+; shift), screen rect, clip and XOR offset; this tick and the last have no overlay ops and no hurt splash, and no room
+; was drawn since (sprite_forget sets ST_OK). Then his pixels, and everything under them, are as on screen, and his
+; rect needs no redraw: what changed there (the other character, a tile, a falling floor) brings a rect of its own.
+; PP_KU, PP_GU stay (oc_kidtouch: no torch chunk from the cache over a character).
+ST_KEY          equ     0x01ca                  ; 50: per slot SD_DX .. SD_COMPOSE + 1 (9) and PP_XD, as last tick
+ST_OK           equ     0x01fc                  ; 0: the last tick had no overlay op, no splash, no room drawn after it
+st_look:        ld      a, (OV_NM)
+                ld      hl, OV_NF
+                or      (hl)
+                ld      hl, SPR_SP + SD_DX
+                or      (hl)
+                ld      hl, SPR_SP2 + SD_DX
+                or      (hl)
+                ld      hl, ST_OK
+                ld      c, (hl)
+                ld      (hl), a
+                or      c                       ; (not 0: neither of them)
+                push    af
+                ld      (st_chg), a
+                ld      hl, st_tab
+                ld      de, ST_KEY
+                call    st_grp                  ; the kid
+                pop     bc
+                ld      a, (st_chg)
+                push    af
+                ld      a, b
+                ld      (st_chg), a
+                call    st_grp                  ; the guard
+                pop     bc
+                ld      c, 0
+                ld      a, (st_chg)
+                or      a
+                jr      nz, stl1
+                ld      c, 2
+stl1:           ld      a, b
+                or      a
+                jr      nz, stl2
+                inc     c
+stl2:           ld      a, c
+                ld      (st_res), a
+                ret
+; st_grp: HL = a group's slots (descriptor, slot; a descriptor 0x00xx ends it), DE = their keys: the keys replaced by
+; this tick's, st_chg not 0 when one differed (a slot invisible then and now: not compared)
+st_grp:         ld      a, (hl)
+                inc     hl
+                ld      b, (hl)
+                inc     hl
+                inc     b
+                dec     b
+                ret     z
+                push    hl
+                add     a, SD_DX
+                ld      l, a
+                ld      h, b
+                ld      a, (de)
+                or      (hl)
+                jr      z, stg_n
+                ld      b, SD_COMPOSE + 2 - SD_DX
+                call    st_cmp
+                pop     hl
+                ld      a, (hl)                 ; its XOR offset
+                inc     hl
+                push    hl
+                add     a, low PP_XD
+                ld      l, a
+                ld      h, high PP_XD
+                ld      b, 1
+                call    st_cmp
+                pop     hl
+                jr      st_grp
+stg_n:          ld      hl, SD_COMPOSE + 3 - SD_DX
+                add     hl, de
+                ex      de, hl
+                pop     hl
+                inc     hl
+                jr      st_grp
+; st_cmp: B bytes at HL against the keys at DE; from the first that differs on they are copied and st_chg is set
+st_cmp:         ld      a, (de)
+                cp      (hl)
+                jr      nz, stc1
+                inc     hl
+                inc     de
+                djnz    st_cmp
+                ret
+stc1:           ld      c, b
+                ld      b, 0
+                ldir
+                ld      a, 1
+                ld      (st_chg), a
+                ret
+st_tab:         dw      SPR_A
+                db      0
+                dw      SPR_S
+                db      1
+                dw      SPR_MI
+                db      6
+                dw      0
+                dw      SPR_G
+                db      2
+                dw      SPR_GS
+                db      3
+                dw      0
+st_chg:         db      0
+st_res:         db      0
