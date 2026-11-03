@@ -1,13 +1,25 @@
 # Full regression: build the port from a clean checkout and run every gating test on its full set (all but the M2
 # measurements m2_oracle / m2_ega_capture, docs/ci.md), split into parallel jobs (tools/ci/check_pr.py --full: the parts
 # of FULL in tools/ci/suite.py; docs/ci.md). Runs on demand (Actions tab or `gh workflow run`) and on pushes to
-# regress/** branches (a branch may limit the parts: tools/ci/regress_only).
+# regress/** branches (a branch may limit the parts: tools/ci/regress_only). Each part runs at the RAM-disk sizes 512K,
+# 1M and 16M, except the parts whose tests never see the size (1M only), and one part also at 1M with 1 wait state (the
+# MZPico): the matrix comes from tools/ci/regress_matrix.py (the inputs of a manual run, or tools/ci/regress_sizes and
+# tools/ci/regress_only on the branch; docs/ci.md "The RAM-disk sizes").
 # The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:
 # no artifact, no cache holds it or anything built from it (the repository is public).
 name: Full regression
 
 on:
   workflow_dispatch:
+    inputs:
+      sizes:
+        description: 'RAM-disk variants: 512K 1M 16M, 1M+N (N wait states), every-size (empty: tools/ci/regress_sizes or all)'
+        required: false
+        default: ''
+      parts:
+        description: 'Parts (empty: tools/ci/regress_only or all)'
+        required: false
+        default: ''
   push:
     branches: ['regress/**']
 
@@ -27,14 +39,36 @@ env:
   MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
 
 jobs:
+  plan:
+    name: matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: m
+        env:
+          REGRESS_SIZES: ${{ inputs.sizes }}
+          REGRESS_PARTS: ${{ inputs.parts }}
+        run: |
+          python3 tools/ci/regress_matrix.py --list
+          python3 tools/ci/regress_matrix.py > /dev/null
+
   check:
-    name: full + ${{ matrix.part }}
+    needs: plan
+    name: full + ${{ matrix.part }} @ ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     strategy:
       fail-fast: false
-      matrix:
-        part: [logic, oracle-m4m6, oracle-m5m7, pixels-m4, pixels-m6, pixels-m5, sound, pres, story, launch-keys, early]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      # empty = the INI's (emu/mz800emu.ini: 1M, 0 wait states); emu/mz800emu-pop.sh writes a copy per size/wait
+      POP800_RD_SIZE: ${{ matrix.size }}
+      POP800_RD_WAIT: ${{ matrix.wait }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,5 +160,5 @@ jobs:
       - name: Build
         run: make ci-build
 
-      - name: Full regression (${{ matrix.part }})
-        run: xvfb-run -a -s "-screen 0 1024x768x24" python3 tools/ci/check_pr.py --full ${{ matrix.part }}
+      - name: Full regression (${{ matrix.part }} @ ${{ matrix.label }})
+        run: xvfb-run -a -s "-screen 0 1024x768x24" python3 tools/ci/check_pr.py --full --chosen ${{ matrix.part }}

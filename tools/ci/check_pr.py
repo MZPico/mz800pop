@@ -4,7 +4,8 @@ each to its end, prints the wall time of each and fails if any failed. Needs the
 display for the emulator (DISPLAY, e.g. xvfb-run).
 usage: check_pr.py [all | a | b | c | d ...] [--list]
        check_pr.py --full [all | logic | oracle-m4m6 | ... | early] [--list]   (the full regression; a branch can limit
-                   it to some parts: tools/ci/regress_only, one part name per line, the others print "skipped")
+                   it to some parts: tools/ci/regress_only, one part name per line, the others print "skipped"; --chosen: the
+                   parts were chosen already, by tools/ci/regress_matrix.py: the file is not read)
        check_pr.py --smoke [--list]   (the smoke tier, one at a time; `make check-smoke` runs it in parallel)"""
 import os, subprocess, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,7 +24,7 @@ def main():
     bad = [n for n in names if n not in tier]
     if bad: sys.exit('check_pr.py: unknown part(s) %s (known: %s)' % (' '.join(bad), ' '.join(sorted(tier))))
     only = os.path.join(ROOT, 'tools', 'ci', 'regress_only')
-    if '--full' in sys.argv and os.path.exists(only):
+    if '--full' in sys.argv and '--chosen' not in sys.argv and os.path.exists(only):
         keep = {l.strip() for l in open(only) if l.strip() and not l.startswith('#')}
         bad = sorted(keep - set(tier))
         if bad: sys.exit('check_pr.py: tools/ci/regress_only names unknown part(s) %s (known: %s)' % (' '.join(bad), ' '.join(sorted(tier))))
@@ -31,12 +32,15 @@ def main():
         names = [n for n in names if n in keep]
     steps = [s for n in names for s in tier[n]]
     if '--list' in sys.argv:
-        for name, cmd in steps: print('%-20s %s' % (name, ' '.join((['python3'] if cmd[0] == PY else cmd[:1]) + cmd[1:])))
+        for name, cmd, *env in steps:
+            print('%-20s %s' % (name, ' '.join(['%s=%s' % kv for e in env for kv in sorted(e.items())] +
+                                               (['python3'] if cmd[0] == PY else cmd[:1]) + cmd[1:])))
         return
     res = []
-    for name, cmd in steps:
-        print('==== %s: %s' % (name, ' '.join(cmd[1:] if cmd[0] == PY else cmd)), flush=True)
-        t0 = time.time(); rc = subprocess.run(cmd, cwd=ROOT).returncode; dt = time.time() - t0
+    for name, cmd, *env in steps:
+        env = dict(*env)        # (a step's own environment: e.g. POP800_RD_SIZE, the PR tier's other sizes)
+        print('==== %s: %s' % (name, ' '.join(['%s=%s' % kv for kv in sorted(env.items())] + (cmd[1:] if cmd[0] == PY else cmd))), flush=True)
+        t0 = time.time(); rc = subprocess.run(cmd, cwd=ROOT, env=dict(os.environ, **env)).returncode; dt = time.time() - t0
         res.append((name, rc, dt))
         print('==== %s: %s in %.0f s' % (name, 'ok' if rc == 0 else 'FAILED (exit %d)' % rc, dt), flush=True)
     print('\n%s (%s):' % ('full regression' if tier is FULL else 'smoke tier' if '--smoke' in sys.argv else 'PR tier', ' '.join(names)))

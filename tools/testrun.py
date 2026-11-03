@@ -104,11 +104,11 @@ def registry():
     byid = {}; tiers = {'full': [], 'smoke': [], 'pr': []}
     def add(tier, part, steps):
         makes = []
-        for name, cmd in steps:
+        for name, cmd, *step_env in steps:
             if cmd[0] == 'make': makes.append(cmd); continue
             info, vs = variants(cmd)
             for args, env in vs:
-                t = Test(cmd[1], args, env, info)
+                t = Test(cmd[1], args, dict(*step_env, **env), info)
                 t = byid.setdefault(t.id, t)
                 for m in makes:
                     if m not in t.make: t.make.append(m)
@@ -226,8 +226,8 @@ def inputs(t):
     out += [(f, fhash(os.path.join(ROOT, f))) for f in repo_files(t)]
     for f in expand(t.build, tree): out.append((os.path.normpath(os.path.join(t.tree, f)), fhash(os.path.join(tree, f))))
     if 'emu' in t.uses: out += [('emu-binary', fhash(emu_binary())), ('emu-exe-env', os.environ.get('MZ800EMU_EXE', '')),
-                               ('rd-size-env', os.environ.get('POP800_RD_SIZE', '')),
-                               ('rd-wait-env', os.environ.get('POP800_RD_WAIT', ''))]
+                               ('rd-size-env', t.env.get('POP800_RD_SIZE', os.environ.get('POP800_RD_SIZE', ''))),
+                               ('rd-wait-env', t.env.get('POP800_RD_WAIT', os.environ.get('POP800_RD_WAIT', '')))]
     if 'sdlpop' in t.uses:
         s = os.path.join(ROOT, 'external', 'SDLPoP')
         out += [('sdlpop-binary', fhash(os.path.join(s, 'prince'))), ('sdlpop-commit', git_head(s)),

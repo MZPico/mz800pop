@@ -27,7 +27,8 @@ loader refuses (stops at rd_stop) and the game does not start; the probe finds 5
 (rd_top 7, 15, 255; docs/ramdisk-tiers.md section 1) and puts back the bytes it wrote, and the launched game gets the
 emulator's size at HO_MAIN + HO_RDTOP. The read-speed measurement (src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1):
 with each size every area's MIN / MAX / ALIGN / MISAL / GAME / AVG is 21.0 clocks/byte +-0.1 (mz800emu has no wait
-states), the boot goes on, and the launched game gets HO_RDSPD_MAIN = 105 (21.0 x 5); with a stop limit patched in
+states), the boot goes on, and the launched game gets HO_RDSPD_MAIN = 105 (21.0 x 5; with POP800_RD_WAIT=w the boot's
+own GAME mean, 21 + w + w/32 +-0.1, x 5: 110 at +1); with a stop limit patched in
 the image (the defaults: 36.0 and 15.0; rd_max 15.0: "too slow", rd_min 25.0: "timer fault") the boot halts at
 rs_stop with the message (build/m5_rdslow.png, build/m5_rdfault.png) and the game does not start. With an emulator
 that has mr1r18_wait (POP800_RD_WAIT): +1 T a RAM-disk access reads 22.0 everywhere and the boot goes on, +14 reads
@@ -55,6 +56,19 @@ TICKS = int(sys.argv[1]) if len(sys.argv) > 1 else 300
 SND_MODE_LAUNCHED = None
 RD_TOP_LAUNCHED = None
 RD_SPD_LAUNCHED = None
+RD_GAV = None
+
+def emu_rd_wait():
+    """the RAM disk's wait states the default emulator runs with: POP800_RD_WAIT (emu/mz800emu-pop.sh), else the INI's"""
+    if os.environ.get('POP800_RD_WAIT'): return int(os.environ['POP800_RD_WAIT'])
+    for l in open(os.path.join(ROOT, 'emu', 'mz800emu.ini')):
+        if l.startswith('mr1r18_wait'): return int(l.split('=')[1].strip())
+    return 0
+
+def game_model(w):
+    """the GAME read speed (clocks/byte x 10) with w wait states a port access: 21 + w + w / 32 (the address OUT of a
+    32-byte run; as wait_run measures it)"""
+    return round(10 * (21 + w + w / 32.0))
 
 def fill_ramdisk(e):
     for p in range(PAGES):
@@ -167,7 +181,10 @@ def floppy_run(dsk):
         e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
         e.call('reset')
         t_boot = run_to(e, BS['boot'])
-        t_launch = t_boot + run_to(e, BS['launch_main'])
+        t_meas = t_boot + run_to(e, BS['rd_measured'])
+        global RD_GAV                               # the boot's GAME mean (clocks/byte x 10), just measured (its
+        g = e.mem(BS['rs_gav'], 2); RD_GAV = g[0] | g[1] << 8       # scratch is reused before the launcher)
+        t_launch = t_meas + run_to(e, BS['launch_main'])
         bar = e.mem(BS['bar_cur'], 1)[0]
         e.screenshot(os.path.join(BUILD, 'm5_loader.png'))
         global FILL                                 # the frame store's fill (ACT_FILL), on the loading screen
@@ -399,8 +416,13 @@ def main():
                 {'on': 'goes on', 'stop': 'stops at rs_stop', '?': 'NEITHER'}[how],
                 '' if good else '  FAILED (want %s, GAME %.1f-%.1f)' % (want_how, lo / 10, hi / 10), w))
             bad += not good
-    print('the launched game\'s HO_RDSPD_MAIN: %d (%s)' % (RD_SPD_LAUNCHED, 'right' if RD_SPD_LAUNCHED == 105 else 'WRONG, want 105'))
-    bad += RD_SPD_LAUNCHED != 105
+    # the handoff is the boot's GAME mean x 5, rounded as rdspeed.asm does ((x10 + 1) / 2, 255 at most); the mean itself
+    # within 0.1 of the model for the default emulator's wait states (0: 21.0 -> 105; POP800_RD_WAIT=1: 22.0 -> 110)
+    w = emu_rd_wait(); gm = game_model(w); want_spd = min(255, (RD_GAV + 1) // 2)
+    good = RD_SPD_LAUNCHED == want_spd and abs(RD_GAV - gm) <= 1
+    print('the launched game\'s HO_RDSPD_MAIN: %d (the boot\'s GAME %.1f, the model at +%d wait %.1f: %s)' % (
+        RD_SPD_LAUNCHED, RD_GAV / 10, w, gm / 10, 'right' if good else 'WRONG, want %d and GAME %.1f +-0.1' % (min(255, (gm + 1) // 2), gm / 10)))
+    bad += not good
     want = RD_TOP.get(ini_rd_size())
     print('the launched game\'s HO_MAIN + HO_RDTOP: %d (the emulator\'s %s RAM disk: %s)' % (
         RD_TOP_LAUNCHED, ini_rd_size(), 'right' if RD_TOP_LAUNCHED == want else 'WRONG, want %s' % want))
