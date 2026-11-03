@@ -8,7 +8,9 @@
 ;      (multi-sector reads of whole tracks, as the ROM IPL does them),
 ;   4. decompresses the records (tools/mkgamedisk.py: the stream format; tools/pzpack.py: the PZ format) into the
 ;      RAM disk: the art, the overlays and the game's compressed image (a record stream itself, GAME_RD_PAGE:ADDR),
-;   5. writes the handoff block "title" and launches (launch_main): PRES from POP800.PRS, which starts the game.
+;   5. writes the handoff block "title" and launches (launch_main): PRES from POP800.PRS, which starts the game; on 1 MB
+;      and more it first clears the frame store's marker and starts the game with ACT_FILL, which fills the store on
+;      the loading screen ("PREPARING SPRITES", the bar) and then hands over to the title.
 ; The launcher (launch.inc: the interface and the handoff block) is entry LN_LAUNCH: it reads the handoff block from
 ; the RAM disk, zeroes 0x0000-0x11FF, copies the block to HO_MAIN and starts the GAME (its image decompressed from the
 ; RAM disk, ~0.5 s) or PRES (entry 0 of POP800.PRS from the floppy). LN_PRS_LOAD loads any POP800.PRS entry for PRES.
@@ -83,10 +85,30 @@ rd_probed:      jp      nz, rd_refuse   ; (harness breakpoint: rd_top is set)
                 ld      (s_src), a
                 call    s_next_file
                 call    load_stream
-                ld      a, HO_RD_PAGE   ; the handoff block: the title
+                ld      hl, ho_title    ; the handoff block: the title, or on 1 MB and more first the frame store's
+                ld      a, (rd_top)     ; fill (the game, ACT_FILL) on this screen (docs/ramdisk-tiers.md section 11)
+                cp      LN_FS_TOP
+                jr      c, bt_ho
+                ld      a, LN_FS_PAGE   ; its marker cleared: every boot fills the store anew
+                ld      de, LN_FS_MARK
+                call    rd_seek
+                ld      hl, ho_title + HO_BAR   ; (five zero bytes)
+                ld      de, 5
+                call    rd_out
+                ld      hl, (msg_load)  ; "PREPARING SPRITES" in the place of "LOADING...", the bar empty again
+                ld      (msg_prep), hl
+                ld      hl, msg_prep
+                call    print_at
+                ld      a, BAR_COL
+                ld      b, 32
+                ld      c, COL_BAR_BG
+                call    bar_fill
+                ld      hl, ho_fill
+bt_ho:          push    hl
+                ld      a, HO_RD_PAGE
                 ld      de, HO_RD_ADDR
                 call    rd_seek
-                ld      hl, ho_title
+                pop     hl
                 ld      de, HO_SIZE
                 call    rd_out
                 ; (fall through)
@@ -894,6 +916,12 @@ f_idx:          db      0
 f_cnt:          db      0
 ho_title:       dw      HO_MAGIC        ; the boot's handoff block: the title
                 db      ACT_TITLE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+ho_fill:        dw      HO_MAGIC        ; on 1 MB and more: the frame store's fill first (launch.inc ACT_FILL)
+                db      ACT_FILL, 0
+                dw      VRAM + BAR_ROW * 40 + BAR_COL
+                db      32, COL_BAR, 0, 0, 0, 0, 0, 0, 0, 0
+msg_prep:       dw      0               ; (msg_load's place)
+                db      7, "PREPARING SPRITES", 0
 rd_top:         db      0               ; the RAM disk's last page (rd_probe; in the image: the launcher's copy keeps it)
 end_of_image:
                 if end_of_image - LOAD > LN_MAX

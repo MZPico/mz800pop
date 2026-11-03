@@ -176,7 +176,7 @@ PROGRAMS = {
     'tools/oracle_suite.py': dict(build=[ASSETS_GAME], uses={'sdlpop'}, by_script=True, expect=30),
     'tests/m4_game.py': dict(build=[M4GAME, ASSETS_GAME], by_script=True, expect=60),
     'tools/cut_suite.py': dict(build=[ASSETS_ALL], uses={'sdlpop'}, expect=10),
-    'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json'], expect=40),
+    'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
     'tests/m8_pace.py': dict(build=[M4GAME, ASSETS_GAME],
                              split=lambda: [([s], {}) for s in sorted(literal('tests/m8_pace.py', 'STRETCHES'))], expect=120),
     'tests/m8_fstore.py': dict(build=[M4GAME, ASSETS_GAME], expect=30),

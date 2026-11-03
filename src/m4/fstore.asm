@@ -22,6 +22,11 @@ ff_addr         equ     ff_page + 1
 ff_n            equ     ff_page + 3
 ff_id           equ     ff_page + 5
 ff_v            equ     ff_page + 6
+ff_bw           equ     ff_page + 7             ; the progress bar (ACT_FILL: the loading screen's): width in bytes
+ff_bcol         equ     ff_page + 8             ; (0: no bar), colour (right after ff_bw), its next byte in VRAM,
+ff_bptr         equ     ff_page + 9             ; the error term (keys x width)
+ff_acc          equ     ff_page + 11
+ff_keys         equ     ff_page + 13            ; the keys to fill
 fs_fill:        ld      a, (HO_MAIN + HO_RDTOP)
                 cp      FS_TOP1
                 ret     c                       ; 512 KB: today's fetch
@@ -37,6 +42,13 @@ fs_fill:        ld      a, (HO_MAIN + HO_RDTOP)
                 inc     b
 ff_cls:         ld      a, b
                 ld      (ff_class), a
+                ld      hl, FS_N1
+                dec     a
+                jr      z, ff_k1
+                ld      hl, FS_N1 + FS_N2
+ff_k1:          ld      (ff_keys), hl
+                ld      hl, 0
+                ld      (ff_acc), hl
                 ld      a, FS_PAGE              ; the marker
                 ld      de, FS_MARK
                 call    far_seek
@@ -225,6 +237,38 @@ ffk_o:          otir
                 ld      de, (ff_addr)
                 add     hl, de
                 ld      (ff_addr), hl
+; ff_prog: the progress bar after a key (ff_bw bytes over ff_keys keys)
+ff_prog:        ld      a, (ff_bw)
+                or      a
+                ret     z
+                ld      e, a
+                ld      d, 0
+                ld      hl, (ff_acc)
+                add     hl, de
+ffp_l:          ld      de, (ff_keys)
+                or      a
+                sbc     hl, de
+                jr      c, ffp_x
+                ld      (ff_acc), hl
+                in      a, (0xe0)               ; VRAM on (the shift tables are behind it: no fetch meanwhile)
+                ld      a, (ff_bcol)
+                or      0x80                    ; REPLACE
+                out     (PORT_WF), a
+                ld      hl, (ff_bptr)
+                push    hl
+                ld      de, 40
+                ld      b, 8
+ffp_row:        ld      (hl), 0xff
+                add     hl, de
+                djnz    ffp_row
+                in      a, (0xe1)               ; VRAM off
+                pop     hl
+                inc     hl
+                ld      (ff_bptr), hl
+                ld      hl, (ff_acc)
+                jr      ffp_l
+ffp_x:          add     hl, de
+                ld      (ff_acc), hl
                 ret
 
                 if      FF_SAVE_N + 8 > ff_desc - ff_save
@@ -233,6 +277,9 @@ ffk_o:          otir
                 if      ff_class >= ff_save
                 .error  the masks run into ff_save
                 endif
-                if      ff_v >= SPRBUF_B + 0x800
+                if      FS_PAGE - LN_FS_PAGE + FS_MARK - LN_FS_MARK + FS_TOP1 - LN_FS_TOP
+                .error  the boot's view of the frame store (src/boot/launch.inc) differs
+                endif
+                if      ff_keys + 2 >= SPRBUF_B + 0x800
                 .error  the fill's variables run out of SPRBUF_B
                 endif

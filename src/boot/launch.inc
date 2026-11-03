@@ -24,7 +24,10 @@
 ;   +15 1  rd_top (HO_RDTOP): the RAM disk's last 64 KB page as the boot's probe found it (7 = 512 KB, 15 = 1 MB,
 ;          255 = 16 MB); the launcher sets it in the copy at HO_MAIN each time it starts a program (what a program
 ;          wrote there in the RAM disk's block is ignored); 0 at HO_MAIN (the harness, which does not boot) = the 512 KB
-;          layout (docs/ramdisk-tiers.md). Nothing reads it yet.
+;          layout (docs/ramdisk-tiers.md). The game's frame store reads it (src/m4/fstore.asm).
+; ACT_FILL (the boot, 1 MB and more): the game fills the frame store on the loading screen and hands over to the title;
+; its block: +4 2 the progress bar's first VRAM byte (row 0, its first byte column), +6 1 its width in bytes (0: no
+; bar), +7 1 its colour (the loader's layout stays the loader's: docs/ramdisk-tiers.md section 11).
 LN_LOAD         equ     0xb000          ; the launcher's image runs here (outside both programs' images)
 LN_LAUNCH       equ     LN_LOAD + 3     ; jp: start the program the handoff block (RAM disk) asks for
 LN_PRS_LOAD     equ     LN_LOAD + 6     ; call (PRES only, the launcher stays at 0xB000 while PRES runs): A = entry
@@ -53,6 +56,13 @@ HO_ROOMLEAVE    equ     14
 HO_RDTOP        equ     15
 ACT_PLAY        equ     0x00            ; game: start level HO_LEVEL
 ACT_DEMO        equ     0x01            ; game: the attract demo (level 0; later)
+ACT_FILL        equ     0x02            ; game: fill the frame store (1 MB and more), then the title (the boot)
+HO_BAR          equ     4               ; ACT_FILL: the progress bar (VRAM address, width, colour)
+; the frame store's marker (tools/fstore.py FS_PAGE, FS_MARK; src/m4/fstore.asm checks them): the boot clears it, so
+; every boot from the floppy fills the store anew (a store left in the RAM disk is never trusted)
+LN_FS_PAGE      equ     8
+LN_FS_MARK      equ     0x7700
+LN_FS_TOP       equ     15              ; rd_top from which the store is used (1 MB)
 ACT_TITLE       equ     0x10            ; PRES (bit 4): the title (then a new game)
 ACT_EXPIRED     equ     0x11            ; PRES: the time has expired (then the title)
 ACT_ENDING      equ     0x12            ; PRES: the ending (then the title)

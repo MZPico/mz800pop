@@ -118,7 +118,8 @@ def main():
             len(n1), b1, ends[0][0], ends[0][1], 100 * sum(use[(k[2], k[3], k[4], k[5])] for k in n1) / tot))
         f.write('; class 2: %d keys, %d bytes, to page %d 0x%04X; build id %08x\n' % (len(n2), b2, ends[1][0], ends[1][1], fid))
         for nm, v in (('FS_PAGE', FS_PAGE), ('FS_SWORD', FS_SWORD), ('FS_IDS', FS_IDS), ('FS_MARK', FS_MARK),
-                      ('FS_DATA', FS_DATA), ('FS_TOP1', FS_TOP1), ('FS_TOP2', top2), ('FS_MPAGE', FS_MPAGE), ('FS_MADDR', FS_MADDR)):
+                      ('FS_DATA', FS_DATA), ('FS_TOP1', FS_TOP1), ('FS_TOP2', top2), ('FS_MPAGE', FS_MPAGE), ('FS_MADDR', FS_MADDR),
+                      ('FS_N1', len(n1)), ('FS_N2', len(n2))):
             f.write('%-15s equ     0x%04x\n' % (nm, v))
     with open(os.path.join(A, 'fstore_masks.bin'), 'wb') as f:   # (the fill's input in the RAM disk, FS_MPAGE:FS_MADDR)
         f.write(b''.join(x.to_bytes(2, 'little') for m in masks for x in m) + fid.to_bytes(4, 'little'))

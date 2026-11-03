@@ -2,7 +2,12 @@
 ; Split out of src/m4/game.asm, gfx.asm, room.asm, sprite.asm and overlay.asm (2026-11-01, the memory reclaim): everything
 ; that runs once, when the program starts (game.asm start: the stub game_start, src/m4/ovl.asm). Resident code never calls
 ; these again. Interrupts are off until irq_init's ei; the overlay was loaded with the RAM disk only (far_*), VRAM unmapped.
-game_start:     in      a, (0xe0)       ; VRAM on: the screen cleared, the palette set
+game_start:     call    launched        ; the boot's ACT_FILL (1 MB and more): the frame store's fill on the loading
+                jr      nz, gs_play     ; screen, then the title (src/boot/boot.asm, docs/ramdisk-tiers.md section 11)
+                ld      a, (HO_MAIN + HO_ACTION)
+                cp      ACT_FILL
+                jr      z, gs_fill
+gs_play:        in      a, (0xe0)       ; VRAM on: the screen cleared, the palette set
                 call    video_init
                 in      a, (0xe1)       ; VRAM window off: 0x8000-0x9FFF is RAM for the renderer's tables
                 call    tables_init
@@ -18,6 +23,15 @@ game_start:     in      a, (0xe0)       ; VRAM on: the screen cleared, the palet
                 call    game_init_h     ; kidsim's initial state (this overlay's entry 1)
                 ld      a, (level_number)
                 jp      load_level_h    ; (entry 0; returns to game.asm level_ready)
+gs_fill:        call    tables_init     ; (the screen and its mode stay the loader's)
+                ld      hl, (HO_MAIN + HO_BAR)  ; the loader's progress bar: the fill fills it
+                ld      (ff_bptr), hl
+                ld      hl, (HO_MAIN + HO_BAR + 2)
+                ld      (ff_bw), hl             ; (ff_bw, ff_bcol)
+                call    fs_fill
+                ld      a, ACT_TITLE
+                ld      b, 0
+                jp      ho_swap
                 include "../m1/tables.asm"
                 include "../m3/prbuild.asm"
                 include "../m4/fstore.asm"

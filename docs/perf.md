@@ -1051,7 +1051,11 @@ faster walking (5.72 -> 5.20) and 7 % in the fight (7.72 -> 7.20), 16 MB 12 % / 
 does not get faster on 1 MB (it fetches the kid once; the room draw is the cost) and 0.8 frames faster on 16 MB. The
 gate stretch has no fetches. tests/perf_baseline.json is measured at the tests' default size, **1 MB** (the INI's
 `mr1r18_size`): it is lowered to the new 1 MB medians where they beat it (walk, door step, 190-260, traps, fight; not
-the room change, 106.05 against 105.92, nor the gate, equal), in its own commit.
+the room change, 106.05 against 105.92, nor the gate, equal), in its own commit. tools/perfcheck.py now takes the
+RAM disk's size from the emulator and compares with tests/perf_baseline_<size>.json when there is one:
+perf_baseline_512K.json = the baseline before the store (today's game), perf_baseline_16M.json = the 16 MB medians
+above (regress/fs2-512's perfcheck had failed against the 1 MB baseline: 4 stretches more than 5 % slower, i.e. the
+store's gain).
 
 ### The fill (boot time)
 
