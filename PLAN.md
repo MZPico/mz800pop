@@ -236,7 +236,8 @@ Remaining, with expected gains (frames per tick unless noted), resumed after M6/
 2. Visited-room cache (shadow + op lists, ~33 KB a room) in what pages 6-7 keep free after the guard set
    (~100 KB: ~3 rooms): a revisit ~25-30 frames instead of ~106. Decision deferred to after M6 (user).
 3. Shadow stored chunk-major (one RAM-disk seek per chunk instead of per row): room change -4 to -6,
-   door -0.2, normal -0.1.
+   door -0.2, normal -0.1. (Measured 2026-11-03, status 47: not built, object chunks are not strip-aligned; the
+   restore's row loop got 24-39 T a plane-row faster instead.)
 4. Room-change screen copy with POP/PUSH and the VRAM write modes: room change -2 to -4.
 5. Copy paths: an inline INI chain entered by a jump (no call) instead of INIR per row: room change
    -1.5 to -3, door -0.2. The rest of lay_piece16's per-piece setup (~2 K T): room change -2, door -0.3.
@@ -805,3 +806,14 @@ piece used AND/XOR semantics.
    runs, main (11e43a4) -> this: fight 9.00 -> 8.23 (baseline 8.99 -> 8.23), walk 30-60 6.10 -> 6.10 (no comparison
    while no guard is shown), door 17.45 -> 17.54 (within its spread), walkthrough 190-260 10.71 -> 10.73, traps 5.96 ->
    5.96, room change 106.58 -> 106.32, gate 5.11 -> 5.11.
+47. M8a part 8, small items (2026-11-03, docs/perf.md "M8a part 8: small items"): measured first (tracepoints, the
+   per-routine profile after parts 6-7, documented there). Not built: narrow tail chunks (9-11-wide boxes; after part 7
+   0.03-0.06 tails a tick, 0.04-0.06 frames, wider chunks need a variable compose stride and new kernels) and the
+   chunk-major shadow (the seeks and the +40 are 51 T of 134 a plane-row: <= 0.11 / 0.15 frames a tick, and unaligned
+   object chunks cross two strips). Built, each its own commit, VRAM after every tick identical to main's: restore_shadow's
+   row loop (a jump into its own INI chain, no compose advance for full rows, the counts in B' / C'; main +23 bytes),
+   spr_draw's row loop (pointers kept in registers; main +19) and the tile-change snapshot walked as 6 runs of tile bytes
+   with the buttons' pressed state from a list built per room (view.asm; low block +81, end_of_low 0x1FE2, 30 free; its
+   pointer table moved to 0xF58B). perfcheck medians of 3 runs, main (80c4945) -> this: walk 30-60 6.10 -> 5.72, fight
+   8.23 -> 7.73, traps 5.96 -> 5.63, walkthrough 190-260 10.73 -> 10.26, level door 17.54 -> 17.06, room change 106.56 ->
+   106.05, gate 5.11 -> 4.99 (baseline lowered except the room change). Main end_of_code 0x78D6 -> 0x7900 (768 free).

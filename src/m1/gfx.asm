@@ -216,42 +216,55 @@ spr_draw:       push    hl
                 pop     iy
                 xor     a
                 call    sd_bounds               ; (returns from spr_draw when nothing is visible)
-sdrow:          push    de
-                ld      hl, (V_ROWOFF)
-                ld      a, (V_PX)
+                ld      a, (V_PX)               ; the row loop keeps its pointers in registers: patch the
+                ld      (sd_px+1), a            ; cells per row and both row advances
+                ld      (sd_dst+1), a           ; compose: back to the row start, then CW on
                 ld      c, a
-sdcell:         ld      a, (hl)
-                inc     hl
+                add     a, a
+                add     a, a
+                ld      c, a
+                ld      a, (sd_stride+1)
+                sub     c
+                ld      (sd_stride+1), a        ; source: (ow - px) * 4
+                ld      a, (V_N)
+                exx
+                ld      b, a                    ; B' = rows left
+                exx
+                ld      hl, (V_ROWOFF)
+sdrow:
+sd_px:          ld      c, 0                    ; patched: cells per row
+sdcell:         ld      a, (hl)                 ; (the cell buffers are 4-aligned: inc l inside a cell)
+                inc     l
                 or      (hl)
-                inc     hl
+                inc     l
                 or      (hl)
-                inc     hl
+                inc     l
                 or      (hl)
                 jr      z, sdempty      ; nothing to draw in this cell
                 cpl
                 ld      b, a            ; B = inverted mask
-                dec     hl
-                dec     hl
-                dec     hl
+                dec     l
+                dec     l
+                dec     l
                 ld      a, (de)
                 and     b
                 or      (hl)
                 ld      (de), a
-                inc     hl
-                inc     d
-                inc     d
-                ld      a, (de)
-                and     b
-                or      (hl)
-                ld      (de), a
-                inc     hl
+                inc     l
                 inc     d
                 inc     d
                 ld      a, (de)
                 and     b
                 or      (hl)
                 ld      (de), a
-                inc     hl
+                inc     l
+                inc     d
+                inc     d
+                ld      a, (de)
+                and     b
+                or      (hl)
+                ld      (de), a
+                inc     l
                 inc     d
                 inc     d
                 ld      a, (de)
@@ -271,18 +284,18 @@ sdempty:        inc     hl
                 dec     c
                 jp      nz, sdcell
 sdrowend:
-                pop     de
-                ld      hl, (V_ROWOFF)
-sd_stride:      ld      bc, 0           ; patched: ow*4
+sd_stride:      ld      bc, 0           ; patched: sd_bounds ow*4, then (ow - px) * 4
                 add     hl, bc
-                ld      (V_ROWOFF), hl
-                ex      de, hl
-                ld      bc, CW
-                add     hl, bc
-                ex      de, hl
-                ld      hl, V_N
-                dec     (hl)
-                jr      nz, sdrow
+                ld      a, e            ; (the last cell's inc e may have wrapped E: the carry comes from
+sd_dst:         sub     0               ; the row start + CW; patched: px)
+                add     a, CW
+                ld      e, a
+                jr      nc, sd_nc
+                inc     d
+sd_nc:          exx
+                dec     b
+                exx
+                jp      nz, sdrow
                 ret
 
 ; sd_bounds: IY = sprite descriptor, A = extra byte columns right of the image (the shadow's XOR copy: 1): its visible
@@ -1442,67 +1455,82 @@ sha0:           ld      a, (CRY)
                 ex      de, hl
                 ret
 
-; restore_shadow: compose rect <- shadow (background without fore pieces)
+; restore_shadow: compose rect <- shadow (background without fore pieces). Per row: the row's address, CRW INIs
+; (entered by a jump into rs_ini), the next shadow row (+40) and compose row (+CW: no add when CRW = CW); the row
+; count in B', the plane count in C'.
 restore_shadow: ld      a, (CRW)
                 add     a, a
                 ld      e, a
                 ld      d, 0
-                ld      hl, inr_table
-                add     hl, de
-                ld      a, (hl)
-                ld      (rs_call+1), a
-                inc     hl
-                ld      a, (hl)
-                ld      (rs_call+2), a
+                ld      hl, rs_iend
+                or      a
+                sbc     hl, de
+                ld      (rs_jp+1), hl           ; the INI chain's entry for CRW bytes
+                ld      a, (CRW)
+                ld      hl, 0x18 + 256 * (rs_2 - rs_st - 2)
+                sub     CW
+                jr      z, rs_w8                ; full rows: jr rs_2 over the compose advance
+                ld      hl, 0x7d + 256 * 0xc6   ; ld a, l / add a, CW - CRW
+                neg
+                ld      (rs_st+2), a
+rs_w8:          ld      (rs_st), hl
                 ld      a, (CRH)
                 ld      (rs_rows+1), a
-                ld      a, (CRW)
-                ld      c, a
-                ld      a, CW
-                sub     c
-                ld      (rs_stride+1), a        ; compose row advance after the INI chain: CW - CRW
-                xor     a
-                ld      (V_PLANE), a
                 ld      hl, (V_COMPOSE)
                 ld      (V_ROWOFF), hl
-rsplane:        ld      a, (V_PLANE)
-                call    shadow_addr             ; DE = shadow address of the rect's first row
-                ld      hl, (V_ROWOFF)
+                xor     a
+                call    shadow_addr             ; DE = plane 0's address of the rect's first row
                 ld      a, SHADOW_PAGE          ; (the page stays: each row only sets the address)
                 out     (RD_PAGE), a
+                exx
+                ld      c, 4                    ; C' = planes left
+                exx
+rsplane:        push    de
+                ld      hl, (V_ROWOFF)
                 ld      c, RD_ADDR              ; C: RD_ADDR, RD_DATA = RD_ADDR - 1
-rs_rows:        ld      a, 0
-                ex      af, af'
+rs_rows:        ld      a, 0                    ; patched: CRH
+                exx
+                ld      b, a                    ; B' = rows left
+                exx
 rsrow:          ld      b, d
                 out     (c), e
                 dec     c
-rs_call:        call    0                       ; INI x CRW into HL
-                inc     c
+rs_jp:          jp      0                       ; patched: rs_iend - 2 * CRW
+rs_ini:         ini
+                ini
+                ini
+                ini
+                ini
+                ini
+                ini
+                ini
+rs_iend:        inc     c
                 ld      a, e                    ; next shadow row
                 add     a, 40
                 ld      e, a
-                jr      nc, rsde
+                jr      nc, rs_1
                 inc     d
-rsde:
-rs_stride:      ld      a, 0                    ; patched: CW - CRW
-                add     a, l
+rs_1:
+rs_st:          ld      a, l                    ; patched: (CRW = CW) jr rs_2
+                add     a, 0                    ; patched: CW - CRW
                 ld      l, a
-                jr      nc, rsnc
+                jr      nc, rs_2
                 inc     h                       ; next compose row
-rsnc:           ex      af, af'
-                dec     a
-                jr      z, rsrow_x
-                ex      af, af'
-                jp      rsrow
-rsrow_x:        ex      af, af'
+rs_2:           exx
+                dec     b
+                exx
+                jp      nz, rsrow
+                pop     hl                      ; the next plane: shadow + 8000, compose + COMPOSE_PLANE
+                ld      de, 8000
+                add     hl, de
+                ex      de, hl
                 ld      hl, (V_ROWOFF)
                 ld      bc, COMPOSE_PLANE
                 add     hl, bc
                 ld      (V_ROWOFF), hl
-                ld      hl, V_PLANE
-                inc     (hl)
-                ld      a, (hl)
-                cp      4
+                exx
+                dec     c
+                exx
                 jr      nz, rsplane
                 ret
 
