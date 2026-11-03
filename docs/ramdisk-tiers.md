@@ -1,6 +1,6 @@
 # RAM-disk tiers: design and measurements (2026-11-03)
 
-Status: **design for review**; measured, nothing of the caches built. Sections 7-8 (prefetching; prebuilt layouts and
+Status: **step 1 built** (section 11: the frame store, the kid and sword keys; PR perf/frame-store); the rest is the design. Sections 7-8 (prefetching; prebuilt layouts and
 the hybrid) answer the user's follow-up questions; the recommendation (section 9) rests on them. The enabling changes
 in the same PR change no behaviour: the boot's probe now counts the RAM disk's pages and the launcher hands the size
 to the program it starts (nothing reads it yet), the emulator launcher takes a size (`POP800_RD_SIZE`),
@@ -468,3 +468,65 @@ bytes) or not at all.
    fill would not: keep the fill out (16 MB extras later)?
 7. The emulator: raise MCP_REGIONS_MAX (or a bank-addressed RAM-disk command) and consider `mr1r18_type = STD` for the
    tests?
+
+## 11. As built: step 1, the frame store (2026-11-03, PLAN.md item 49)
+
+**The user's decisions (2026-11-03)**: the hybrid with a fixed layout (section 8), no run-time fill (option A dropped);
+building the kid's set at boot is acceptable, and +~1.2 s at a level start for the guard set (step 2, not built
+here); the stored keys are chosen from the test scripts; **on 1 MB the RAM disk above the base layout goes to the
+frame store only: no room cache on 1 MB** (the room cache is a later step, from 2 MB up); the game behaves and looks
+the same on every size (512 KB: no store, today's fetch).
+
+**The layout** (tools/fstore.py, at build time into build/assets; nothing generated is committed):
+
+- The keys: assets/fstore_uses.txt (committed: numbers only) lists every kid and sword key (chtab, frame, mirror,
+  shift) the 71 scripts fetched and how often (2,153 keys; `tools/fstore.py --uses build/meas/k` remakes it from
+  tools/fetchmodel/run_all.sh's output). **Class 1** = the most used per byte up to 400 KB (headers included): 891 keys,
+  409,512 bytes, 80.2 % of the scripts' kid and sword fetches; every card from 1 MB. **Class 2** = the other 1,262 keys
+  (823,312 bytes) from rd_top 29 (2 MB and more; on 16 MB). The guards' keys are step 2.
+- RAM-disk page 8: the key table (471 ids x 16 variants x 4 bytes = 0x75C0 bytes: id = the kid's frame 0-219, the
+  sword's 220 + frame, 255-470 for the guard sets of step 2; slot = id * 64 + (mirror * 8 + shift) * 4 = the entry's
+  page (0 = not stored), address hi, lo), the marker at 0x7700 (the build id: a CRC of the masks, the kid and sword
+  packs and directories, the kernel's and the fill's sources; then the class), the entries from 0x7800 on and in
+  pages 9+: ow, h, the byte count (2 bytes), then the cell buffer exactly as spr_fetch leaves it; an entry that would
+  cross a page starts the next page. Class 1 ends at page 14 0xC2F4 (81.6 KB of 1 MB left: step 2's guard set), class
+  2 at page 27 0x6130.
+- The fill's input: the masks (255 ids x 2 classes, a 16-bit word each: bit v = variant v stored) and the build id,
+  1,024 bytes (build/assets/fstore_masks.bin) at page 6 0xE400, written on every size by the boot's stream
+  (tools/mkgamedisk.py) and by the harness (tests/m4_game.py setup). The fill allocates in mask order (class 1 by id
+  and variant, then class 2); tools/fstore.py computes the same layout (build/assets/fstore_keys.txt,
+  fstore_tab1.bin / fstore_tab2.bin = page 8 0x0000-0x77FF as the fill must leave it).
+
+**The lookup** (src/m4/fslook.asm, main code, 95 bytes; char_fetch in the low block +3 bytes): on a miss of the slot's
+one-entry cache char_fetch jumps through fs_on, which is `jp cf_fetch` (today's fetch) until the fill patches it to
+fs_look. fs_look: the chtab (kid or sword; anything else: today's fetch), the slot address from the id and key2's low
+nibble, one seek to page 8 and 3 INs; page 0: today's fetch; else a seek to the entry, INI x 2 into SD_OW / SD_H, the
+count, INIR into the slot's buffer, then the byte column as on a cache hit. ~300 T + 21 T a byte instead of ~63 K T.
+Resident total: **98 bytes** (main 768 -> 673 free, low block 30 -> 27, block 2 unchanged).
+
+**The fill** (src/m4/fstore.asm, in the level-start overlay, called from game_start after tables_init, interrupts off):
+when HO_RDTOP >= 15 it copies the masks to SPRBUF_B, compares the marker with the build id and the class it wants,
+and when they differ clears page 8 0x0000-0x77FF, then for every stored key calls dir_entry and **spr_fetch, today's
+routine** into SPRBUF_A, writes the table slot and the entry (OTIR), and writes the marker last; then (also when the
+marker matched) patches fs_on. It puts spr_fetch's patched operands and dir_buf back, so main RAM is as after a start
+without the fill. The game is restarted from its RAM-disk image at every launch (PRES swaps), so game_start runs often:
+the marker makes the fill once per RAM disk (and on MZPico's file-backed RAM disk, whose contents persist, once per
+build). The level-start overlay grew 2,201 -> 2,624 bytes (W2: 1,472 free); the overlay area in page 7 has 1.4 KB left
+(the cheat build ~1.0 KB).
+
+**Boot time added** (emulator, frames of 71,136 T): **1 MB 774 frames = 15.5 s, 16 MB 2,250 frames = 45.0 s**, once
+per RAM disk (later launches find the marker: 0). It runs at the first game start, i.e. after the title's key
+(tests/m5_boot.py: game start -> level_ready 819 frames on 1 MB, 44 without the fill); the screen is the cleared game
+screen meanwhile. Running it before the title instead (the launcher starting the game once in a "fill" action) or
+showing progress is a possible follow-up; the dedicated generator (section 9 PR B) would cut it to ~6 s / ~20 s.
+
+**The harness**: tests/m4_game.py setup writes the masks, puts the size at 0x02AF (from `POP800_RD_SIZE`, else the
+INI's `mr1r18_size`: 512K = 7, 1M = 15, 16M = 255), clears the marker (every run fills anew: 0.6 s of host time on 1
+MB, 1.6 s on 16 MB; no store left in a RAM-disk file is trusted) and runs to the fill's end (fs_done), so every test's
+frame counts start after it (`fs_run=False`: the fill runs in game_start, as in a launched game: m5_boot's harness run).
+tests/m8_fstore.py (PR part a, full part sound): on 1 MB+ the key table and the marker equal tools/fstore.py's, every
+entry equals tools/fetchmodel/prebuild.py's generator (byte-identical to the kernel: prebuild_check.py) with its
+header, fs_on points at the lookup, a second start does not fill; on 512 KB fs_on is untouched.
+
+**Results**: docs/perf.md "M8a part 9: the frame store" (perfcheck per size, the RAM-disk accesses per tick and the
+cost of wait states on MZPico).
