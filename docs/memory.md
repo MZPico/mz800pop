@@ -39,7 +39,7 @@ else all 64 KB are RAM. Code in the low block must never run inside `blit`.
 | 0x0C00-0x0FFF | 1 KB | MASKBUF, DATABUF (piece laying; MASKBUF is also scratch for pc_col's clip column and the text overlay's bitmap) |
 | 0x1000-0x119B | 412 | the kid's sword image buffer, its sprite descriptor SPR_S (ROM monitor work area: runtime data only) |
 | 0x1200-0x1FFF | 3.5 KB | low code block (kid2.asm, view.asm, sprite.asm, evres.asm, fx.asm; end_of_low 0x1F91: 111 bytes free) |
-| 0x2000-0x7BFF | 23 KB | main code (people2.asm after objects.asm, then sndobj.asm; end_of_code 0x790B: 757 bytes free below W1 (M8a part 7's st_look: +155); PACE_MODE (0x213C) is a byte in game.asm's code: 0 in the release, 1 in `make pace`) |
+| 0x2000-0x7BFF | 23 KB | main code (people2.asm after objects.asm, then sndobj.asm; end_of_code 0x78C8: 824 bytes free below W1 (M8a part 7's st_look: +155); PACE_MODE (0x213C) is a byte in game.asm's code: 0 in the release, 1 in `make pace`) |
 | 0x7C00-0x7FFF | 1 KB | overlay window W1 (src/m4/ovl.asm): the room overlay (938 bytes, 86 free), the events overlay (1,009 bytes, 15 free), the guard-leave overlay (342 bytes, 682 free), the guard-enter overlay (943 bytes, 81 free), the keys overlay (469 bytes, 555 free; CHEATS=1 832 bytes, 192 free) or the rare overlay (423 bytes, 601 free) |
 | 0x8000-0x80FF | 256 | bit-reverse table |
 | 0x8100-0x81F7 | 248 | room renderer slice tables |

@@ -800,7 +800,8 @@ piece used AND/XOR semantics.
    Built: st_look (people2.asm, main) keeps the slots' visible flag, image key, rect, clip and XOR offset from the last
    drawn tick (low RAM 0x01CA-0x01FC) and pp_rects (block 2) leaves an unchanged character's rect off the dirty list (and
    unjoined) unless this tick or the last has overlay ops or a hurt splash or a room was drawn since (sprite_forget).
-   Cost 178 bytes: main +155 (end_of_code 0x7870 -> 0x790B), block 2 +19 (block2_end 0xEB11 -> 0xEB24), low +4
+   Cost 178 bytes: main +155 (end_of_code 0x782D -> 0x78C8), block 2 +19 (block2_end 0xEB11 -> 0xEB24), low +4
    (end_of_low 0x1F8D -> 0x1F91). VRAM after every tick identical in all 18 measured scripts. perfcheck medians of 3
-   runs, main -> this: fight 9.13 -> 8.30 (baseline 8.99 -> 8.30), traps 6.03 -> 6.04, walk 30-60 6.20 -> 6.20,
-   walkthrough 190-260 11.00 -> 11.00, door 18.09 -> 17.88, room change 106.92 -> 106.91, gate 5.13 -> 5.13.
+   runs, main (11e43a4) -> this: fight 9.00 -> 8.24 (baseline 8.99 -> 8.24), walk 30-60 6.10 -> 6.15 (the comparison
+   runs every tick), door 17.45 -> 17.54 (within its spread), walkthrough 190-260 10.71 -> 10.74, traps 5.96 -> 5.97,
+   room change 106.58 -> 106.57, gate 5.11 -> 5.11.

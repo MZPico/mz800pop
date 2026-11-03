@@ -807,7 +807,8 @@ is lowered where the new median beats it; the room change and the fight keep the
 
 Status: **built.** A character who looks exactly as in the last drawn tick gets no dirty rect of his own: in fights the
 guard stands still (en garde, waiting, lying dead) in 50-75 % of the ticks he is shown, and his chunks were composed and
-copied again every tick for the same pixels. fight1 60-160 gains ~0.8 frames a tick; walking is unchanged.
+copied again every tick for the same pixels. fight1 60-160 gains ~0.76 frames a tick (9.00 -> 8.24); a walking tick pays
+~0.05 for the comparison.
 
 ### Measured (tracepoints at people_place, pp_rects (every slot's descriptor, PP_XD, PP_CL, PP_ORD, the overlay op
 lists), do_m1 (the dirty list, PP_KU, PP_GU), obj_chunk, oc_kid, oc_fore, oc_rec and the return, pf_blit1 (the pending
@@ -875,24 +876,25 @@ chunks less the other character's own U, from a per-chunk fit of the same run, ~
 - What does not change the screen or comes with its own rect: the flash (palette register only), the other character
   (his U covers his old and new pixels, and the chunk draws everybody in it), tile redraws (dirty_from_dr), falling
   floors, torch flames, the bottom texts and hit point strips (outside the playfield).
-- Cost: main +155 bytes (end_of_code 0x7870 -> 0x790B, 757 free), block 2 +19 (block2_end 0xEB11 -> 0xEB24, 220 free),
+- Cost: main +155 bytes (end_of_code 0x782D -> 0x78C8, 824 free), block 2 +19 (block2_end 0xEB11 -> 0xEB24, 220 free),
   low block +4 (end_of_low 0x1F8D -> 0x1F91, 111 free): 178 bytes; 51 bytes of runtime-only low RAM (0x01CA-0x01FC).
 - VRAM after every tick is the same as before in all 18 measured scripts (the scratch tool's VRAM per tick, main's build
   against this one, 6,800 ticks), and the test suite's pixel checks pass.
 
-perfcheck (tools/perfcheck.py, medians of 3 runs; main had one emulator "Run failed" run, its two others matched PR #13's
-main medians), main -> this:
+perfcheck (tools/perfcheck.py, medians of 3 runs each, rebased; main = 11e43a4, with part 6's fore scan) main -> this:
 
-| Stretch | main | this |
-|---|---:|---:|
-| normal tick (walkthrough 30-60) | 6.20 | 6.20 |
-| level door step (walkthrough 203-207) | 18.09 | 17.88 (the known raster-phase variance) |
-| room change (walkthrough 89) | 106.92 | 106.91 |
-| walkthrough 190-260 | 11.00 | 11.00 |
-| gate (gate_push 200-260) | 5.13 | 5.13 |
-| traps (traps_b1 0-300) | 6.03 | 6.04 |
-| fight (fight1 60-160, guard on) | 9.13 | 8.30 |
+| Stretch | main | this | change |
+|---|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 6.10 | 6.15 | +0.05 |
+| level door step (walkthrough 203-207) | 17.45 | 17.54 | +0.09 |
+| room change (walkthrough 89) | 106.58 | 106.57 | -0.01 |
+| walkthrough 190-260 | 10.71 | 10.74 | +0.03 |
+| gate (gate_push 200-260) | 5.11 | 5.11 | 0 |
+| traps (traps_b1 0-300) | 5.96 | 5.97 | +0.01 |
+| fight (fight1 60-160, guard on) | 9.00 | 8.24 | **-0.76** |
 
-The traps stretch saves 0.17 frames a tick of chunk work but no tick time: most likely its ticks end waiting for the
-beam over the traps' own chunks, which takes the saving back (not traced further). The fight baseline is lowered
-8.99 -> 8.30; the others stay.
+Fights gain ~8 %. A walking tick pays ~0.05 frames (~3.5 K T, more than the ~1 K T counted for st_look itself) for
+the comparison with no guard on screen; the door step's +0.09 is within the raster-phase spread of that stretch. The
+traps stretch saves 0.17 frames a tick of chunk work but no tick time: most likely its ticks end waiting for the beam
+over the traps' own chunks, which takes the saving back (not traced further). The fight baseline is lowered
+8.99 -> 8.24; the others stay.
