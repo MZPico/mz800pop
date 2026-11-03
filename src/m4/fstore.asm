@@ -1,13 +1,19 @@
 ; ---------------------------------------------------------------- the frame store's fill (the level-start overlay, W2)
-; docs/ramdisk-tiers.md "As built: step 1". On a RAM disk of 1 MB and more (HO_RDTOP, the boot's probe; the harness
-; pokes it) the chosen kid and sword keys (tools/fstore.py: class 1 on every such card, class 2 too from FS_TOP2) are
-; generated with today's fetch (dir_entry + spr_fetch: the kernel's own shift routines, so the pixels are the same by
-; construction) into RAM-disk pages 8+, once: the marker (the build id and the class) at page 8 FS_MARK says the
-; store is there (the game is restarted from its image at every launch; pages 8+ are written by nothing else).
-; Then fs_on (char_fetch, src/m4/sprite.asm) is patched to the lookup (src/m4/fslook.asm). Interrupts are off; uses
-; SPRBUF_A (outside W2) as the cell buffer, SPRBUF_B for the masks (copied from the RAM disk: FS_MPAGE:FS_MADDR, written
-; by the boot and the harness) and its own variables, the shift tables (tables_init first). It leaves main RAM as a
-; start without the fill does (spr_fetch's patched operands and dir_buf put back: tests/m7_launch.py compares them).
+; docs/ramdisk-tiers.md section 11. On a RAM disk of 1 MB and more (HO_RDTOP, the boot's probe; the harness pokes it)
+; the chosen kid and sword keys (tools/fstore.py: class 1 on every such card, class 2 too from FS_TOP2) are generated
+; with today's fetch (dir_entry + spr_fetch: the kernel's own shift routines, so the pixels are the same by
+; construction) into RAM-disk pages 8+. The boot clears the marker (page 8 FS_MARK: the build id and the class) and
+; starts the game with ACT_FILL (src/m4/gstart.asm gs_fill: the fill on the loading screen, ff_bw > 0: its progress
+; bar, then the title); every later start in the same session (PRES swaps, restarts) finds the marker and only patches
+; fs_on (char_fetch, src/m4/sprite.asm) to the lookup (src/m4/fslook.asm). The harness, which does not boot, fills at
+; game_start (no bar).
+; The interface (step 2's dedicated generator replaces ff_pass / ff_key: all 16 variants of an image from one read):
+; fs_fill = the marker check, then `call ff_pass` with HL = a key list (a mask table: FS_IDS words, bit v = variant v
+; = mirror * 8 + shift stored) for each class, the allocation in that order, the marker last.
+; Interrupts are off; uses SPRBUF_A (outside W2) as the cell buffer, SPRBUF_B for the masks (copied from the RAM
+; disk: FS_MPAGE:FS_MADDR, written by the boot and the harness) and its own variables, the shift tables (tables_init
+; first). It leaves main RAM as a start without the fill does (spr_fetch's patched operands and dir_buf put back:
+; tests/m7_launch.py compares them).
 FF_MBUF         equ     SPRBUF_B                ; the masks (2 x FS_IDS words), fs_id (4), ff_class (1)
 fs_mask1        equ     FF_MBUF
 fs_mask2        equ     FF_MBUF + 2 * FS_IDS

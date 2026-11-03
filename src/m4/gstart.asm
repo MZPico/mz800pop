@@ -11,7 +11,9 @@ gs_play:        in      a, (0xe0)       ; VRAM on: the screen cleared, the palet
                 call    video_init
                 in      a, (0xe1)       ; VRAM window off: 0x8000-0x9FFF is RAM for the renderer's tables
                 call    tables_init
-                call    fs_fill         ; the frame store (1 MB and more: src/m4/fstore.asm; needs the shift tables)
+                xor     a               ; the frame store (1 MB and more: src/m4/fstore.asm; needs the shift tables): the
+                ld      (ff_bw), a      ; boot filled it (ACT_FILL), so this only finds the marker; the harness fills
+                call    fs_fill         ; here (no bar)
                 call    irq_init
                 call    sprite_init
                 call    sword_init

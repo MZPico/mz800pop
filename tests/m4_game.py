@@ -165,6 +165,14 @@ def fs_clear(e, S):
     """the frame store's marker cleared (1 MB and more only: below, page 8 is page 0): the next game start fills it"""
     if rd_top(e) >= S['FS_TOP1']: write_pack(e, bytes(5), S['FS_PAGE'], S['FS_MARK'])
 
+def fs_plant(e, S):
+    """a valid-looking frame store marker (this build's id and the class for this size) left in the RAM disk, as an
+    earlier session would leave it (1 MB and more): the boot must clear it and fill anew (src/boot/boot.asm)"""
+    top = rd_top(e)
+    if top < S['FS_TOP1']: return
+    fid = open(os.path.join(A, 'fstore_masks.bin'), 'rb').read()[-4:]
+    write_pack(e, fid + bytes((2 if top >= S['FS_TOP2'] else 1,)), S['FS_PAGE'], S['FS_MARK'])
+
 def frame_store(e, S, fresh=True, run=True):
     """the size (rd_top: the emulator's) as the boot's probe hands it over (HO_MAIN + HO_RDTOP, src/boot/launch.inc), then the program runs to
     the end of the frame store's fill (src/m4/fstore.asm fs_fill, in game_start; docs/ramdisk-tiers.md \"As built: step

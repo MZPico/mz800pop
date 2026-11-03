@@ -96,7 +96,10 @@ def boot_to_game(e, dsk, times=None):
     e.call('reset')
     t = {}
     _, t['boot'] = run_to(e, BS['launch_main'])
-    _, t['launcher -> PRES'] = run_to(e, PS['pres'])
+    pc, t['launcher -> PRES'] = run_to(e, PS['pres'])
+    if e.mem(BS['HO_MAIN'] + BS['HO_ACTION'], 1)[0] == BS['ACT_FILL']:     # (1 MB and more: the game first, the fill)
+        t['launcher -> the frame store\'s fill -> launcher'] = t.pop('launcher -> PRES') + run_to(e, BS['launch_main'])[1]
+        _, t['launcher -> PRES'] = run_to(e, PS['pres'])
     t['PRES title (to its step a, a key)'] = M5.title_start(e)
     _, t['PRES -> game start'] = run_to(e, G['start'])
     if times is not None: times.update(t)

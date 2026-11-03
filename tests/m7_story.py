@@ -63,7 +63,7 @@ def run_to_sync(e, dsk):
     M5.fill_ramdisk(e)
     e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
     e.call('reset')
-    M5.run_to(e, PS['pres'], 3000)
+    M5.to_pres(e)
     tr = C.tracker(e)
     e.call('bp_clear')
     tr.bps()
@@ -151,7 +151,7 @@ def boot_action(e, dsk, action, level=1, rem_min=0):
     M5.fill_ramdisk(e)
     e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
     e.call('reset')
-    M5.run_to(e, PS['pres'], 3000)
+    M5.to_pres(e)
     ho = bytearray(e.mem(HO, 16)); ho[2] = action; ho[3] = level; ho[4] = rem_min; ho[5:7] = (0).to_bytes(2, 'little'); ho[7] = 3
     e.call('mem_write', addr=HO, data_hex=bytes(ho).hex())
 
