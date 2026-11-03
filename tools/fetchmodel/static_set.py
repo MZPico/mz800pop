@@ -19,7 +19,9 @@ def lvl(name):
 F = 71136; HIT = 800; TPB = 21.1
 scripts = []
 for d in sorted(glob.glob(os.path.join(K, '*'))):
-    nm = os.path.basename(d); cs = [json.loads(l) for l in open(os.path.join(d, 'calls.jsonl'))]
+    nm = os.path.basename(d); f = os.path.join(d, 'calls.jsonl')
+    if not os.path.exists(f): print('(skipped %s: no calls.jsonl, its run failed)' % nm); continue
+    cs = [json.loads(l) for l in open(f)]
     if not cs: continue
     lv = lvl(nm); seq = []
     for c in cs:
@@ -51,7 +53,7 @@ def cost(test, chosen):
             if k and k in chosen: t += HIT + TPB * sz; h += 1
             else: t += tot
             n += k is not None
-    return today / ticks / F, t / ticks / F, h / max(n, 1)
+    return today / ticks / F, t / ticks / F, h / max(n, 1), ticks, n
 
 if __name__ == '__main__':
     halves = (scripts[0::2], scripts[1::2])
@@ -64,15 +66,17 @@ if __name__ == '__main__':
         res = []
         for i in (0, 1):
             ch, sp = choose(halves[1 - i], budget); res.append(cost(halves[i], ch) + (sp,))
-        a = sum(r[0] for r in res) / 2; b = sum(r[1] for r in res) / 2; h = sum(r[2] for r in res) / 2
-        sp = res[0][3]
+        nt = sum(r[3] for r in res); nf = sum(r[4] for r in res)        # both folds pooled: weighted by ticks / fetches
+        a = sum(r[0] * r[3] for r in res) / nt; b = sum(r[1] * r[3] for r in res) / nt; h = sum(r[2] * r[4] for r in res) / max(nf, 1)
+        sp = res[0][5]
         print('%-55s fetch %.3f -> %.3f frames a tick (store hits %.0f%% of the fetches); kid+sword %d KB, a guard set up to %d KB' % (
             label, a, b, 100 * h, sp['kid'] // 1024, max([v for g, v in sp.items() if g != 'kid'] + [0]) // 1024))
     every = set(k for _, _, seq in scripts for k, _, _, _ in seq if k)
-    a, b, h = cost(scripts, every)
-    print('%-55s fetch %.3f -> %.3f frames a tick (hits 100%%: the whole key space stored, 4.35 MB)' % ('16 MB: all 7,184 keys', a, b))
+    a, b, h, _, _ = cost(scripts, every)
+    print('%-55s fetch %.3f -> %.3f frames a tick (hits 100%%: the whole key space stored, so all %d keys used here hit)' % (
+        '16 MB: every key', a, b, len(every)))
     for nm in ('walk_level1', 'fight1', 'traps_b1'):
         test = [s for s in scripts if s[0] == nm]; rest = [s for s in scripts if s[0] != nm]
         ch, _ = choose(rest, dict(kid=400 * 1024, guard=80 * 1024))
-        a, b, h = cost(test, ch)
+        a, b, h, _, _ = cost(test, ch)
         print('  %-12s (keys chosen from the other 70 scripts, 1 MB budget): %.3f -> %.3f (hits %.0f%%)' % (nm, a, b, 100 * h))
