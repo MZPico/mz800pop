@@ -37,6 +37,10 @@ $(BUILD)/boot.bin: src/boot/boot.asm src/boot/rdspeed.asm src/boot/fdc.asm src/b
 	cd src/boot && $(PASMO) --bin boot.asm ../../$(BUILD)/boot.bin ../../$(BUILD)/boot.sym
 $(BUILD)/boot.mzf: $(BUILD)/boot.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 B000
+# tools/build_assets.py's outputs that the programs and the disk read (its rule: after the `assets` target below)
+ASSET_SETS = dungeon dungeon_wall objects sword kid palace palace_wall guard fat skel vizier shadow guard_palace
+ASSET_OUT = $(BUILD)/assets/tables.inc $(BUILD)/assets/logic.bin $(BUILD)/assets/seqtbl_z80.bin \
+            $(foreach s,$(ASSET_SETS),$(BUILD)/assets/$(s).pack $(BUILD)/assets/$(s).dir)
 GAME_ASSETS = $(wildcard $(BUILD)/assets/*.pack $(BUILD)/assets/*.dir $(BUILD)/assets/level*.bin) $(BUILD)/assets/logic.bin $(BUILD)/assets/sound.bin $(BUILD)/assets/fstore_masks.bin
 # M7: the PSG sound bank (effects re-made for 50 Hz from the DOS sound data, the MIDI music arranged by tools/midi2psg.py;
 # src/m4/psg.asm plays it); the notes' OPL level curves: assets/opl/levels.json (committed: assets/opl/README.md)
@@ -53,11 +57,11 @@ $(BUILD)/assets/sound_pres.bin: tools/presbank.py tools/sndsim.py $(BUILD)/asset
 $(BUILD)/assets/title.inc $(BUILD)/assets/title.pack: tools/build_assets.py tools/titleref.py tools/kidsim.py tools/datfile.py
 	$(PY) tools/build_assets.py --title
 # M7 step 7: the cutscene engine (src/pres/cut.asm: the room entry of POP800.PRS) and its tables (tools/cutart.py)
-$(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/build_assets.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
+$(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/build_assets.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt $(BUILD)/assets/seqtbl_z80.bin
 	$(PY) tools/cutart.py
 $(BUILD)/pres.bin: src/pres/pres.asm src/boot/launch.inc src/boot/unpz.asm src/boot/fdc.asm src/m1/far.asm src/m4/psg.asm src/m4/save.asm $(BUILD)/assets/title.inc src/pres/cut.asm $(BUILD)/assets/cut.inc | $(BUILD)
 	cd src/pres && $(PASMO) --bin pres.asm ../../$(BUILD)/pres.bin ../../$(BUILD)/pres.sym
-$(BUILD)/pop800.dsk: $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin $(GAME_ASSETS) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin tools/mkgamedisk.py tools/pzpack.py tools/cutart.py tools/cutsim.py
+$(BUILD)/pop800.dsk: $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin tools/mkgamedisk.py tools/pzpack.py tools/cutart.py tools/cutsim.py
 	$(PY) tools/mkgamedisk.py $@ $(BUILD)/boot.mzf
 m5boot: $(BUILD)/pop800.dsk
 	$(PY) tests/m5_boot.py
@@ -131,6 +135,10 @@ m1: $(BUILD)/m1test.mzf $(BUILD)/m1.pack
 
 # M2 assets: packs for every image set, level blueprints, tables
 assets: $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
+	$(PY) tools/build_assets.py
+# the same run as a file rule (ASSET_OUT, above), so that a plain `make` in a fresh checkout builds what the programs
+# and the disk read
+$(ASSET_OUT) &: tools/build_assets.py tools/popdata.py tools/datfile.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt
 	$(PY) tools/build_assets.py
 # SDLPoP's sequence table (external/SDLPoP/src/seqtbl.c) as data: build/assets/seqtbl.bin, seqtbl_offsets.txt (tools/seqdump.c)
 SDL2_CFLAGS ?= $(shell pkg-config --cflags sdl2 2>/dev/null || echo -I/usr/include/SDL2)
