@@ -216,42 +216,55 @@ spr_draw:       push    hl
                 pop     iy
                 xor     a
                 call    sd_bounds               ; (returns from spr_draw when nothing is visible)
-sdrow:          push    de
-                ld      hl, (V_ROWOFF)
-                ld      a, (V_PX)
+                ld      a, (V_PX)               ; the row loop keeps its pointers in registers: patch the
+                ld      (sd_px+1), a            ; cells per row and both row advances
+                ld      (sd_dst+1), a           ; compose: back to the row start, then CW on
                 ld      c, a
-sdcell:         ld      a, (hl)
-                inc     hl
+                add     a, a
+                add     a, a
+                ld      c, a
+                ld      a, (sd_stride+1)
+                sub     c
+                ld      (sd_stride+1), a        ; source: (ow - px) * 4
+                ld      a, (V_N)
+                exx
+                ld      b, a                    ; B' = rows left
+                exx
+                ld      hl, (V_ROWOFF)
+sdrow:
+sd_px:          ld      c, 0                    ; patched: cells per row
+sdcell:         ld      a, (hl)                 ; (the cell buffers are 4-aligned: inc l inside a cell)
+                inc     l
                 or      (hl)
-                inc     hl
+                inc     l
                 or      (hl)
-                inc     hl
+                inc     l
                 or      (hl)
                 jr      z, sdempty      ; nothing to draw in this cell
                 cpl
                 ld      b, a            ; B = inverted mask
-                dec     hl
-                dec     hl
-                dec     hl
+                dec     l
+                dec     l
+                dec     l
                 ld      a, (de)
                 and     b
                 or      (hl)
                 ld      (de), a
-                inc     hl
-                inc     d
-                inc     d
-                ld      a, (de)
-                and     b
-                or      (hl)
-                ld      (de), a
-                inc     hl
+                inc     l
                 inc     d
                 inc     d
                 ld      a, (de)
                 and     b
                 or      (hl)
                 ld      (de), a
-                inc     hl
+                inc     l
+                inc     d
+                inc     d
+                ld      a, (de)
+                and     b
+                or      (hl)
+                ld      (de), a
+                inc     l
                 inc     d
                 inc     d
                 ld      a, (de)
@@ -271,18 +284,18 @@ sdempty:        inc     hl
                 dec     c
                 jp      nz, sdcell
 sdrowend:
-                pop     de
-                ld      hl, (V_ROWOFF)
-sd_stride:      ld      bc, 0           ; patched: ow*4
+sd_stride:      ld      bc, 0           ; patched: sd_bounds ow*4, then (ow - px) * 4
                 add     hl, bc
-                ld      (V_ROWOFF), hl
-                ex      de, hl
-                ld      bc, CW
-                add     hl, bc
-                ex      de, hl
-                ld      hl, V_N
-                dec     (hl)
-                jr      nz, sdrow
+                ld      a, e            ; (the last cell's inc e may have wrapped E: the carry comes from
+sd_dst:         sub     0               ; the row start + CW; patched: px)
+                add     a, CW
+                ld      e, a
+                jr      nc, sd_nc
+                inc     d
+sd_nc:          exx
+                dec     b
+                exx
+                jp      nz, sdrow
                 ret
 
 ; sd_bounds: IY = sprite descriptor, A = extra byte columns right of the image (the shadow's XOR copy: 1): its visible
