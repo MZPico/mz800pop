@@ -104,7 +104,8 @@ def main():
         for c in calls: c['script'] = os.path.basename(sp)[:-4]
         allc += calls
         sel = [c for c in calls if span is None or span[0] <= c['tick'] < span[1]]
-        nt = (span[1] - span[0]) if span else max([c['tick'] for c in calls] + [0]) + 1
+        end = min(span[1], len(kidsim.read_script(sp)[0])) if span else max([c['tick'] for c in calls] + [0]) + 1
+        nt = max(end - span[0], 1) if span else end        # (a span past the script's end: only the ticks run)
         miss = [c for c in sel if not c['hit']]
         tot = sum(c['total'] for c in sel)
         print('%s%s: %d ticks, %d calls, %d fetches (misses of the one-entry cache), %.3f frames a tick in char_fetch' %

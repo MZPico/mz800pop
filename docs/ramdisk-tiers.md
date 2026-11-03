@@ -231,7 +231,7 @@ new stretch is up to ~0.1-0.25 frames a tick slower (42 of the 71 scripts run fr
 whole length, the worst fight_bump 1.21 -> 1.46): the fill's write. Over a session the cache wins (the FIFO table
 above); a 16 MB card plays every revisited stretch warm.
 
-RAM disk: 1 MB card pages 8-15 (directory 30 KB + ~480 KB ring); 16 MB pages 8-75 for frames. Resident ~300 bytes of
+RAM disk: 1 MB card pages 8-15 (directory 30 KB + ~480 KB ring); 16 MB pages 8-80 for frames (the directory on page 8, the data on pages 9-80). Resident ~300 bytes of
 main code. Floppy: nothing.
 
 **Pixel identity across sizes**: the cache only replaces how the cell buffer is filled, so every pixel test that passes
@@ -292,7 +292,7 @@ with 512 KB, 1 MB and 16 MB, which the tiers' verification (section 4) builds on
 
 (Per level the observed sets are what the scripts happen to cover: level 1 has 30 scripts, other levels 1-6.) 1 MB
 (~480 KB free above the base layout and the 30 KB directory): about a fifth of the kid's full set, or the most used
-~400 KB of kid + sword keys and ~80 KB of the level's guard set. 16 MB: everything (4.35 MB = 67 pages) with room for
+~400 KB of kid + sword keys and ~80 KB of the level's guard set. 16 MB: everything (4.35 MB in pages 9-80, section 3) with room for
 the room cache.
 
 ### Fill times at today's shift speed
@@ -340,15 +340,15 @@ So prefetching means a fixed amount of work at boot and / or level start, not ba
 ### Misses that remain, the cold pass
 
 With a store filled ahead (keys chosen by use, cross-validated: chosen from half of the scripts, measured on the other
-half; tools/fetchmodel/static_set.py), fetch frames a tick, today 0.871 on these runs:
+half; tools/fetchmodel/static_set.py), fetch frames a tick, today 0.866 on these runs:
 
 | store | fetch | stored keys hit |
 |---|---:|---:|
-| 16 MB: all 7,184 keys | 0.186 | 100 % |
-| 1 MB: kid + sword 400 KB + the level's guard set 80 KB | 0.399 | 74 % |
-| kid + sword 448 KB + guard set 32 KB | 0.394 | 74 % |
-| kid + sword 256 KB + guard set 64 KB | 0.477 | 64 % |
-| kid + sword 400 KB only | 0.451 | 68 % |
+| 16 MB: every key (all keys these runs use hit) | 0.186 | 100 % |
+| 1 MB: kid + sword 400 KB + the level's guard set 80 KB | 0.397 | 74 % |
+| kid + sword 448 KB + guard set 32 KB | 0.392 | 74 % |
+| kid + sword 256 KB + guard set 64 KB | 0.474 | 64 % |
+| kid + sword 400 KB only | 0.448 | 68 % |
 
 Held-out scripts with the 1 MB store (keys chosen from the other 70): walk_level1 0.936 -> 0.485, fight1 1.222 -> 0.639,
 traps_b1 0.906 -> 0.361. A key not in the store costs exactly today's fetch: **no cold penalty** (option A's first
@@ -382,7 +382,7 @@ the same lookup and serves both sizes.
 | boot cost | none | read ~4.4 s (real drive ~20 KB/s) + PZ decode ~11.5 s (~100 T a byte) = **~16 s** | **~5.8 s** (dedicated generator) / 14.6 s (today's code) | none |
 | level start | none | none (if guard sets are on the disk: 82-86 KB PZ each) | +1.2 s (dedicated) / +3.0 s (today's code) for 80 KB of the guard set | none |
 | cold pass | first uses +0.1-0.25 a tick | none: an unstored key = today's fetch | none | none |
-| session fetch (1 MB / 16 MB) | 0.447 / 0.301 | 0.399 / - | 0.399 / ~0.19-0.30 | 0.399 / 0.186 |
+| session fetch (1 MB / 16 MB) | 0.447 / 0.301 | 0.397 / - | 0.397 / ~0.19-0.30 | 0.397 / 0.186 |
 | pixel safety | the kernel's own buffer | a PC generator: must match the kernel bit for bit | the kernel's own routines (or a verified generator) | as B |
 
 B's numbers come from tools/fetchmodel/prebuild.py, which generates every variant as the kernel does; its output equals
@@ -419,16 +419,16 @@ Measured / estimated for it:
 
 | | 1 MB | 16 MB |
 |---|---|---|
-| RAM disk | key table 30 KB + kid / sword 400 KB + one guard set's 80 KB (pages 8-15) | everything: 4.35 MB (pages 8-75) |
+| RAM disk | key table 30 KB + kid / sword 400 KB + one guard set's 80 KB (pages 8-15) | everything: 4.35 MB (directory page 8, data pages 9-80) |
 | disk for (1) | 88 KB PZ (does not fit today's disk; fits 80 tracks) | the kid's full set 475 KB PZ: does not fit even 80 tracks |
 | boot (1) | ~16 s from the disk (B) or ~5.8 s generated (C) | the full kid set: ~31 s generated, ~78 s with today's code |
 | level start (2) | 80 KB of the guard set: +1.2 s / +3.0 s; the whole set +5.6 s / +12-15 s | every set once: as the 1 MB column, then never again |
 | per-tick lookup | ~110 bytes main | the same |
 | cold pass | none: the kid's stored keys are warm from the first tick, the guard's after the level start; the rest = today | none |
-| gain (fetch frames a tick) | session 0.871 -> 0.399; walk 0.94 -> 0.49, fight 1.22 -> 0.64, traps 0.91 -> 0.36 | -> 0.186 when all stored |
+| gain (fetch frames a tick) | session 0.866 -> 0.397; walk 0.94 -> 0.49, fight 1.22 -> 0.64, traps 0.91 -> 0.36 | -> 0.186 when all stored |
 | whole tick | walk ~5.72 -> ~5.3, fight ~7.73 -> ~7.2 (first pass = every pass) | walk -> ~5.0, fight -> ~6.5 |
 
-Against option A on 1 MB: the hybrid is better over a session (0.399 against 0.447), has no cold penalty, ~190 fewer
+Against option A on 1 MB: the hybrid is better over a session (0.397 against 0.447), has no cold penalty, ~190 fewer
 resident bytes and no fill / eviction code; A adapts to keys the scripts never showed (on 16 MB A ends warmer than a
 partial store). The kid's part as B (disk) costs a bigger disk and ~16 s of boot; as C (generated at boot from the
 packs already in the RAM disk) ~6 s and no disk change, with the same layout and lookup. 16 MB: the full set takes
@@ -461,7 +461,7 @@ bytes) or not at all.
    or should it run while PRES shows the title (PRES's own code, more work)?
 2. Level start: +1.2 s for 80 KB of the guard set (or +5.6 s for the whole set, once per set on 16 MB) acceptable?
 3. The 1 MB split between the frame store and the room cache (8 room slots = 256 KB would halve the kid core:
-   0.399 -> ~0.48 a tick of fetch)?
+   0.397 -> ~0.48 a tick of fetch)?
 4. The key list from the test scripts' use (cross-validated 74 % hits): good enough, or record a few real play sessions
    (the GUI) to choose it?
 5. MZPico: is the 512 KB+ `[ramdisk]` on a Deluxe board file-backed (RP2040 RAM), and is its speed known? A test on the

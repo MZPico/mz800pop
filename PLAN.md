@@ -837,7 +837,7 @@ piece used AND/XOR semantics.
    (user): prefetching (sections 7: the ticks idle only 0.05-2.3 frames a second, so prefetch = work at boot / level
    start; pages 8+ survive levels and PRES) and prebuilt / boot-generated fixed layouts and the hybrid (section 8: a key
    table, lookup ~110 resident bytes, no fill or eviction; 1 MB store kid + sword 400 KB + the level's guard set 80 KB
-   chosen from the scripts' use: fetch 0.871 -> 0.399 a tick with no cold pass, against the run-time cache's 0.447 with
+   chosen from the scripts' use: fetch 0.866 -> 0.397 a tick with no cold pass, against the run-time cache's 0.447 with
    +0.1-0.25 first passes; the kid's set on the floppy needs an 80-track image (88 KB PZ for 400 KB; the full set 475
    KB) and ~16 s of boot, generated at boot from the packs ~6 s (a dedicated generator) / ~15 s (today's code); the
    guard's 80 KB at a level start +1.2 / +3.0 s; MZPico's [ramdisk] takes a flat image file, persistent). Recommended
