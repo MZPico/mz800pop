@@ -353,12 +353,12 @@ def main():
         '%s page %d %04X-%04X' % (w, p, a, a + n - 1) for p, a, n, w in RESERVED))
     bad = (bar != 32)
     if FILL is not None:
-        ok = FILL['act'] == BS['ACT_FILL'] and FILL['table'] and FILL['frames'] > 300 and FILL['bar']
+        fill_ok = FILL['act'] == BS['ACT_FILL'] and FILL['table'] and FILL['frames'] > 300 and FILL['bar']
         print('the frame store (class %d): the boot started the game with ACT_FILL: %s, the fill on the loading screen %d frames '
               '= %.1f s (screenshot build/m5_fill.png), a valid-looking marker left before the boot was not trusted: the key '
               'table as tools/fstore.py computes it: %s, the bar full: %s%s' % (FILL['cls'], FILL['act'] == BS['ACT_FILL'], FILL['frames'],
-              FILL['frames'] / 50.0, FILL['table'], FILL['bar'], '' if ok else '  FAILED'))
-        bad += not ok
+              FILL['frames'] / 50.0, FILL['table'], FILL['bar'], '' if fill_ok else '  FAILED'))
+        bad += not fill_ok
     print('the launched game\'s sound mode (psg.asm SND_MODE): %d (%s); set to 0 (silent, as the harness) for the comparison' % (
         SND_MODE_LAUNCHED, 'live' if SND_MODE_LAUNCHED == 1 else 'NOT LIVE'))
     bad += SND_MODE_LAUNCHED != 1

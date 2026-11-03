@@ -3,7 +3,7 @@
 Status: **step 1 built** (section 11: the frame store, the kid and sword keys; PR perf/frame-store); the rest is the design. Sections 7-8 (prefetching; prebuilt layouts and
 the hybrid) answer the user's follow-up questions; the recommendation (section 9) rests on them. The enabling changes
 in the same PR change no behaviour: the boot's probe now counts the RAM disk's pages and the launcher hands the size
-to the program it starts (nothing reads it yet), the emulator launcher takes a size (`POP800_RD_SIZE`),
+to the program it starts (the frame store reads it: section 11), the emulator launcher takes a size (`POP800_RD_SIZE`),
 `tests/m5_boot.py` tests the probe with 512 KB, 1 MB and 16 MB, `tools/fetchstat.py` measures the sprite fetch and
 tools/fetchmodel/ holds the models and measurements behind the tables (run_all.sh / idle_all.sh feed them).
 
