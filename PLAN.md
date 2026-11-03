@@ -246,6 +246,8 @@ Remaining, with expected gains (frames per tick unless noted), resumed after M6/
    status 43; the copy scheduler: status 42). Pre-mirrored kid pack (~106 KB of RAM disk,
    same budget question as 2): -0.25.
 8. memext backend (memory-mapped RAM disk, no seeks) where the hardware has it.
+9. Standing characters: a character who looks as in the last drawn tick gets no dirty rect (built 2026-11-03, status
+   46: fight -0.8 frames a tick).
 Expected after 1-7: normal ~5.0-5.3 (~80% of SDLPoP), fights ~6-7, door ~10-12, room change ~95 first
 visit / ~0.5 s revisited. The last ~20% needs frame skipping or memext.
 Regression guard: `make perf` (tools/perfcheck.py, part of `make m4`) measures six fixed stretches and fails
@@ -514,7 +516,7 @@ piece used AND/XOR semantics.
    - Speed (`make perf`): fight 8.99 frames per tick (SDLPoP fights at 10 ticks/s = 5 frames), normal 6.11.
    - Left: the shadow's scripted moves and its OR/XOR drawing and mirror clip (with the M5 level events), a
      tick where both characters are hurt shows only the guard's splash, the 1-hit-point blink of both strips,
-     a standing guard is composed every tick (skipping it is an M8a item), Jaffar fights as a normal guard.
+     a standing guard is composed every tick (skipping it is an M8a item; done: status 46), Jaffar fights as a normal guard.
 17. Code overlays (2026-10-29, M5 step 0; src/m4/ovl.asm has the recipe, docs/memory.md the layout): W1 = 1 KB at
    0x7C00 for event code during play (now: the full room draw, 868 B), W2 = 0xA000-0xAFFF (compose buffers,
    unused between levels) for level-start code (now: load_level, kid/guard start, alter_mods, 945 B). Overlays are
@@ -788,3 +790,17 @@ piece used AND/XOR semantics.
    30-60 6.20 -> 6.10, fight 9.13 -> 9.00, traps 6.03 -> 5.96, walkthrough 190-260 11.00 -> 10.70, level door 17.88 ->
    17.45, room change 106.92 -> 106.58, gate 5.13 -> 5.11 (the tile redraws share the scan: the walkthrough and the
    door gain more than the estimate). The full regression on the runners passed (regress/fore-scan).
+46. M8a part 7, standing characters (2026-11-03, docs/perf.md "M8a part 7: standing characters"; numbered after item 45
+   of PR #13, the fore scan): measured first with tracepoints over the 16 fight scripts and the walkthrough (per tick and
+   character: unchanged slots, the chunks and copies of his rect, VRAM after each tick). The guard is unchanged (same
+   frame, chtab, mirror, shift, rect, clip, XOR offset) in 50-75 % of the ticks he is shown (fight1 60-160: 62 of 100;
+   en garde, waiting, lying dead), the kid in 1-12 % of fight ticks, never in the walkthrough; his fetch is already a
+   cache hit (0.003 frames a tick), his chunks are not: 0.39-2.24 frames a tick of compose + copy in the fight scripts
+   (fight1 60-160 0.79), with his pixels the same outside the other dirty rects in every such tick (VRAM checked).
+   Built: st_look (people2.asm, main) keeps the slots' visible flag, image key, rect, clip and XOR offset from the last
+   drawn tick (low RAM 0x01CA-0x01FC) and pp_rects (block 2) leaves an unchanged character's rect off the dirty list (and
+   unjoined) unless this tick or the last has overlay ops or a hurt splash or a room was drawn since (sprite_forget).
+   Cost 178 bytes: main +155 (end_of_code 0x7870 -> 0x790B), block 2 +19 (block2_end 0xEB11 -> 0xEB24), low +4
+   (end_of_low 0x1F8D -> 0x1F91). VRAM after every tick identical in all 18 measured scripts. perfcheck medians of 3
+   runs, main -> this: fight 9.13 -> 8.30 (baseline 8.99 -> 8.30), traps 6.03 -> 6.04, walk 30-60 6.20 -> 6.20,
+   walkthrough 190-260 11.00 -> 11.00, door 18.09 -> 17.88, room change 106.92 -> 106.91, gate 5.13 -> 5.13.
