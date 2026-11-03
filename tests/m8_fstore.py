@@ -13,7 +13,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path[:0] = [HERE, os.path.join(ROOT, 'tools'), os.path.join(ROOT, 'tools', 'fetchmodel')]
 import m4_game as G
-from m3_test import syms, RAMDISK
+from m3_test import syms
+RAMDISK = {p: 76 + p for p in range(52)}     # (page -> region id; the MCP lists pages 0-51 of a 16 MB RAM disk)
 from emu import Emu
 import prebuild
 A = os.path.join(ROOT, 'build', 'assets')
@@ -30,8 +31,6 @@ def main():
     top = G.RD_TOPS[G.rd_size()]
     fails = 0
     with Emu() as e:
-        if top >= S['FS_TOP1']:
-            G.write_pack(e, bytes(5), S['FS_PAGE'], S['FS_MARK'])      # (a store left in the RAM-disk file: fill anew)
         c0 = e.call('get_raster_pos')['total_cycles']
         G.setup(e, 1)
         c1 = e.call('get_raster_pos')['total_cycles']
@@ -67,7 +66,7 @@ def main():
         print('%d entries (%d bytes) checked, %d differ' % (n, byts, bad)); fails += bad > 0
         # a second start: the marker is found, no fill
         c0 = e.call('get_raster_pos')['total_cycles']
-        G.setup(e, 1)
+        G.setup(e, 1, fs_fresh=False)
         c1 = e.call('get_raster_pos')['total_cycles']
         print('a second start (the marker found): setup %.1f frames' % ((c1 - c0) / F))
         if (c1 - c0) / F > 60: print('FAIL the store was filled again'); fails += 1

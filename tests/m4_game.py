@@ -108,7 +108,7 @@ def composite(rr, room, spr, kidset):
     return rr.paint()
 
 GUARDS_OFF = dict(guards=False, place=[], sword=False)
-def setup(e, lv, start=True, opts=GUARDS_OFF):
+def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     """RAM disk in game.asm's layout, the RAM directories, the level number, the guard options (guard.asm guard_opts;
     default: guards off, as the m4 scripts and tools/perfcheck.py are recorded) and the level-event options (guard.asm
     ev_opts: '# start', '# time'). Returns the symbols."""
@@ -146,7 +146,7 @@ def setup(e, lv, start=True, opts=GUARDS_OFF):
     e.call('mem_write', addr=S['level_number'], data_hex='%02x' % lv)
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(opts).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(opts).hex())
-    frame_store(e, S)
+    frame_store(e, S, fs_fresh, fs_run)
     return S
 
 RD_TOPS = {'64K': 0, '256K': 3, '512K': 7, '1M': 15, '16M': 255}
@@ -157,13 +157,22 @@ def rd_size():
     for l in open(os.path.join(ROOT, 'emu', 'mz800emu.ini')):
         if l.startswith('mr1r18_size'): return l.split('=')[1].strip()
 
-def frame_store(e, S):
+def fs_clear(e, S):
+    """the frame store's marker cleared (1 MB and more only: below, page 8 is page 0): the next game start fills it"""
+    if RD_TOPS[rd_size()] >= S['FS_TOP1']: write_pack(e, bytes(5), S['FS_PAGE'], S['FS_MARK'])
+
+def frame_store(e, S, fresh=True, run=True):
     """the size as the boot's probe hands it over (HO_MAIN + HO_RDTOP, src/boot/launch.inc), then the program runs to
     the end of the frame store's fill (src/m4/fstore.asm fs_fill, in game_start; docs/ramdisk-tiers.md \"As built: step
-    1\"): 1 MB and more generate the store once per RAM disk (the marker), so the tests' frame counts start after it"""
+    1\"): 1 MB and more generate the store once per RAM disk (the marker), so the tests' frame counts start after it.
+    fresh: the marker is cleared first, so every run fills anew (0.6 s of host time on 1 MB, 1.6 s on 16 MB) and no
+    store left in the RAM-disk file by another build or run is trusted. run=False: the program stays at `start` (the fill
+    then runs inside game_start, as in a launched game: tests/m5_boot.py)"""
     top = RD_TOPS[rd_size()]
     e.call('mem_write', addr=0x02AF, data_hex='%02x' % top)
     if top < S['FS_TOP1']: return
+    if fresh: fs_clear(e, S)
+    if not run: return
     L = syms(os.path.join(ROOT, 'build', 'ovl_level.sym'))
     e.call('bp_add', addr=L['fs_done'])
     for _ in range(40):                     # (16 MB: ~45 s of fill)

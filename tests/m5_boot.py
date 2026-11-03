@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join
 import emu
 from emu import Emu
 from m3_test import syms, RAMDISK
-from m4_game import setup
+from m4_game import setup, fs_clear
 import mkgamedisk
 BUILD = os.path.join(ROOT, 'build')
 DSK = os.path.join(BUILD, 'pop800.dsk')
@@ -135,7 +135,7 @@ def ticks(e, n):
 def harness_run():
     with Emu() as e:
         fill_ramdisk(e)
-        setup(e, 1, opts=REAL_GAME)
+        setup(e, 1, opts=REAL_GAME, fs_run=False)   # (the frame store's fill then runs in game_start, as launched)
         assert e.call('get_registers')['PC'] == G['start']
         s0 = snapshot(e, RESERVED + PRES_SCRATCH)
         run_to(e, G['level_ready'])
@@ -147,6 +147,7 @@ def harness_run():
 def floppy_run(dsk):
     with Emu() as e:
         fill_ramdisk(e)
+        fs_clear(e, G)                              # (no frame store left in the RAM-disk file: the game fills it)
         e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
         e.call('reset')
         t_boot = run_to(e, BS['boot'])
