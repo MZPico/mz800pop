@@ -802,3 +802,101 @@ of the ops laid are the same, so the pixels are: the full regression on the runn
 Part 5's estimate was walk -0.08, fight -0.15: met. The tile redraws (doors, gates, loose floors) share the scan, so
 the walkthrough and the door step gain more than the fore pass alone would. The baseline (tests/perf_baseline.json)
 is lowered where the new median beats it; the room change and the fight keep their older, lower values.
+
+## M8a part 7: standing characters (2026-11-03)
+
+Status: **built.** A character who looks exactly as in the last drawn tick gets no dirty rect of his own: in fights the
+guard stands still (en garde, waiting, lying dead) in 50-75 % of the ticks he is shown, and his chunks were composed and
+copied again every tick for the same pixels. fight1 60-160 gains ~0.77 frames a tick (9.00 -> 8.23); walking is unchanged
+(no comparison while no guard is shown).
+
+### Measured (tracepoints at people_place, pp_rects (every slot's descriptor, PP_XD, PP_CL, PP_ORD, the overlay op
+lists), do_m1 (the dirty list, PP_KU, PP_GU), obj_chunk, oc_kid, oc_fore, oc_rec and the return, pf_blit1 (the pending
+entry) and its returns, char_fetch / cfdo / its return, VRAM read at every tick_done; a scratch tool in the worktree's
+build/, not committed)
+
+A character is "unchanged" when all his slots (the kid 0, 1, 6, the guard 2, 3, the splash 4 with its owner) have the same
+visible flag, frame, chtab / mirror / shift, x, y, rect, clip, XOR offset and left clip as in the last drawn tick, in the
+same room. Checked against VRAM: in every such tick of every script his rect's bytes outside the other dirty rects (the
+other character's U, tile redraws, falling floors, torches) were the same as after the last drawn tick (0 exceptions in
+5,300 ticks), so leaving his rect off the dirty list keeps the screen.
+
+| Script (all ticks) | ticks | kid unchanged / shown | guard unchanged / shown | of them joined | compose + copy saved | chunks + copy, before -> after (built) |
+|---|---:|---:|---:|---:|---:|---:|
+| fight1 60-160 (perfcheck) | 100 | 5 / 100 | 62 / 100 | 9 | 0.79 | 4.38 -> 3.55 |
+| fight1 | 344 | 11 / 343 | 197 / 263 | 40 | 0.70 | 3.82 -> 3.11 |
+| fight2 | 344 | 13 / 340 | 125 / 184 | 43 | 0.78 | 4.16 -> 3.40 |
+| fight3 | 344 | 13 / 324 | 177 / 244 | 40 | 1.18 | 4.46 -> 3.32 |
+| fight_bump | 99 | 32 / 98 | 36 / 71 | 26 | 1.44 | 4.55 -> 3.06 |
+| fight_chomper | 138 | 11 / 137 | 74 / 110 | 23 | 1.02 | 5.22 -> 4.19 |
+| fight_drop | 339 | 20 / 338 | 71 / 276 | 49 | 0.49 | 5.57 -> 5.04 |
+| fight_follow | 307 | 19 / 306 | 134 / 228 | 6 | 0.39 | 4.09 -> 3.69 |
+| fight_killpush | 403 | 15 / 402 | 205 / 284 | 81 | 1.22 | 4.77 -> 3.60 |
+| fight_leave | 166 | 24 / 165 | 22 / 98 | 8 | 0.54 | 4.46 -> 3.91 |
+| fight_skill11 | 341 | 14 / 340 | 213 / 313 | 125 | 1.21 | 5.49 -> 4.16 |
+| fight_skill5 | 340 | 39 / 339 | 112 / 303 | 90 | 0.64 | 5.32 -> 4.63 |
+| fight_skill7 | 341 | 9 / 340 | 196 / 313 | 112 | 1.07 | 5.52 -> 4.45 |
+| fight_spikes | 133 | 9 / 132 | 61 / 105 | 12 | 1.22 | 4.93 -> 3.78 |
+| fight_unarmed | 157 | 97 / 156 | 89 / 129 | 6 | 2.24 | 4.23 -> 2.00 |
+| level2_drop | 343 | 30 / 342 | 120 / 281 | 55 | 0.79 | 5.12 -> 4.21 |
+| level2_fight | 354 | 16 / 353 | 201 / 313 | 117 | 0.85 | 4.69 -> 3.63 |
+| walk_level1 (also 30-60, 190-260) | 316 | 0 / 286 | | | 0 | 2.45 -> 2.45 |
+| traps_b1 0-300 (perfcheck) | 300 | 53 / 299 | | | 0.17 | 2.22 -> 2.05 |
+| traps_b1 | 1498 | 161 / 1497 | | | 0.12 | 2.26 -> 2.14 |
+
+(frames per tick over all ticks of the script; "saved" = the measured compose (background, people, fore, record) and copy
+of the chunks inside an unchanged character's own rect; when the two characters' rects were joined, the joined box's
+chunks less the other character's own U, from a per-chunk fit of the same run, ~22 K + 480 T a byte x row.)
+
+- The fetch is no lever: char_fetch already keeps a slot's image while frame, chtab, mirror and shift stay (fight1 60-160:
+  81 cached fetches cost 0.003 frames a tick; the 201 real ones 1.54). What a standing character still costs is the chunk
+  work: in fight1 60-160 the guard's unchanged ticks spend 0.48 frames a tick composing (background 0.13, people 0.17,
+  fore 0.18) and 0.08 copying; all of it can go, since nothing in the rect changed.
+- The kid rarely stands in a fight (5-39 of ~340 ticks; fight_unarmed 97), never in the walkthrough, in 11-18 % of
+  the traps ticks (standing between moves: traps_b1 0-300 -0.17 frames a tick).
+- Unchanged-but-joined ticks: the other character's U alone covers the overlap, so the join is dropped.
+
+### What was built (src/m4/people2.asm st_look, main block; overlay.asm pp_rects, block 2; sprite.asm sprite_forget)
+
+- st_look (called from pp_rects) keeps, per slot of the kid (0, 1, 6) and the guard (2, 3), the descriptor bytes SD_DX
+  .. SD_COMPOSE + 1 (visible flag, SD_LKEY / SD_LKEY2 = the image's frame, chtab, mirror, shift; the screen rect; the
+  clip) and PP_XD (the shadow's XOR copy, the level 12 blink) from the last drawn tick (ST_KEY, low RAM 0x01CA, 50
+  bytes), compares and replaces them. The rect and the image key fix x and y (the rect's clipped sides give them back).
+  A slot invisible then and now is not compared; from the first byte that differs the rest is copied with LDIR (a
+  walking tick pays ~1 K T for it by count: no change in perfcheck; the first byte-by-byte version cost 0.03-0.05
+  frames a tick walking).
+- A character is skipped only when, this tick and the last, there are no overlay ops (OV_NM, OV_NF: the tiles drawn
+  again over a character depend on both characters' frames) and no hurt splash (slots 4, 5: their owner and draw
+  order), and no room was drawn since (sprite_forget sets ST_OK: room changes, a new level, the upside-down flip, the
+  cheat build's blind screen). The left clip (the shadow right of the level 4 mirror, the mirror image's clip) is fixed
+  within a room.
+- Then his U is not put on the dirty list and not joined with the other character's. PP_KU / PP_GU stay as they were:
+  oc_kidtouch reads them, and tc_try must not take a torch chunk from its cache (the flame without people) where a
+  standing guard is.
+- What does not change the screen or comes with its own rect: the flash (palette register only), the other character
+  (his U covers his old and new pixels, and the chunk draws everybody in it), tile redraws (dirty_from_dr), falling
+  floors, torch flames, the bottom texts and hit point strips (outside the playfield).
+- Cost: main +169 bytes (end_of_code 0x782D -> 0x78D6, 810 free), block 2 +19 (block2_end 0xEB11 -> 0xEB24, 220 free),
+  low block +4 (end_of_low 0x1F8D -> 0x1F91, 111 free): 192 bytes; 51 bytes of runtime-only low RAM (0x01CA-0x01FC).
+- VRAM after every tick is the same as before in all 18 measured scripts (the scratch tool's VRAM per tick, main's build
+  against this one, 6,800 ticks), and the test suite's pixel checks pass.
+
+perfcheck (tools/perfcheck.py, medians of 3 runs each, rebased; main = 11e43a4, with part 6's fore scan) main -> this:
+
+| Stretch | main | this | change |
+|---|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 6.10 | 6.10 | 0 |
+| level door step (walkthrough 203-207) | 17.45 | 17.54 | +0.09 |
+| room change (walkthrough 89) | 106.58 | 106.32 | -0.26 |
+| walkthrough 190-260 | 10.71 | 10.73 | +0.02 |
+| gate (gate_push 200-260) | 5.11 | 5.11 | 0 |
+| traps (traps_b1 0-300) | 5.96 | 5.96 | 0 |
+| fight (fight1 60-160, guard on) | 9.00 | 8.23 | **-0.77** |
+
+Fights gain ~8.5 %. The first version compared every tick and cost a walking tick ~0.05 frames (6.10 -> 6.15) with no
+guard on screen; st_look now returns at once while the guard's slot is not visible (the kid alone gains nothing, see
+the traps below) and marks its snapshot stale (ST_OK), 14 bytes. The door step's +0.09 is within the raster-phase
+spread of that stretch. The
+traps stretch saves 0.17 frames a tick of chunk work but no tick time: most likely its ticks end waiting for the beam
+over the traps' own chunks, which takes the saving back (not traced further). The fight baseline is lowered
+8.99 -> 8.23; the others stay.
