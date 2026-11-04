@@ -1407,3 +1407,229 @@ set, all six kept; the pages beyond the MCP's 52 read by a Z80 routine in the te
 no store. tests/m4_game.py --every 1 on fight1, fight2, fight_skill5, level2_fight and level13_jaffar at 1 MB and
 16 MB: 0 state diffs, 0 differing pixels; m5_boot (512 KB, 1 MB, 16 MB), m7_launch (1 MB) pass. The full regression on
 the runners: see the PR.
+
+## Busy rooms: per-room and per-object costs (2026-11-04)
+
+Status: **measured, nothing built.** The playtest: "when one gets to more complex rooms with 2 guillotines and multiple
+opening/closing gates, and some bottles, it becomes unplayably slow". Measured on main ef78865 at 1 MB (the INI's), no
+waits. The room of the report is level 5 room 24 (2 choppers, 2 gates with 3 buttons, a potion, 2 torches): **13.2
+frames a tick with the kid running, 13.5 standing, against 4.0 with its animated tiles patched away** (3.8 ticks a
+second instead of 12.5). Choppers are the worst objects, then gates and the level door.
+
+**Tools** (committed): tools/busyrooms.py `census` lists the 270 rooms of levels 1-14 with animated objects on their
+screen; `find OUTDIR --worst` writes the scenes of the 20 rooms below with kidsim only (as tools/trapscenes.py: the
+start and the run / walk / jump pattern with the most weighted visible object changes before a room change or death;
+starting on a button presses it; closers' gates start open): per room `walk_a` (everything animates), `walk_b` (the
+same moves, every animated tile of the screen patched to floor: torches, potions, the sword, choppers, spikes, loose
+floors, buttons), `walk_<kind>` (only that kind kept) and `stand_a` / `stand_b`. `measure OUTDIR --worst --csv OUT`
+runs them (tracepoints at ml_go, where a tick starts after the pacing wait, and at tick_done): **frames** = tick_done
+to tick_done (what the player gets; never under 4, the pacing), **work** = ml_go to tick_done (without the wait).
+Every tick is labelled by kidsim with the object changes the renderer reacts to (the kinds in the tool's header).
+`fit CSV --whatif kind=frames,...` fits the cost model and evaluates fixes. tools/animexact.py renders a tile's
+animation steps with the Python reference (tools/popdata.py RoomRenderer) and reports what a moving-part-only redraw
+needs to stay exact: the changed pixels, the moving ops, whether what lies under them is flat, which ops lie over
+them. The scenes (144 files, 588 KB) are not committed: `find` regenerates them in ~1 minute; measuring all takes ~6
+minutes with 7 emulators.
+
+### The worst rooms (1 MB, ticks 2+ with the kid in the start room, alive, in the same state as in b)
+
+Frames a tick: a median / p90 / worst, b median ("walking alone" in that room: 4.0 everywhere, the pacing floor; its
+work is 2.5-3.9 frames); a - b and the model = the mean work above b (the model: next section).
+
+| level / room | objects on screen | kid | ticks | a: median / p90 / worst | b | a - b | model |
+|---|---|---|---:|---|---:|---:|---:|
+| 5 / 24 | 2 choppers, 2 gates (3 buttons), potion, 2 torches | runs | 107 | **13.18** / 17.86 / 25.46 | 3.99 | 9.13 | 9.05 |
+| | | stands | 98 | **13.54** / 17.20 / 17.93 | 3.99 | 9.22 | 9.41 |
+| 3 / 16 | 3 choppers, potion, 2 torches | jumps | 118 | **16.03** / 20.92 / 24.10 | 3.99 | 12.64 | 12.72 |
+| | | stands | 98 | **15.90** / 20.26 / 20.58 | 3.99 | 12.30 | 12.92 |
+| 8 / 23 | 2 choppers, gate, potion, spike, torch | jumps | 118 | 13.17 / 19.46 / 20.95 | 4.00 | 8.94 | 8.65 |
+| 10 / 10 | 2 choppers, gate (3 buttons), 2 torches | jumps | 43 | 12.96 / 21.93 / 29.93 | 4.02 | 10.14 | 8.93 |
+| 8 / 4 | 2 choppers, 2 spikes, 2 torches | runs | 118 | 12.22 / 15.09 / 16.33 | 4.04 | 7.70 | 8.06 |
+| 9 / 1 | chopper, 2 gates (2 buttons), torch | jumps | 45 | 13.60 / 18.95 / 21.93 | 4.02 | 9.84 | 9.97 |
+| 10 / 1 | 4 gates (2 buttons), level door, loose floor, 2 torches | runs | 98 | 11.75 / 20.45 / 32.58 | 3.99 | 7.58 | 7.53 |
+| 7 / 19 | 4 gates (4 buttons), spike, 3 torches | runs | 118 | 10.62 / 14.82 / 22.14 | 4.00 | 7.46 | 6.50 |
+| 5 / 8 | 2 gates (3 buttons), 3 torches | jumps | 93 | 10.97 / 13.89 / 22.42 | 4.00 | 7.75 | 7.12 |
+| 2 / 18 | gate (2 buttons), loose floor, potion, 2 torches | runs | 48 | 11.98 / 18.92 / 22.25 | 4.11 | 8.99 | 7.39 |
+| 7 / 7 | 2 gates (2 buttons), loose floor, 3 torches | jumps | 54 | 10.97 / 14.44 / 21.05 | 3.99 | 7.68 | 6.87 |
+| 9 / 22 | 2 gates (2 buttons), 2 spikes, torch | jumps | 41 | 10.76 / 14.62 / 17.72 | 3.98 | 7.61 | 7.70 |
+| 1 / 5 | gate, loose floor, potion, 3 torches | runs | 74 | 9.97 / 13.01 / 17.16 | 4.00 | 6.62 | 7.41 |
+| 5 / 7 | 4 gates (2 buttons), level door, potion, 2 torches | runs | 118 | 7.55 / 14.48 / 28.61 | 3.99 | 5.82 | 5.11 |
+| 10 / 14 | chopper, 3 spikes, 2 torches | runs | 118 | 7.03 / 12.50 / 13.59 | 4.01 | 4.93 | 4.59 |
+| 9 / 9 | chopper, gate (2 buttons), 2 torches | runs | 30 | 7.77 / 11.96 / 19.85 | 3.97 | 5.75 | 5.01 |
+| 11 / 2 | gate (5 buttons) | jumps | 97 | 7.49 / 11.02 / 19.12 | 4.01 | 3.39 | 3.26 |
+| 4 / 18 | 2 gates (2 buttons), 2 spikes, 2 torches | runs | 118 | 6.56 / 12.53 / 20.36 | 3.98 | 3.96 | 4.59 |
+| 8 / 5 | gate, 3 spikes, 2 torches | runs | 118 | 6.97 / 11.97 / 19.86 | 3.97 | 4.02 | 4.59 |
+| 1 / 15 | the sword, 2 torches | runs | 118 | 6.24 / 7.01 / 7.78 | 4.03 | 2.75 | |
+
+Standing (stand_a) in the chopper rooms costs the same as moving: the choppers keep cycling while the kid is in their
+row. In the gate rooms standing is cheaper (the gates open once and stay: l07r19 5.56, l05r08 5.12 medians). The
+"walking ~5.2" of perfcheck is level 1's walkthrough rooms with their torches. The kid alone in these rooms works
+2.5-3.9 frames, so an object's cost first fills the slack up to 4 frames and then adds one for one.
+
+### The cost model: cost(tick) = the kid's work + the sum of the object changes
+
+Least squares over 8,994 ticks (all variants of all scenes; `fit build/busy/all.csv`), work frames per change. The
+mean |residual| is 0.63 frames a tick; the per-scene means are within ~1 frame of the measurement (the table above):
+
+| change (kidsim label) | frames | how often (per object) | renderer path today |
+|---|---:|---|---|
+| chopper, its picture changes (chomp) | **6.70** | 5 of every 15 ticks while the kid is in its row (it finishes its cycle when he leaves) | tile_redraw: 3 regenerations + rect |
+| chopper, the modifier only (chomp-) | **1.82** | the other 10 of the 15 ticks | tile_redraw: 3 regenerations, empty rect |
+| gate, the bars move (gate) | **5.82** | opening: every tick, 1 row (modifier +4), ~47 ticks; closing: every 4th tick, ~190 ticks; dropping: every tick, 4-5 ticks | gate_redraw: 2 regenerations + rect |
+| gate, the modifier only (gate-) | 0.19 | closing: 3 of 4 ticks | nothing (M8a part 2) |
+| spikes, the picture changes (spike) | 4.88 | 9 of a 24-tick cycle | spike_redraw: 2 regenerations + rect |
+| button pressed / released (button) | 5.07 | per press | tile_redraw |
+| potion bubble (potion) | 1.19 | every tick | bubble_redraw: fore op patch, then a run_rect of the bubble |
+| torch flame (torch) | 0.60 | ~every tick | torch_fast: op patch, the flame laid in the object pass |
+| loose floor shakes (loose) | 3.07 | 5 steps per shake (rare) | tile_redraw |
+| sword, the modifier only (sword-; l01r15's only-sword variant) | **1.50** | 97 % of the ticks (the modifier counts down; the glint shows only at 1) | tile_redraw: 3 regenerations, empty rect |
+| level door step (walk_level1 204-206, profile) | **~9-11** | every tick for 43 ticks (opening, 1 row a tick) | tile_redraw: 3 regenerations + a 6 x 51 rect |
+
+So an active chopper costs (5 x 6.7 + 10 x 1.8) / 15 = 3.4 frames a tick, an opening gate 5.8 a tick for ~4
+seconds of play, each potion 1.2 and each torch 0.6 every tick. The combination is additive, as found for gates and
+spikes: in l05r24 the only-kind variants sum to 93 % of a - b (8.5 of 9.1).
+
+### Where a step goes (tools/tickcost.py --profile, inclusive frames)
+
+| | 2 choppers, modifier only (l08r04_walk_chomper 10) | 2 choppers, picture (same, 19) | potion (l05r24_walk_potion 10) | 2 torches (l05r24_walk_torch 10) | level door step (walk_level1 204) |
+|---|---|---|---|---|---|
+| the tick / the same tick in b | 7.03 / 4.10 | 14.98 / 4.03 | 4.16 / 4.10 (paced) | 4.14 / 4.10 (paced) | 14.21 |
+| regenerations | tile_regen x 6: 3.46 | x 6: 3.65 | - | - | x 3: 2.24 |
+| laying the rect | (empty) | run_rect 3.89 (lay_piece16 x 8: 5.08 with the chunks') | run_rect 0.57 (3 pieces) | - | run_rect 6.82 (lay_piece16 x 22: 5.08) |
+| fill, shadow write | - | shadow_write 0.73 | 0.10 | - | 0.55 + 0.74 |
+| object pass above b | 0.02 | +2.65 (the rects' chunks; people_chunk 2.46 against 0.54: the choppers' rects overlap the kid in their row) | +0.76 (a chunk for the bubble) | +0.84 (two 2 x 18 chunks) | +1.7 |
+
+Findings:
+1. **A chopper redraws three tiles on every tick of its cycle, 10 of 15 times for nothing.** Its picture is
+   CHOMPER_FRAM1[min(modifier & 0x7F, 6)] and the blood bit (room.asm dta_chomper / dtf_chomper): modifiers 5-15 and
+   0 all give the same picture. It draws nothing in its right neighbour or the tile above-right
+   (draw_tile_anim_right / draw_tile_anim_topright have no chopper case), yet tile_redraw regenerates both: 1.2 of
+   the 1.8 frames.
+2. **The sword redraws three tiles every tick** (its modifier counts down from 0x28-0x67 to 1): 1.5 frames a tick
+   for a glint that shows on 3 % of the ticks.
+3. **A potion bubble runs a rect through the shadow** although the bubble is a fore op and the shadow holds the
+   background without the fore pieces (room.asm rr_sw): marking the old and the new bubble rect dirty is enough, as
+   torch_fast does for flames (~0.6 of its 1.2).
+4. **A gate or door step lays the whole stack of pieces again** (10-14 for a gate, 22 for the door) after 2-3 op-list
+   regenerations, for a picture that is the previous one moved by one row (next section).
+
+### What stays exact (tools/animexact.py: the changed pixels, the moving ops and the shift check of each step against the reference)
+
+| object | the changed area of a step | moving ops | under them | exact moving-part path |
+|---|---|---|---|---|
+| gate | 3 x 56 bytes x rows max | the bar stack: bottom 50, slices 52 and the top slice (53-59 are exactly the bottom 1-7 rows of 52), all opaque (blit copy); the top piece 60-67 (masked) | the open branch (the bottom more than 12 rows above the floor, modifier >= 48): covered or black; the closed branch: the floor (2 colours) | **yes**: every step of l05r24's and l01r05's gates is the previous picture shifted by the step (1 row), 0 differing pixels below the gate top; only a ~10-row band at the top (the top piece cycles: 0-21 pixels; opening l05r24 p21 0 everywhere) and, in the closed branch, 1-3 pixels of one row where the bottom meets the floor differ |
+| level door | 6 x 51 | 6-27 opaque slices | black or one flat colour, which varies by row (5, 7, 8: the dungeon's wall behind is in bands) | **yes**: every step is the previous picture shifted by one row except the newly revealed bottom row: 0 pixels in 38 of 43 steps (palace l10r1) and 38 of 43 (dungeon l1r9); in the others 1-40 pixels of that one row differ (a 6 x 1 band to lay as today) |
+| chopper | 4 x 58 | 3-5 masked pieces (bottom, top, fore, blood) | 4-7 colours (the wall, the floor) | **yes** with the background under it kept or cached; no shift structure (5 pictures) |
+| spikes | 6 x 26 | 3-6 masked | several colours | yes, with a cached background or cached frames |
+| potion bubble | 1 x 9 | the bubble (masked, fore list) | black | yes (dirty rect only: the fore pass lays it) |
+| torch flame | 2 x 17 | the flame (opaque) | covered | yes (already so: torch_fast) |
+| sword glint | 2 x 7 | masked | covered | yes (redraw only on the glint's change) |
+
+The Apple II's movebuf (redgate / drawgateb: the bars drawn opaque, the bottom piece's blank lines erase the trail,
+no restore) maps onto the DOS art like this: the bars and the door are opaque and rigid, so drawing only the moving
+part, or moving the column by one row, is pixel-exact. Under the bars the art is black only in the open branch, and
+the door's revealed rows are not black in the dungeon, so a black fill alone (Apple's blank lines) is not exact; taking
+the revealed rows from the shifted picture is. Choppers and spikes are masked over a textured background: for them a
+moving-part-only redraw needs the background under them (a cached under-layer or cached frames).
+
+### The options (frames of work a visible step unless noted; gains on the worst rooms from the model's what-ifs)
+
+**C. Draw only what changes (cheap fixes)**: (1) a chopper's modifier change draws nothing unless its picture changes
+(as spike fix 1); (2) a chopper's picture change regenerates its own tile only; (3) the sword likewise, on the glint's
+change only; (4) a potion bubble marks its rects dirty without a run_rect. Gains: chopper modifier-only 1.8 -> 0,
+picture 6.7 -> ~5.5, the sword 1.5 -> ~0 a tick, a potion 1.2 -> ~0.6 a tick. Memory: ~80-120 bytes of main (613
+free) and the chopper / sword cases in vrd_one (the low block has 22 free; or the dispatch moves to main). Exact: yes
+(the reference renders from the level state). Effort ~1 day, risk low.
+
+**D. Moving part only: the column shift (gates, the level door)**: a step moves the column's rows (a gate: the rows
+below its top band; the door: its 6 x 51) by the step in the shadow (the shifted rows read into SPRBUF_B and written
+back: ~0.3 + ~0.6 for a 3 x 57 gate column, from restore_shadow's ~190 T a plane row of 8 bytes and shadow_write's
+~0.012 frames a row of a narrow rect), lays the gate's ~10-row top band as today (an op patch of the top piece's
+record, a 3 x 10 run_rect, ~0.4) and puts the column on the dirty list (the object pass copies it, ~0.3-0.5). The bar
+and door tiles' op lists are regenerated once when the movement stops, or before any other redraw of those tiles,
+instead of at every step. Gate step 5.8 -> **~1.9**, door step ~10 -> **~1.8**; the closed branch's floor-contact
+row and the door's newly revealed bottom row are laid as small bands like the top band (or, simpler, take today's
+path on the ~10 closed-branch steps of a gate and the 5 such door steps). No RAM-disk space; ~200-300 bytes (a W1 overlay for the step
+code, ~30 bytes resident). Exact: yes (the shift check above; the shadow is the source, so it is right whatever lies
+under the column). Guard: a registered torch flame over the column (its pixels need not be in the shadow) falls back
+to today's path. Effort 3-5 days, risk medium.
+
+**A. Pre-drawn frames (choppers, spikes)**: each distinct picture of the object's rect (the background-only result of
+today's run_rect, i.e. what the shadow holds there) is written to a RAM-disk slot the first time it is drawn (lazy: no
+room-entry cost, ~0.35 frames once per picture); a later step reads the picture into SPRBUF_B (~0.36 for 4 x 58),
+writes the shadow (~0.7), and the object pass composes the people and the fore pieces over it and copies it (~0.6-1.0
+with the kid in the row). Chopper picture step 5.5 -> **~2.0-2.5**, spike step 4.9 -> **~1.5**. Space: a chopper
+5 pictures x 928 bytes = 4.6 KB (the blood pictures not cached: today's path), a spike 5 x 624 = 3.1 KB; the worst
+rooms need 13.9 KB (l03r16), 15.5 KB (l08r04), 14.0 KB (l10r14). 512 KB: ~23 KB free but in pieces (page 1
+0xE918-0xFFFF 5.8 KB, page 6 0xE800-0xFFFF 6 KB, page 4 11.1 KB if the game image's reserved second piece stays
+unused), i.e. 4 chopper-sized slots; 1 MB: from the 81.6 KB tail of pages 14-15, which is earmarked for the guards'
+frame store (the two need agreeing); 16 MB: free. A slot is valid while the tiles drawing into its rect are unchanged
+(any other redraw touching the rect drops it). The kid or a guard over the tile: the cached picture is background
+only, the object pass draws them on top as today. Exact: yes (the bytes are today's run_rect output). Effort ~1 week
+(slot table, capture, invalidation), ~250 bytes in an overlay, risk medium.
+
+A for gates (not proposed): a gate has 47 positions, whole-column pictures would take 47 x 3 x 62 x 4 = 35 KB a gate;
+the rigid shift (D) gives the same with no space.
+
+**E. An exclusive animated layer (the torch mechanism generalized)**: the shadow keeps the background without the
+moving parts, and every chunk that touches an animated object lays its current picture (a shifted strip, a cached
+picture, the masked pieces) after the restore, as flames_lay does. A step then needs no shadow write (-0.5..-0.7 a
+step for gates, the door, choppers, spikes), and small opaque rects with nothing over them (flames, bubbles) can go
+straight to VRAM (a torch 0.6 -> ~0.15 a tick, estimate). Brings the steps to ~1.0-1.5. It costs every chunk that
+touches an object that object's picture (+0.2-0.4 when the kid is at a chopper or in a gate). Effort 1-2 weeks, risk
+high (chunk order, exclusivity rules, the beam scheduling); to be measured after C, D and A.
+
+**B. Pacing (PACE_MODE 1, skipped draws)**: no gain in these rooms as it is. ml_pace (src/m4/game.asm) restarts the
+tick clock when it is more than DEBT_MAX = 8 frames late, and a drawn tick in l05r24 costs ~13.5 frames (9.5 late
+after it): so after a typical drawn tick the clock restarts and the next tick is drawn too. A skip needs a tick that
+ends 4-8 frames late, i.e. a drawn tick of ~8-12 frames; ticks vary (p90 ~17.9, some ~9), so B skips some ticks, but
+far fewer than its design assumes (an estimate from the median, not measured: most ticks drawn, near today's ~3.7
+ticks a second). Only with the debt limit raised or removed would it settle into 1 drawn tick and 2
+skipped ones (~13.5 + 2 x ~1.3 frames for 3 ticks: ~9 ticks a second, ~3 screens a second), and then the debt grows by
+~4 frames every 3 ticks until a stall resets it; in that case two of every three screens are never shown (choppers
+and gates jump 2-3 steps from screen to screen): not exact over time. The user decided against it (2026-10-31).
+
+What the model predicts (frames a tick, median / mean; `fit ... --whatif`; C = chomp-=0, chomp=5.5, potion=0.6;
+D = gate=1.9, door=1.8; A = chomp=1.9, spike=1.9; E = every step 1.0 (buttons too), torch=0.15. A button press keeps
+its 5.07 in C, D and A: none of them changes the button's redraw):
+
+| room (kid) | today | C | C + D | C + D + A | + E |
+|---|---|---|---|---|---|
+| 5 / 24 (runs) | 13.84 / 12.62 | 10.23 / 9.18 | 10.23 / 9.18 | 6.66 / 6.99 | 5.01 / 5.20 |
+| 5 / 24 (stands) | 14.09 / 12.62 | 10.48 / 8.82 | 10.48 / 8.82 | 6.88 / 6.33 | 5.09 / 4.81 |
+| 3 / 16 | 15.97 / 16.08 | 10.54 / 10.65 | 10.54 / 10.65 | 6.98 / 7.05 | 5.20 / 5.31 |
+| 8 / 23 | 12.57 / 11.85 | 8.96 / 8.10 | 8.96 / 8.10 | 5.83 / 5.72 | 4.56 / 4.79 |
+| 10 / 10 | 12.35 / 12.29 | 9.33 / 9.09 | 9.33 / 8.64 | 6.07 / 6.29 | 4.37 / 4.66 |
+| 8 / 4 | 12.68 / 11.85 | 9.66 / 8.62 | 9.66 / 8.62 | 6.10 / 6.24 | 4.61 / 4.83 |
+| 9 / 1 | 11.90 / 13.37 | 10.08 / 11.75 | 6.16 / 7.84 | 6.16 / 6.64 | 4.67 / 4.94 |
+| 10 / 1 | 15.56 / 11.22 | 15.56 / 11.22 | 7.85 / 7.15 | 7.85 / 7.15 | 5.16 / 5.28 |
+| 7 / 19 | 10.47 / 9.82 | 10.47 / 9.82 | 6.69 / 7.50 | 6.69 / 7.14 | 4.56 / 4.70 |
+| 5 / 8 | 10.79 / 10.42 | 10.79 / 10.42 | 6.88 / 7.01 | 6.88 / 7.01 | 4.64 / 4.78 |
+| 2 / 18 | 11.38 / 10.94 | 10.80 / 10.36 | 7.83 / 7.99 | 7.83 / 7.99 | 6.16 / 6.15 |
+| 7 / 7 | 10.77 / 10.14 | 10.77 / 10.14 | 6.85 / 6.80 | 6.85 / 6.80 | 4.61 / 4.71 |
+| 1 / 5 | 11.55 / 10.71 | 10.97 / 10.13 | 7.09 / 7.64 | 7.09 / 7.64 | 5.06 / 5.18 |
+
+(The model's "today" medians differ a little from the measured ones above: it sums mean costs per change on b's
+work, max 4.) Plus the sword room (l01r15) 6.2 -> ~4.7 with C, and the level door step (walk_level1 203-207) ~16 ->
+~7 with D. After C + D + A the worst rooms run at ~6-8 frames a tick (6-8 ticks a second; a room without objects
+runs at 4-5). Reaching ~1 frame a step or less, i.e. ~4.5-5 frames a tick in these rooms, needs E as well; what is
+left after E is the torches (2-3 a room) and the kid.
+
+### Build order (sequential PRs: they touch view.asm, room.asm, gate.asm and the object pass)
+
+1. **C: draw only on a picture change** (choppers, the sword, potions): ~1 day; chopper rooms -2.5..-5.5 frames a
+   tick (median), the sword room -1.5, potion rooms -0.6.
+2. **D: the column shift for gates and the level door** (one routine: shift a shadow rect by k rows, then put it on
+   the dirty list): 3-5 days; gate rooms -3..-8 a tick while a gate moves (l10r01 15.6 -> 7.9, l07r19 10.5 -> 6.7),
+   the exit door's 43 ticks ~16 -> ~7. Not l05r24 (10.2 -> 10.2 after C): its 3 buttons are pressed often and a press
+   still costs 5.1 (a tile_redraw); a cheaper button redraw (its few changed rows) would be a separate item.
+3. **A: the frame cache for choppers and spikes** (the same SPRBUF_B -> shadow -> dirty-list path as D, the source a
+   RAM-disk slot): ~1 week; chopper rooms another -3..-3.5 (l03r16 10.5 -> 7.0).
+4. **E: the exclusive animated layer and the direct copy of small rects** (to be measured first, after 1-3): 1-2
+   weeks; another -1.5..-2.5 in the worst rooms, and each torch -0.45 in every room.
+
+The shared mechanism of 2 and 3 (later also the gate's top band and E's strip copies): put a rect into SPRBUF_B from a
+source (the shadow at a row offset, or a RAM-disk slot), write it to the shadow, put it on the dirty list; the object
+pass after it is unchanged. ~150-250 bytes: the per-step code in a W1 overlay (loaded when an animated step needs it
+and another overlay held W1: 21 T a byte, ~0.1 frames a load), ~30 bytes resident in main, nothing more in the low
+block.
