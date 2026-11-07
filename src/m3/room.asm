@@ -2325,6 +2325,12 @@ tk_r2:          ld      c, a            ; col
 ; tile_regen: A = tag. Regenerate the tile's ops into the temp lists, splice them over the old slice in each
 ; list, add old and new op rects to the dirty rect.
 tile_regen:     ld      (TR_TAG), a
+                if defined GAME_BTNC
+                ld      a, (bc_v)               ; (M4: the cached button pictures of this tile go: src/m4/anires.asm)
+                or      a
+                call    nz, btn_rgi
+                ld      a, (TR_TAG)
+                endif
                 ld      hl, ops_gen             ; (records move: callers keeping record addresses check this)
                 inc     (hl)
                 call    tag_key

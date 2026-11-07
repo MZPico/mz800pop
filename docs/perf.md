@@ -1727,3 +1727,256 @@ level5_shadow_potion, potion_upside_down, death_text, the a scripts (walk and st
 the l14 spike a and l06 spike c scenes, fight_spikes and traps_b1: 0 state diffs, 0 differing pixels.
 tests/m4_test.py on chomper, sword, the three potion scripts, fight_chomper and traps_b1: 0 differing. The full
 regression on the runners: see the PR.
+
+## M8a part 14: column shift (gates, level door) and buttons (2026-11-07)
+
+Status: **built.** Option D of the busy-rooms measurement ("Busy rooms: per-room and per-object costs") and the cheaper
+button redraw that section left open: a gate's or the level door's step moves the column's rows in the shadow instead
+of laying the stack piece by piece, and a button's press or release puts a cached picture. The code is in three new
+W1 overlays and a small resident part:
+
+- src/m4/colshift.asm: gate_step (CS_GATE: the gate overlay, 10, src/m4/ovl_anim.asm, 1,014 bytes; from gate.asm
+  gate_redraw through the stub gate_fast) and door_step (CS_DOOR: the door overlay, 12, src/m4/ovl_door.asm, 868
+  bytes, image in RAM-disk page 6 0xF600; from spike.asm door_redraw); carry: not this step, the caller redraws as
+  before.
+- src/m4/btnstep.asm (the button overlay, 11; 808 bytes; its image in RAM-disk page 6 0xF200, its own place like the
+  fill overlay's: page 7's area has no room left for the cheat build's keys overlay): btn_step, from view.asm vrd_cht.
+- src/m4/anires.asm (block 2, 192 bytes): the shared tail, which fix A will use too: **cs_get** (a rect of the shadow,
+  at any row offset, into SPRBUF_B), **cs_put** (SPRBUF_B's rect into the shadow, onto the dirty list, and marked as the
+  object pass's kept background: room.asm rr_kr / rr_kv, tcache.asm oc_kept, so the object pass composes the people and
+  the fore pieces over it without a restore), **dirty_hook** (RR_HOOK's target now: drops the cached button pictures a
+  redraw touches) and the button cache's validity (bc_v, bc_rect, btn_rgi).
+- src/m4/buttons.asm (trigger_button, do_trigger_list, trigger_gate, 272 bytes) is copied into the gate and the door
+  overlays besides the events overlay, at the same entry; ovl.asm's trigger_button stub runs the copy in W1 when the
+  gate or the door overlay is there, else loads the events overlay. The kid's check_press calls trigger_button every
+  tick he stands on a plate, and the plate is what opens the gate (and the exit door): with the buttons in the events
+  overlay only, both overlays were loaded every tick, 0.6 frames a tick (measured on walk_level1 204 with the first
+  build of this part, which had them resident instead: 272 bytes of main, given back by the copies).
+
+### The gate (colshift.asm gate_step)
+
+The bars (draw_gate_back, drawn by the gate's right neighbour, the bars tile, in its column's 3 bytes) hang from the
+gate's bottom and are cut at its top GT = 63 row + 3 by the frame slice; above GT the tile above draws the top piece:
+68 (mono black) and the frame DOOR_FRAM_TOP[p & 7], p = min(mod, 188) / 4. A step p -> p + k with |k| = 1 and both
+<= 46 is drawn as:
+
+1. rows GT..S1 - 1 of the column (closing: GT + 1..): the shadow k rows lower (cs_get into SPRBUF_B). S1 = MY - min(p)
+   (the lower bottom's row + 1, MY = GT + 59) in the open branch, MY - 13 (the floor's top) while min(p) <= 12;
+2. rows max(GT - 9, 0)..GT - 1: the shadow, with 68 and the new top frame laid over it (68 covers every frame; their
+   two records are the top tile's, found and the frame's id patched);
+3. closing (k = -1): row GT stays the old row and the new frame slice is laid over it (moved, it would come from above
+   the gate; the slice copies only its extent, 20 of its 24 pixels in the dungeon, the rest is what is under the bars);
+4. a dungeon pillar as the bars tile: its base (92, mono black, drawn after the bars) laid again over the moved rows;
+5. cs_put; and while min(p) <= 12 the contact band, rows MY - 13..MY - min(p) - 1 (the floor drawn before the bars
+   shows below them there), laid by dr_run.
+
+The op records stay what a regeneration would make (later redraws, overlaps and room re-entry lay them): the bars'
+records (CH_ENV 50..59 in the bars tile's back slice) move by k rows and the frame slice gets its new id, height and
+top; the top frame its new id. Where the record count or the branch changes ((46 - min(p)) & 7 = 0: a slice comes or
+goes; min(p) = 11: draw_gate_back's open / closed branch) the bars tile is regenerated instead. Not this way
+(gate_redraw as before): a dropping gate (|k| > 1), a step to or from 47 (the bottom piece reaches above GT), the
+below room's row 0 (only the top shows), a bars tile that changed in the same tick (its own redraw would find its
+records regenerated), a bars tile other than empty, floor, stuck, closer, loose floor, opener, torch, gate or the
+dungeon's pillar (in levels 1-14 only the palace pillar: 9 gates in levels 4, 5, 6, 10, 11 and 14, whose base does not
+cover what the shift moved). A regeneration of the bars tile earlier in the same tick (tile_redraw's above-right tile,
+for a left-room gate) leaves the records already moved: the frame slice's height tells, and then they are not moved
+again.
+
+### The level door (colshift.asm door_step)
+
+The door (draw_leveldoor, drawn by its tile's right neighbour at xh + 1, 6 bytes; yb = MY - 13): 99 at yb, 144 (the
+dark opening) at yb - 4, the slices (33) every 4 rows from the door's bottom yb - ml up, 34 over their top. An opening
+step ml -> ml + 1 (ml <= 43, not in the start room, where a wipe replaces 144) is the picture moved one row up in rows
+max(yb - 50, 0)..yb - ml - 1, and the revealed row yb - ml: the old row with 99 and 144 laid over it, clipped to the
+row. In the dungeon the door is 42 pixels wide: of its sixth byte only bits 0-1 (the two left pixels) are taken from
+the moved rows, the rest from the old picture (a 1 x n restore into COMPOSE_A and a merge). Records: the slices move
+one row up; at ml & 3 = 3 (a slice goes) and ml = 0 (144 comes) the tile is regenerated. Not this way: closing (the
+start room's door at the level start), the start room, a tile changed in the same tick.
+
+### Buttons (btnstep.asm btn_step)
+
+A press or release (view_redraw makes the snapshot's tile byte differ in bit 0; vrd_cht sends exactly that to
+btn_redraw) changes only the back ops of the button's tile and its right neighbour (a pressed opener is drawn as a
+floor, a pressed closer as a stuck floor: get_tile), as many of them in both states, and pixels only in the rect
+x 4c..4c + 7 (to 40), rows 63r + 49..63r + 65 (8 x 17 bytes). tile_redraw regenerated three tiles and laid the rect
+piece by piece (~4.9 frames). The first four buttons of a screen (VS_BTN order) have a slot in RAM-disk page 1
+0xE918-0xFC5B (1,233 bytes each): the rect's picture in both states (4 planes x 17 rows of 8 bytes) and the records
+that differ between the states (tag, place in the slice, both versions; not CH_OBJ, the flames torch_fast patches).
+
+- **The slot valid** (anires.asm bc_v): the new state's records written into the two slices (their extents widened),
+  the picture read into SPRBUF_B and put (cs_put). Nothing is regenerated or laid.
+- **Else**: the old picture saved from the shadow, the two tiles' back slices kept (COMPOSE_B), the tiles regenerated,
+  the rect (with the regenerated records' rects) laid by dr_run, the new picture (SPRBUF_B after the dr_run) and the
+  differing records saved, the slot valid. When the regenerated records' rects reach out of the rect (the palace's
+  stripe and blue line pieces, whose pixels do not change) the new picture is read from the shadow instead. Not kept
+  when the right tile changed in the same tick (its own redraw follows), when the own tile shows no differing record
+  (it was regenerated earlier in the tick), or when more than 8 records differ.
+- A slot goes when a redraw of the shadow touches its rect (dirty_hook: every dr_run of the room renderer and every
+  cs_put), when one of its tiles is regenerated (room.asm tile_regen calls btn_rgi while a slot is valid), and at every
+  room draw (game.asm).
+
+The other rooms' buttons (the left room's column 9, the rows above and below) and the fifth button on: tile_redraw as
+before. The first press after a room draw is a miss: ~4.0-4.5 frames (two regenerations instead of three, plus the
+two pictures saved); every later press or release in the room until something redraws the rect: **0.52** frames
+(l07r19_walk_a ticks 71, 72), 0.77 with the button overlay's load (ticks 18, 39, 46, 47, 78: a gate moved the tick
+before), and a moving gate's next step loads the gate overlay again (+0.28). The model's per-change cost (below)
+mixes both: in these scenes the kid dies and restarts the room often.
+
+### Memory
+
+Against main 8e5aad2: main +76 bytes (end_of_code 0x7A0A -> 0x7A56, 426 free): the stubs gate_fast, door_fast,
+btn_fast and btn_redraw +45, trigger_button's stub +10, door_redraw and its case in spike.asm's anim_redraw +11, the
+button cache's hook in room.asm tile_regen +10. The low block +6 (vrd_cht sends a button's press to btn_redraw; 20
+free). Block 2 +203 (anires.asm 199: cs_get, cs_put, dirty_hook, room_drawn, the button cache's validity; gate.asm +4;
+17 free). The overlays: the gate overlay 1,014 bytes (10 free), the door overlay 868, the button overlay 808 (cs_chg,
+27 bytes, is in each of the three), the events overlay unchanged (1,009). RAM disk: the button pictures page 1
+0xE918-0xFC5B, the button and door overlays' images page 6 0xF200 and 0xF600; page 7's overlay area 751 bytes free
+(the cheat build 337). An earlier build had the button code, cs_chg and the after-room-draw hook resident (main +387,
+115 free); moved out as above, costing: a gate and the door moving in the same tick load both overlays every tick
+(~0.55 frames; only while the exit door opens next to moving gates, l10r01 and l05r07); a button press after a gate
+step loads the button overlay and then the gate overlay again (~0.25 + 0.3 frames, as before the move); the kid on a
+plate with neither overlay in W1 loads the events overlay once (as on main).
+
+### Exact (tools/movecheck.py: each step simulated on the Python reference's shadow, whole screen)
+
+tools/movecheck.py paints the steps above on RoomRenderer's shadow picture (the wipes, back and mid ops: what the
+shadow room holds) and compares the result with the reference's picture of the new state, every pixel: gates 7,452
+steps of every gate of levels 1-14 drawn on a screen (our room's columns 0-8, the left room's column 9) with a bars
+tile of the list (the 9 palace-pillar gates left out), every one-row step both ways with both positions <= 46: 0
+differ; level doors 748 opening steps (ml 0..43, every door not in its start room): 0 differ; buttons: all 134 seen
+in their own room, the changed pixels in the rect and only back ops changing, as many: 0 exceptions. How it was found
+(scratch scripts on the same reference): every gate step is a one-row shift below GT in the open branch; the closed
+branch differs in 1-3 pixels where the bottom meets the floor (hence the contact band, which needs to reach only the
+lower bottom); 68 covers every top frame; for 19 gates the bars tile is a pillar, whose base is drawn over the bars:
+the dungeon's (10 gates) is exact with it laid again, the palace's is not.
+
+### The prototype (measure first)
+
+The first build moved the rows (steps 1 and 5) and laid the rest as tile_redraw would: the two tiles regenerated, and
+the top band (rows GT - 9..GT) by run_rect. gate_push tick 183 (the left room's gate closing 120 -> 119): **9.05 ->
+8.16 frames**; gate_redraw 4.42 -> 3.34 frames: the two regenerations 1.19, the top band's run_rect 1.48 (7 pieces),
+the move itself 0.55 (restore 0.27 into SPRBUF_B, the shadow write 0.24). The estimate (~1.9 for the whole step with
+the object pass) assumed neither: so the records are patched in place (no regeneration) and the band's changes are
+laid as their two pieces (68 and the frame) over the shadow. The same tick now: **6.04**; view_redraw 4.61 -> 1.65,
+the gate step 1.52 (the three pieces 0.54, the restores 0.38, the shadow write 0.44, the scans and patches ~0.1); the
+object pass copies the column from the kept SPRBUF_B (no restore).
+
+Where a gate step still costs more (l07r07_walk_gate, a dungeon-pillar gate opening, frames a tick with the kid
+running): the open steps 5.9-6.4, of it the gate ~2.1 (the pillar's base laid again, 32 pixels x up to 46 rows, masked:
+~0.9); the closed steps (min(p) <= 12: the first 12 of an opening, the last 12 visible ones of a closing) 8.3-9.2 (the
+contact band's run_rect, ~5 pieces: ~1.5; it was 1.7-2.0 while the band reached the floor's bottom, MY - 1); the steps
+that regenerate the bars tile +0.6 (1 of 8, and 11 <-> 12).
+
+### The busy rooms (1 MB, frames a tick: median / p90 / worst; tools/busyrooms.py measure, main 8e5aad2 against this)
+
+| room | objects | kid | ticks | main 8e5aad2 | now | mean work: main / now | b (walking alone) |
+|---|---|---|---:|---|---|---|---:|
+| 5 / 24 | 2 choppers, 2 gates (3 buttons), potion, 2 torches | moves | 107 | 9.98 / 17.34 / 26.07 | **7.72** / 17.31 / 23.04 | 9.81 / 9.59 | 3.99 |
+| 5 / 24 |  | stands | 98 | 10.27 / 17.36 / 17.48 | **10.27** / 17.36 / 17.50 | 9.29 / 9.30 | 3.99 |
+| 10 / 1 | 4 gates (one at a palace pillar: the old way), level door, loose floor, 2 torches | moves | 98 | 11.75 / 20.45 / 32.58 | **9.90** / 16.87 / 23.29 | 11.28 / 9.62 | 3.99 |
+| 10 / 1 |  | stands | 98 | 3.99 / 18.95 / 33.86 | **3.99** / 15.32 / 29.90 | 9.57 / 8.04 | 3.99 |
+| 7 / 19 | 4 gates (4 buttons), spike, 3 torches | moves | 118 | 10.64 / 14.84 / 22.16 | **7.99** / 13.29 / 22.17 | 10.77 / 9.28 | 4.00 |
+| 7 / 19 |  | stands | 98 | 5.17 / 11.25 / 13.24 | **5.17** / 9.29 / 11.37 | 7.23 / 6.50 | 3.99 |
+| 5 / 8 | 2 gates (3 buttons), 3 torches | moves | 93 | 10.98 / 13.89 / 22.44 | **9.59** / 13.33 / 19.77 | 11.05 / 9.35 | 4.00 |
+| 5 / 8 |  | stands | 98 | 5.12 / 12.57 / 15.67 | **5.12** / 8.97 / 13.94 | 7.78 / 6.17 | 3.99 |
+| 7 / 7 | 2 gates (dungeon pillars), loose floor, 3 torches | moves | 54 | 10.97 / 14.44 / 21.20 | **8.91** / 11.96 / 17.77 | 10.96 / 9.16 | 3.99 |
+| 7 / 7 |  | stands | 98 | 5.18 / 13.37 / 15.95 | **5.45** / 10.90 / 13.35 | 7.89 / 6.97 | 3.99 |
+| 9 / 1 | chopper, 2 gates (one at a pillar), torch | moves | 45 | 12.03 / 17.88 / 20.83 | **9.75** / 14.97 / 16.80 | 11.97 / 10.02 | 4.02 |
+| 9 / 1 |  | stands | 98 | 6.95 / 13.12 / 16.24 | **4.99** / 11.29 / 16.16 | 7.34 / 6.47 | 3.99 |
+| 9 / 22 | 2 gates (one at a pillar), 2 spikes, torch | moves | 41 | 10.76 / 14.63 / 17.70 | **8.32** / 13.53 / 16.60 | 10.71 / 8.91 | 3.98 |
+| 9 / 22 |  | stands | 98 | 3.99 / 10.94 / 13.55 | **3.99** / 8.55 / 10.82 | 5.69 / 4.90 | 3.99 |
+| 2 / 18 | gate (a pillar), loose floor, potion, 2 torches | moves | 48 | 11.50 / 17.94 / 21.59 | **9.49** / 14.94 / 18.43 | 11.89 / 10.20 | 4.11 |
+| 2 / 18 |  | stands | 98 | 4.64 / 4.66 / 15.30 | **4.64** / 4.66 / 14.96 | 4.79 / 4.78 | 3.99 |
+| 1 / 5 | gate, loose floor, potion, 3 torches | moves | 74 | 9.23 / 12.09 / 16.53 | **7.04** / 9.90 / 17.11 | 9.38 / 7.81 | 4.00 |
+| 1 / 5 |  | stands | 98 | 6.35 / 11.60 / 16.31 | **5.91** / 9.12 / 16.63 | 7.40 / 6.29 | 3.99 |
+| 5 / 7 | 4 gates, level door, potion, 2 torches | moves | 118 | 6.95 / 14.00 / 27.21 | **6.96** / 10.40 / 23.90 | 9.15 / 7.82 | 3.99 |
+| 5 / 7 |  | stands | 98 | 5.99 / 13.30 / 27.21 | **5.99** / 9.96 / 23.90 | 8.96 / 7.45 | 3.99 |
+
+The cost model refitted (`fit` over the 4,300 ticks of these scenes, frames of work a change; main 8e5aad2 / now):
+
+| change | ticks | main | now |
+|---|---:|---:|---:|
+| torch | 2572 | 0.63 | 0.64 |
+| potion | 1086 | 0.68 | 0.54 |
+| chomp | 221 | 6.15 | 6.21 |
+| chomp- | 373 | -0.06 | -0.03 |
+| gate | 1296 | 5.98 | **3.87** |
+| gate- | 368 | 0.16 | 0.21 |
+| spike | 42 | 5.38 | 5.62 |
+| spike- | 44 | 0.43 | 0.22 |
+| loose | 20 | 2.94 | 3.08 |
+| door | 10 | 1.43 | **0.96** |
+| button | 101 | 5.13 | **3.56** |
+| tile | 4 | 7.79 | 7.59 |
+
+Where the gate's 3.87 goes (the plan expected ~1.9): the 1,043 visible gate steps of these scenes (walk_a and
+stand_a, the kid in the room; kidsim's states) are 37 % open steps (~1.9 frames each with the object pass: gate_push
+tick 183's step 1.52 + ~0.4), 5 % open steps that regenerate the bars tile (~2.5), 22 % at a dungeon pillar (~2.8,
+the base laid again ~0.9), 17 % closed steps (min(p) <= 12: ~3.4, the contact band's run_rect ~1.5) and 8 % closed at
+a pillar (~4.3), and the old way: 9 % at a palace pillar (l10r01: ~6), 3 % drops (|k| > 1, the l07r19 and l02r18
+scenes: ~10) and 2 % steps to or from 47 (~6). Weighted, ~3.3 a step; the fit adds what overlaps the kid's own work.
+Overlay loads: l07r19_walk_a 42 in 118 ticks (94 ticks none, 13 two), l01r05 40, l07r07 10, l10r01 12 (counted at
+ovl_load): room draws after a death, the button overlay and the gate overlay after it; ~0.1 frames a tick on
+average. What would take the rest: the closed steps without run_rect (the floor drawn before the bars shows below
+their bottom: the revealed rows from cached floor pictures, fix A's mechanism, or the band's few pieces laid directly),
+the palace pillar (its base does not cover what the shift moves: a masked shift), and drops (a k-row shift: the top k
+rows from the slice texture). The door is 10 ticks here (the level door below is the measurement). button mixes the
+first press after a room draw (a miss, ~4-4.5) with the cached ones (~0.5-0.8; +0.3 when the gate overlay comes back
+the tick after); these scenes die and draw the room again often (l07r19: 3 misses, 7 hits in the profiled ticks).
+
+### gate_push and the level door (tools/tickcost.py, 1 MB)
+
+| | main: median / p90 / worst | now | mean: main / now |
+|---|---|---|---|
+| gate_push 200-260, the 15 visible gate steps (a closing gate) | 9.79 / 12.89 / 14.30 | **6.31** / 7.82 / 9.00 | 10.48 / 6.79 |
+| gate_push 200-260, all 60 ticks | | | 4.99 / 4.10 |
+| walk_level1 203-207, the level door opening | 15.51 / 18.17 / 18.17 | **9.26** / 9.45 / 9.45 | 16.09 / 8.60 |
+
+walk_level1 tick 204 (a door step): 14.21 -> 7.43 frames, the door step 2.51 (the three restores 0.99, the shadow
+write 0.70, the merge of the sixth byte, the two clipped pieces); 206 (a slice goes: the tile regenerated, 1.54)
+18.17 -> 9.45; 203 (0 -> 1, regenerated) 18.08 -> 9.35. The kid stands on the exit's plate meanwhile: with
+trigger_button only in the events overlay these ticks cost 0.6 frames more (both overlays loaded every tick).
+
+### perfcheck (one run per size; main = 8e5aad2)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.72 / 5.72 | 5.20 / 5.20 | 5.03 / 5.03 |
+| level door step (walkthrough 203-207) | 17.16 / **9.23** | 16.23 / **8.54** | 16.23 / **8.54** |
+| room change (walkthrough 89) | 106.05 / 106.05 | 106.05 / 106.05 | 105.22 / 105.22 |
+| walkthrough 190-260 | 10.26 / **6.44** | 10.07 / **6.19** | 9.68 / **5.85** |
+| gate (gate_push 200-260) | 4.99 / **4.10** | 4.99 / **4.10** | 4.99 / **4.10** |
+| traps (traps_b1 0-300) | 5.63 / 5.64 | 5.30 / 5.31 | 5.23 / 5.23 |
+| fight (fight1 60-160, guard on) | 7.72 / **7.17** | 6.88 / **6.36** | 6.51 / **5.98** |
+
+The bold baselines are lowered (fight1: a guard stands on a closer, its presses and releases come from the cache). The
++0.01 are the beam phase (the same ticks summed by tools/tickcost.py are equal; the 512 KB normal tick measured 5.75 on
+one build of this part, 5.72 on the others). With the button code resident in main the level door measured 8.43 /
+8.51 / 9.14; in its own overlay its first step loads it.
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state and VRAM every tick): gate_push, walk_level1, l02_open_a / c, l04_open_a / c,
+l04_thr_a, l07_open_a, l09_open_a, l04_drop_a, l07_drop_a, l10_drop_a, btn_bars, fight1, the walk_a scripts of all ten busy rooms above
+and the stand_a of l07r07, l07r19, l09r22, l10r01, l05r07, l05r08, l01r05, traps_b1, traps_b9, level12_exit_level13 and
+level13_exit (two more dungeon exit doors): 0 state diffs, 0 differing pixels. tests/m4_test.py (the logic, Z80 against
+kidsim, tick-exact) on gate_push, traps_b1 / b9 / b39 / b40, walk_level1, random1-3, level4_mirror,
+level5_shadow_potion, level6_shadow_exit, level12_shadow_merge / hit: 0 differing. tools/movecheck.py: 0 differences.
+`make ci-build`, `make cheats`. The full regression on the runners: see the PR.
+
+Faults found on the way, fixed: (1) a button regenerated its right neighbour, a spike that changed in the same tick,
+whose own redraw then found no difference to lay (l07r19 tick 53): the button's dirty rect now includes the
+regenerated records' rects, and nothing is cached then; (2) perfcheck's fight1 (level 4, a guard on a closer: a press
+or release every 3-4 ticks) got 0.05 frames a tick slower: no palace button was ever cached, as their stripe records
+reach out of the rect; now kept (the picture read back from the shadow); (3) a closing step laid the frame slice over the
+moved row GT, but the Z80 copies only the slice's extent (20 of its 24 pixels in the dungeon) and the rest showed the
+row above the gate (l02_open_a tick 102): row GT now keeps the old row under the slice, and tools/movecheck.py paints
+laid pieces with the Z80's extents (it had painted all 24 pixels, as the reference does, and missed it).
+
+(4, found in review on PR #30) a slot's entry was filled from the wrong 6 bytes (its rect and two scratch bytes instead
+of the rect and the tiles' tags), so a regeneration of the button's tile did not drop it (btnstep.asm: bs_r and bs_t
+are now one 6-byte block, an assembly check keeps them so). The pixel tests had not hit it: it needs a gate whose bars
+tile is the button, a cached press, then a gate step that regenerates the tile without touching the button's rect
+(a slice-count change while the gate is open), then the next press or release. tests/m4_scripts/btn_bars.txt (level 8
+room 15: the opener right of the gate; found with kidsim and a model of the cache) runs the button through presses,
+releases and regenerating gate steps, pixel-exact every tick; with the fix the entry holds the tags (16, 17).

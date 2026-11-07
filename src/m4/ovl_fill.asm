@@ -10,7 +10,7 @@
 ovl_id          equ     OVL_FILL
 ovl_rd_page     equ     OVL_FILL_PAGE           ; (tools/ovltool.py pack: the image's own place in the RAM disk)
 ovl_rd_addr     equ     OVL_FILL_RD
-ovl_rd_last     equ     0xffff
+ovl_rd_last     equ     OVL_BTN_RD - 1
 ovl_entry:      jp      fs_fill                 ; entry 0: the kid's and the sword's store (ff_bw: the bar, 0 none)
                 jp      fs_guard                ; entry 1: A = the level's guard set
 

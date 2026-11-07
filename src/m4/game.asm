@@ -10,6 +10,7 @@
 ; the kid and the falling floors (src/m4/sprite.asm), the hit points. After death the button restarts the
 ; level; the exit stairs lead to the next level.
 VARS            equ     0x0800
+GAME_BTNC       equ     1               ; room.asm tile_regen: the button picture cache (src/m4/anires.asm, M8a part 14)
 FRAMES          equ     VARS + 0        ; 16-bit, incremented by the VBLN ISR
 VB_LINE         equ     VARS + 2        ; 16-bit: 8253 counter 1 (HSYNC count, down) latched by the VBLN ISR
 KEYMAT          equ     VARS + 0x60     ; 10 bytes
@@ -216,12 +217,12 @@ gmt_draw:       xor     a
                 jr      z, gmt3
                 ld      (hl), a
                 call    draw_room_full
-                call    flames_rebuild
+                call    room_drawn      ; (anires.asm: the cached button pictures go, then flames_rebuild)
                 call    sprite_forget
                 jr      gmt4
 gmt3:           ld      a, 1            ; the tiles that changed this tick: into the shadow room only; their rects
                 ld      (RR_SHONLY), a  ; go on the dirty list and draw_objects puts them on screen with the
-                ld      hl, dirty_from_dr ; prince and the falling floors over them (no flicker)
+                ld      hl, dirty_hook  ; prince and the falling floors over them (no flicker; anires.asm)
                 ld      (RR_HOOK), hl
                 call    view_redraw
                 xor     a
@@ -457,6 +458,7 @@ block2:
                 include "../m4/psg.asm"
                 include "../m4/keyres.asm"
                 include "../m4/gate.asm"
+                include "../m4/anires.asm"
 block2_end:
                 if block2_end > LEVEL
                 .error the tables block overlaps the level blueprint

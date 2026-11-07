@@ -146,6 +146,8 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     write_pack(e, rd('fstore_masks.bin'), S['FS_MPAGE'], S['FS_MADDR'])    # the frame store's keys (tools/fstore.py)
     write_pack(e, rd('fstore_gmasks.bin'), S['FS_MPAGE'], S['FS_GMADDR'])  # ... and the guard sets'
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_fill.bin'), 'rb').read(), S['OVL_FILL_PAGE'], S['OVL_FILL_RD'])  # the fill overlay
+    write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_btn.bin'), 'rb').read(), S['OVL_BTN_PAGE'], S['OVL_BTN_RD'])  # the button overlay
+    write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_door.bin'), 'rb').read(), S['OVL_DOOR_PAGE'], S['OVL_DOOR_RD'])  # the door overlay
     e.call('mem_write', addr=S['level_number'], data_hex='%02x' % lv)
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(opts).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(opts).hex())

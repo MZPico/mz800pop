@@ -6,7 +6,9 @@
 ; draw_tile_anim_topright and draw_tile_topright the tile below-left's (a gate, a door top), draw_tile_right the left
 ; neighbour's only for an empty tile, a floor, a door top or a wall; draw_tile_above has no draw_tile_anim (checked
 ; against tools/popdata.py RoomRenderer for every chopper, sword and potion of levels 1-14, docs/perf.md part 13).
-anim_redraw:    cp      T_SPIKE
+anim_redraw:    cp      T_LEVELDOOR_L
+                jr      z, door_redraw
+                cp      T_SPIKE
                 jr      z, spike_redraw
                 cp      T_CHOMPER
                 jr      z, chomp_redraw
@@ -55,6 +57,10 @@ cpc1:           ld      hl, chomper_fram1
                 and     0x80
                 or      l
                 ret
+; the level door (M8a part 14): an opening step as a moving part (src/m4/colshift.asm door_step), else tile_redraw
+door_redraw:    call    door_fast
+                ret     nc
+                jp      vrd_tile
 ; own_regen: a fresh dirty rect and the ops of the tile VS_TAG (tr_t) regenerated
 own_regen:      ld      a, (VS_TAG)
                 ld      (tr_t), a
