@@ -93,10 +93,15 @@ PRES_SCRATCH = [(1, 0x0000, 32000, 'PRES: the screen'), (6, 0x0000, 0x2880, 'PRE
 # never drawn into the shadow; the shadow is plane-major, 8000 bytes a plane)
 PRES_LEFT = [(1, p * 8000 + 192 * 40, 320, 'PRES: the screen, shadow rows 192-199') for p in range(4)] + PRES_SCRATCH[1:]
 
+# The game's runtime scratch in the RAM disk that depends on what was played before, never compared: the button
+# pictures (M8a part 14, src/m4/btnstep.asm BC_BASE: 4 slots of 1,233 bytes in page 1, valid only until the next room
+# draw; a game started after other play, e.g. after the ending, finds the earlier slots there)
+RUNTIME_SCRATCH = [(1, 0xE918, 4 * 1233, 'the button pictures')]
+
 def ramdisk(e, masks=RESERVED):
-    """pages 0-7, the masked areas (page, address, length, ...) as zeros"""
+    """pages 0-7, the masked areas (page, address, length, ...) and RUNTIME_SCRATCH as zeros"""
     pages = [bytearray(b''.join(e.region(RAMDISK[p], off, 4096) for off in range(0, 65536, 4096))) for p in range(PAGES)]
-    for m in masks:
+    for m in list(masks) + RUNTIME_SCRATCH:
         pg, a, n = m[:3]
         pages[pg][a:a + n] = bytes(n)
     return [bytes(p) for p in pages]

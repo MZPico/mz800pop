@@ -172,6 +172,7 @@ SS_N            equ     ($ - ss_tab) / 2
                 include "../m3/room.asm"
                 include "../m4/kid.asm"
                 include "../m4/objects.asm"
+                include "../m4/buttons.asm"
                 include "../m4/kid2.asm"
                 include "../m4/sndobj.asm"
 trace_cksum:    jp      room_checksum

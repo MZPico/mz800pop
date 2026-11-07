@@ -381,6 +381,10 @@ vrd_cht:        push    bc
                 call    vs_entry
                 pop     de
                 pop     bc
+                ld      a, b                    ; only the pressed flag (view_redraw's xor 1): a button's press or
+                xor     d                       ; release (ovl.asm btn_redraw, M8a part 14)
+                dec     a
+                jp      z, btn_redraw
 vrd_tile:       ld      a, (VS_TAG)
                 cp      0xff
                 jr      z, vrd_next

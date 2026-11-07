@@ -938,3 +938,24 @@ piece used AND/XOR semantics.
    main +100 (502 free). perfcheck unchanged (16 MB fight baseline 6.51). Next: D (the gate and level-door column
    shift), then A (pre-drawn chopper and spike frames: a chopper picture step is still ~6 frames); a cheaper
    button redraw (a press still costs ~5 frames, a full tile_redraw) is a candidate of its own.
+57. M8a part 14, column shift (gates, level door) and buttons (2026-11-07, docs/perf.md "M8a part 14: column shift
+   (gates, level door) and buttons"; option D of item 55 and the cheaper button redraw): a gate's one-row step moves
+   the bars' rows in the shadow (src/m4/colshift.asm, the gate overlay 10) and lays only the top piece (68 and the
+   frame), closing the frame slice, a dungeon pillar's base, and while the bottom is within 13 rows of the floor the
+   contact band down to the bottom (run_rect); the op records are moved in place (regenerated where the count or the
+   branch changes). The level door's opening step likewise (the door overlay 12), its revealed row from 99 and 144. A button's press or
+   release puts a cached picture of its 8 x 17-byte rect and writes the cached differing records (src/m4/btnstep.asm,
+   the button overlay 11, image in page 6; slots in page 1 0xE918-0xFC5B), a miss regenerates two tiles instead of
+   three. Shared, resident: cs_get / cs_put / dirty_hook (src/m4/anires.asm, block 2), for fix A too. trigger_button
+   (src/m4/buttons.asm) is copied into the gate and door overlays, the stub runs the copy in W1: a plate under the kid
+   and a moving gate no longer load both overlays every tick. Checked on the reference for every gate (7,452 steps), level door (748) and button (134) of
+   levels 1-14 (tools/movecheck.py); palace-pillar gates (9) take the old way. gate_push tick 183 9.05 -> 6.04 (the
+   prototype with regeneration and the band by run_rect: 8.16), visible steps 9.79 -> 6.31 median; the level door
+   15.5 -> 9.3 median (perfcheck 16.23 -> 8.54); the model's gate change 5.98 -> 3.87, button 5.13 -> 3.56 (a cached
+   press 0.5-0.8, a miss ~4.3); busy-room medians l07r19 10.6 -> 8.0, l10r01 11.8 -> 9.9, l07r07 11.0 -> 8.9, l09r01
+   12.0 -> 9.8, l09r22 10.8 -> 8.3, l02r18 11.5 -> 9.5, l01r05 9.2 -> 7.0, l05r08 11.0 -> 9.6, l05r24 10.0 -> 7.7 (its
+   palace buttons cached). Resident: main +76 (426 free), low +6 (20 free), block 2 +203 (17 free).
+   perfcheck lowered at every size: the level door (16.23 -> 8.54), walkthrough 190-260, gate_push, fight1 (a guard on
+   a closer: 6.88 -> 6.36). Next: A (pre-drawn chopper and spike
+   pictures through cs_get / cs_put and the button cache's slot validity); left here: the closed-branch gate steps
+   (~3 frames: the contact band's run_rect), the palace pillar, the dropping gate.

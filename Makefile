@@ -174,9 +174,9 @@ m3demo: $(BUILD)/m3demo.mzf
 .PHONY: m3anim m3demo
 
 # M4: the prince. m4test = logic versus tools/kidsim.py, m4game = the playable program and its screen test
-$(BUILD)/m4test.bin: src/m4/m4test.asm src/m4/kid.asm src/m4/kid2.asm src/m4/objects.asm src/m4/rare.asm src/m4/guard.asm src/m4/levelstart.asm src/m4/evres.asm src/m4/events.asm src/m4/gleave.asm src/m4/genter.asm src/m4/shadinit.asm src/m4/sound.asm src/m4/keys.asm src/m4/sndobj.asm src/m3/room.asm src/m3/roomfull.asm src/m3/altmods.asm src/m3/prbuild.asm src/m1/gfx.asm src/m1/tables.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc | $(BUILD)
+$(BUILD)/m4test.bin: src/m4/m4test.asm src/m4/kid.asm src/m4/kid2.asm src/m4/objects.asm src/m4/buttons.asm src/m4/rare.asm src/m4/guard.asm src/m4/levelstart.asm src/m4/evres.asm src/m4/events.asm src/m4/gleave.asm src/m4/genter.asm src/m4/shadinit.asm src/m4/sound.asm src/m4/keys.asm src/m4/sndobj.asm src/m3/room.asm src/m3/roomfull.asm src/m3/altmods.asm src/m3/prbuild.asm src/m1/gfx.asm src/m1/tables.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc | $(BUILD)
 	cd src/m1 && $(PASMO) --bin ../m4/m4test.asm ../../$(BUILD)/m4test.bin ../../$(BUILD)/m4test.sym
-$(BUILD)/m4game.bin: src/m4/game.asm src/m4/ovl.asm src/m4/kid.asm src/m4/objects.asm src/m4/evres.asm src/m4/fx.asm src/m4/sprite.asm src/m4/overlay.asm src/m4/people2.asm src/m4/kid2.asm src/m4/view.asm src/m4/tcache.asm src/m4/rcache.asm src/m4/guard.asm src/m4/sound.asm src/m4/psg.asm src/m4/keyres.asm src/m4/gate.asm src/m4/sndobj.asm src/m4/fslook.asm src/m4/spike.asm src/m3/room.asm src/m1/gfx.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc $(BUILD)/assets/fstore_equ.inc | $(BUILD)
+$(BUILD)/m4game.bin: src/m4/game.asm src/m4/ovl.asm src/m4/kid.asm src/m4/objects.asm src/m4/evres.asm src/m4/fx.asm src/m4/sprite.asm src/m4/overlay.asm src/m4/people2.asm src/m4/kid2.asm src/m4/view.asm src/m4/tcache.asm src/m4/rcache.asm src/m4/guard.asm src/m4/sound.asm src/m4/psg.asm src/m4/keyres.asm src/m4/gate.asm src/m4/anires.asm src/m4/sndobj.asm src/m4/fslook.asm src/m4/spike.asm src/m3/room.asm src/m1/gfx.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc $(BUILD)/assets/fstore_equ.inc | $(BUILD)
 	cd src/m1 && $(PASMO) --bin ../m4/game.asm ../../$(BUILD)/m4game.bin ../../$(BUILD)/m4game.sym
 # the frame store's fixed layout (docs/ramdisk-tiers.md "As built: step 1"): the keys from assets/fstore_uses.txt, the
 # sizes from the image directories (fstore_equ.inc, the fill's masks fstore_masks.bin for the RAM disk, the tables for the tests)
@@ -192,7 +192,7 @@ $(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m3/altmods.asm src/m4/levelstar
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_level.asm ../../$(BUILD)/ovl_level.bin ../../$(BUILD)/ovl_level.sym
 $(BUILD)/ovl_fill.bin: src/m4/ovl_fill.asm src/m4/fstore.asm src/m4/fsgen.asm src/m4/fsvars.inc src/boot/launch.inc $(BUILD)/assets/fstore_equ.inc $(BUILD)/ovl_fill.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_fill.asm ../../$(BUILD)/ovl_fill.bin ../../$(BUILD)/ovl_fill.sym
-$(BUILD)/ovl_event.bin: src/m4/ovl_event.asm src/m4/events.asm src/m4/shadinit.asm $(BUILD)/ovl_event.inc
+$(BUILD)/ovl_event.bin: src/m4/ovl_event.asm src/m4/events.asm src/m4/shadinit.asm src/m4/buttons.asm $(BUILD)/ovl_event.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_event.asm ../../$(BUILD)/ovl_event.bin ../../$(BUILD)/ovl_event.sym
 $(BUILD)/ovl_gleave.bin: src/m4/ovl_gleave.asm src/m4/gleave.asm $(BUILD)/ovl_gleave.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_gleave.asm ../../$(BUILD)/ovl_gleave.bin ../../$(BUILD)/ovl_gleave.sym
@@ -210,16 +210,25 @@ $(BUILD)/ovl_keys.inc: src/m4/keys.asm src/boot/launch.inc
 $(BUILD)/ovl_rare.bin: src/m4/ovl_rare.asm src/m4/hpstrip.asm src/m4/rare.asm $(BUILD)/ovl_rare.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_rare.asm ../../$(BUILD)/ovl_rare.bin ../../$(BUILD)/ovl_rare.sym
 $(BUILD)/ovl_rare.inc: src/m4/hpstrip.asm src/m4/rare.asm
+$(BUILD)/ovl_anim.bin: src/m4/ovl_anim.asm src/m4/colshift.asm src/m4/cschg.asm src/m4/buttons.asm $(BUILD)/ovl_anim.inc
+	cd src/m1 && $(PASMO) --bin ../m4/ovl_anim.asm ../../$(BUILD)/ovl_anim.bin ../../$(BUILD)/ovl_anim.sym
+$(BUILD)/ovl_anim.inc: src/m4/colshift.asm src/m4/cschg.asm src/m4/buttons.asm
+$(BUILD)/ovl_btn.bin: src/m4/ovl_btn.asm src/m4/btnstep.asm src/m4/cschg.asm $(BUILD)/ovl_btn.inc
+	cd src/m1 && $(PASMO) --bin ../m4/ovl_btn.asm ../../$(BUILD)/ovl_btn.bin ../../$(BUILD)/ovl_btn.sym
+$(BUILD)/ovl_btn.inc: src/m4/btnstep.asm src/m4/cschg.asm
+$(BUILD)/ovl_door.bin: src/m4/ovl_door.asm src/m4/colshift.asm src/m4/cschg.asm src/m4/buttons.asm $(BUILD)/ovl_door.inc
+	cd src/m1 && $(PASMO) --bin ../m4/ovl_door.asm ../../$(BUILD)/ovl_door.bin ../../$(BUILD)/ovl_door.sym
+$(BUILD)/ovl_door.inc: src/m4/colshift.asm src/m4/cschg.asm src/m4/buttons.asm
 $(BUILD)/ovl_room.inc: src/m3/roomfull.asm
 $(BUILD)/ovl_level.inc: src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fsvars.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc
 $(BUILD)/ovl_fill.inc: src/m4/fstore.asm src/m4/fsgen.asm src/m4/fsvars.inc src/boot/launch.inc
-$(BUILD)/ovl_event.inc: src/m4/events.asm src/m4/shadinit.asm
+$(BUILD)/ovl_event.inc: src/m4/events.asm src/m4/shadinit.asm src/m4/buttons.asm
 $(BUILD)/ovl_gleave.inc: src/m4/gleave.asm
 $(BUILD)/ovl_genter.inc: src/m4/genter.asm src/m4/shadinit.asm
 $(BUILD)/ovl_save.inc: src/m4/save.asm src/boot/fdc.asm
 $(BUILD)/ovl_text.inc: src/m4/text.asm
-$(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_fill.bin tools/ovltool.py
-	$(PY) tools/ovltool.py pack $(BUILD)/m4game.sym $@ $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_fill.bin
+$(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_fill.bin tools/ovltool.py
+	$(PY) tools/ovltool.py pack $(BUILD)/m4game.sym $@ $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_fill.bin
 $(BUILD)/m4test.mzf: $(BUILD)/m4test.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 2000
 $(BUILD)/m4game.mzf: $(BUILD)/m4game.bin $(BUILD)/m4ovl.bin $(BUILD)/assets/sound.bin

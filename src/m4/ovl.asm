@@ -36,7 +36,7 @@ OVL_W2_END      equ     0xb000
 OVL_RD_PAGE     equ     7               ; the overlay table and images: RAM-disk page 7 after the vizier guard set (0x8D80-0xD8F3;
 OVL_RD_TAB      equ     0xd900          ; page 6 0xE300-0xFFFF until 2026-11-01, full then) (256-aligned: entry k at low byte 8 k)
 OVL_RD_LAST     equ     0xffff          ; (the area ends with the page)
-OVL_MAX         equ     12              ; table entries (the images follow the table)
+OVL_MAX         equ     13              ; table entries (the images follow the table)
 OVL_ROOM        equ     0               ; W1: the full room draw (src/m4/ovl_room.asm)
 OVL_LEVEL       equ     1               ; W2: load_level and the level start (src/m4/ovl_level.asm)
 OVL_EVENT       equ     2               ; W1: potions, scripted shadows, the mirror jump (src/m4/ovl_event.asm)
@@ -47,9 +47,16 @@ OVL_SAVE        equ     6               ; W2: save / restore on the game disk (s
 OVL_KEYS        equ     7               ; W1: the keys (src/m4/ovl_keys.asm)
 OVL_RARE        equ     8               ; W1: the hit point strips, an item taken, chomped (src/m4/ovl_rare.asm)
 OVL_FILL        equ     9               ; WF: the frame store's fills (src/m4/ovl_fill.asm; 1 MB and more)
+OVL_ANIM        equ     10              ; W1: animated tiles' steps as moving parts: gates, the level door (src/m4/ovl_anim.asm)
+OVL_BTN         equ     11              ; W1: a button's press or release from cached pictures (src/m4/ovl_btn.asm)
+OVL_DOOR        equ     12              ; W1: the level door's opening step (src/m4/ovl_door.asm)
 OVL_WF          equ     0xaa00          ; the fill overlay's window: W2's top (the level-start overlay ends below it)
 OVL_FILL_PAGE   equ     6               ; its image in the RAM disk (written on every size; page 7's area is nearly full)
 OVL_FILL_RD     equ     0xec00
+OVL_BTN_PAGE    equ     6               ; the button overlay's image: its own place too (page 7's area is full with the
+OVL_BTN_RD      equ     0xf200          ; cheat build's keys overlay), after the fill overlay's (written by the same writers)
+OVL_DOOR_PAGE   equ     6               ; the door overlay's image: its own place too
+OVL_DOOR_RD     equ     0xf600
 
 ; stubs: the entries resident code calls
 draw_room_full: push    af              ; A = room
@@ -95,11 +102,18 @@ jump_through_mirror:
                 ld      a, OVL_EVENT
                 call    ovl_w1
                 jp      OVL_W1 + 6
-; the buttons (src/m4/events.asm, moved from objects.asm): trigger_button keeps A (the click), B (type), C (modifier)
+; the buttons (src/m4/buttons.asm): trigger_button keeps A (the click), B (type), C (modifier). The kid on a plate calls
+; it every tick: the copy in W1 runs when W1 holds the gate or the door overlay (both have one: a gate or the door moving
+; meanwhile loads nothing), else the events overlay's (M8a part 14)
 trigger_button: push    af
+                ld      a, (ovl_cur1)
+                cp      OVL_ANIM
+                jr      z, tbs1
+                cp      OVL_DOOR
+                jr      z, tbs1
                 ld      a, OVL_EVENT
                 call    ovl_w1
-                pop     af
+tbs1:           pop     af
                 jp      OVL_W1 + 9
 died_on_button: ld      a, OVL_EVENT
                 call    ovl_w1
@@ -136,6 +150,30 @@ key_read:       ld      a, OVL_KEYS
 key_logic:      ld      a, OVL_KEYS
                 call    ovl_w1
                 jp      OVL_W1 + 3
+; the gate and door overlays (src/m4/colshift.asm): gate_fast, door_fast keep C, E (the new and the old modifier); carry set
+; when the step is not theirs (the caller redraws as before)
+gate_fast:      push    af
+                ld      a, OVL_ANIM
+                call    ovl_w1
+                pop     af
+                jp      OVL_W1 + 0
+door_fast:      push    af
+                ld      a, OVL_DOOR
+                call    ovl_w1
+                pop     af
+                jp      OVL_W1 + 0
+; the button overlay (src/m4/btnstep.asm): view.asm vrd_cht sends a button's press or release here; B = the tile byte
+btn_redraw:     ld      a, (VS_KIND)
+                or      a
+                jp      nz, vrd_tile            ; (another room's button: as before, no overlay load)
+                call    btn_fast
+                ret     nc
+                jp      vrd_tile
+btn_fast:       push    af
+                ld      a, OVL_BTN
+                call    ovl_w1
+                pop     af
+                jp      OVL_W1 + 0
 ; the save overlay (src/m4/save.asm, W2): save_key at a tick start (game.asm: Ctrl+G; keeps BC), load_saved (M7: the
 ; title's Ctrl+L; A = 0 loaded, 1 no valid save, 2 disk error)
 save_key:       push    bc
