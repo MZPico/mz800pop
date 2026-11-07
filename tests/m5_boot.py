@@ -97,6 +97,17 @@ PRES_LEFT = [(1, p * 8000 + 192 * 40, 320, 'PRES: the screen, shadow rows 192-19
 # pictures (M8a part 14, src/m4/btnstep.asm BC_BASE: 4 slots of 1,233 bytes in page 1, valid only until the next room
 # draw; a game started after other play, e.g. after the ending, finds the earlier slots there)
 RUNTIME_SCRATCH = [(1, 0xE918, 4 * 1233, 'the button pictures')]
+# ... and the chopper and spike pictures (M8a part 15, src/m4/frames.asm: the slots of pages 0-7 that fs_bdir (960
+# bytes each) and fs_sdir (648) list, read from the frames overlay's image; valid only until the next room draw)
+def frame_slots():
+    F = syms(os.path.join(BUILD, 'ovl_frm.sym')); img = open(os.path.join(BUILD, 'ovl_frm.bin'), 'rb').read()
+    out = []
+    for tab, n, size in (('fs_bdir', 'FRM_NB', 960), ('fs_sdir', 'FRM_NS', 648)):
+        for k in range(F[n]):
+            o = F[tab] - F['ovl_entry'] + 3 * k
+            out.append((img[o], img[o + 1] | img[o + 2] << 8, size, 'a chopper or spike picture'))
+    return out
+RUNTIME_SCRATCH += frame_slots()
 
 def ramdisk(e, masks=RESERVED):
     """pages 0-7, the masked areas (page, address, length, ...) and RUNTIME_SCRATCH as zeros"""

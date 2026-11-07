@@ -43,6 +43,13 @@ chomp_redraw:   ld      a, (VS_KIND)
                 call    chomp_pic
                 cp      b
                 ret     z
+                ld      d, a
+                ld      a, (VS_KIND)            ; (our room's: its pre-drawn pictures, src/m4/frames.asm)
+                or      a
+                jr      nz, own_redraw
+                ld      c, a
+                call    frm_fast
+                ret     nc
 own_redraw:     call    own_regen
                 jp      dr_run
 chomp_pic:      ld      d, a            ; A = modifier -> A = n | blood bit
@@ -85,10 +92,17 @@ spike_redraw:   ld      a, c
                 call    spike_frame
                 cp      b
                 ret     z
+                ld      d, a
                 ld      a, (VS_KIND)
                 cp      3
                 ret     z
-                call    own_regen
+                or      a
+                jr      nz, sr_1
+                ld      c, 1                    ; (our room's: its pre-drawn pictures, src/m4/frames.asm)
+                call    frm_fast
+                ret     nc
+                xor     a
+sr_1:           call    own_regen
                 ld      a, (VS_KIND)
                 or      a
                 jp      nz, dr_run
@@ -99,3 +113,66 @@ spike_redraw:   ld      a, c
                 inc     a
                 call    tile_regen      ; right neighbour
                 jp      dr_run
+
+; ---------------------------------------------------------------- pre-drawn pictures: the resident part (M8a part 15)
+; FRM_TAB (low RAM 0x09DB, runtime only): FRM_N objects (choppers, spikes of our room: src/m4/frames.asm), each its
+; rect (x0, x1, y0, y1; x1, y1 exclusive), the valid pictures (bit k: picture k), tag + 1 (0: a free entry), the first
+; slot and the slot count; then the pools' next free slots (FRM_NEXT: the 960-byte pool, the 648-byte pool)
+FRM_TAB         equ     0x09db
+FRM_N           equ     4
+FE_X0           equ     0
+FE_X1           equ     1
+FE_Y0           equ     2
+FE_Y1           equ     3
+FE_MASK         equ     4
+FE_TAG          equ     5
+FE_FIRST        equ     6
+FE_CNT          equ     7
+FE_SIZE         equ     8
+FRM_NEXT        equ     FRM_TAB + FRM_N * FE_SIZE
+FRM_END         equ     FRM_NEXT + 2
+FRM_P16         equ     62                      ; 16 MB: the slots' page (docs/memory.md)
+FRM_P4          equ     0xe000                  ; 512 KB, 1 MB: the slots in page 4 from here (the game image's second
+                                                ; piece ends below: tools/mkgamedisk.py checks it)
+                if FRM_END > 0x0a00
+                .error FRM_TAB: 0x09DB-0x09FF
+                endif
+; frm_drop: dirty_hook (anires.asm): the shadow's rect DR_* was redrawn: the pictures of the objects it touches go
+frm_drop:       ld      a, (FRM_TAB + FE_TAG)  ; (no object yet: the entries are taken in order)
+                or      a
+                ret     z
+                ld      hl, FRM_TAB
+                ld      b, FRM_N
+fd_l:           push    hl
+                ld      a, (DR_X1)              ; touches: x0 < DR_X1, DR_X0 < x1, y0 < DR_Y1, DR_Y0 < y1
+                dec     a
+                cp      (hl)
+                jr      c, fd_n
+                inc     hl
+                ld      a, (DR_X0)
+                cp      (hl)
+                jr      nc, fd_n
+                inc     hl
+                ld      a, (DR_Y1)
+                dec     a
+                cp      (hl)
+                jr      c, fd_n
+                inc     hl
+                ld      a, (DR_Y0)
+                cp      (hl)
+                jr      nc, fd_n
+                inc     hl
+                ld      (hl), 0
+fd_n:           pop     hl
+                ld      de, FE_SIZE
+                add     hl, de
+                djnz    fd_l
+                ret
+; frm_reset: anires.asm room_drawn: every object and slot goes; then the torch registry (tcache.asm)
+frm_reset:      ld      hl, FRM_TAB
+                ld      b, FRM_END - FRM_TAB
+                xor     a
+frr_l:          ld      (hl), a
+                inc     hl
+                djnz    frr_l
+                jp      flames_rebuild

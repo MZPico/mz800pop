@@ -105,6 +105,7 @@ def ramdisk_writes():
     w.append((S['OVL_FILL_PAGE'], S['OVL_FILL_RD'], open(os.path.join(B, 'ovl_fill.bin'), 'rb').read()))  # the fill overlay
     w.append((S['OVL_BTN_PAGE'], S['OVL_BTN_RD'], open(os.path.join(B, 'ovl_btn.bin'), 'rb').read()))  # the button overlay
     w.append((S['OVL_DOOR_PAGE'], S['OVL_DOOR_RD'], open(os.path.join(B, 'ovl_door.bin'), 'rb').read()))  # the door overlay
+    w.append((S['OVL_FRM_PAGE'], S['OVL_FRM_RD'], open(os.path.join(B, 'ovl_frm.bin'), 'rb').read()))  # the frames overlay
     return w
 
 def launcher_syms():
@@ -152,6 +153,8 @@ def game_image_writes():
         cur += r
     cur.append(0xFF); assert at + len(cur) <= end
     out.append((page, at, bytes(cur)))
+    S = syms(os.path.join(B, 'm4game.sym'))       # (M8a part 15: the chopper and spike pictures from FRM_P4 on in page 4)
+    assert all(p != 4 or a + len(d) <= S['FRM_P4'] for p, a, d in out), 'the GAME image reaches the frames slots (FRM_P4)'
     _GAME = out
     return out
 

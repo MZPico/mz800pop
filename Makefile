@@ -219,6 +219,9 @@ $(BUILD)/ovl_btn.inc: src/m4/btnstep.asm src/m4/cschg.asm
 $(BUILD)/ovl_door.bin: src/m4/ovl_door.asm src/m4/colshift.asm src/m4/cschg.asm src/m4/buttons.asm $(BUILD)/ovl_door.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_door.asm ../../$(BUILD)/ovl_door.bin ../../$(BUILD)/ovl_door.sym
 $(BUILD)/ovl_door.inc: src/m4/colshift.asm src/m4/cschg.asm src/m4/buttons.asm
+$(BUILD)/ovl_frm.bin: src/m4/ovl_frm.asm src/m4/frames.asm src/boot/launch.inc $(BUILD)/ovl_frm.inc
+	cd src/m1 && $(PASMO) --bin ../m4/ovl_frm.asm ../../$(BUILD)/ovl_frm.bin ../../$(BUILD)/ovl_frm.sym
+$(BUILD)/ovl_frm.inc: src/m4/frames.asm src/boot/launch.inc
 $(BUILD)/ovl_room.inc: src/m3/roomfull.asm
 $(BUILD)/ovl_level.inc: src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fsvars.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc
 $(BUILD)/ovl_fill.inc: src/m4/fstore.asm src/m4/fsgen.asm src/m4/fsvars.inc src/boot/launch.inc
@@ -227,8 +230,8 @@ $(BUILD)/ovl_gleave.inc: src/m4/gleave.asm
 $(BUILD)/ovl_genter.inc: src/m4/genter.asm src/m4/shadinit.asm
 $(BUILD)/ovl_save.inc: src/m4/save.asm src/boot/fdc.asm
 $(BUILD)/ovl_text.inc: src/m4/text.asm
-$(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_fill.bin tools/ovltool.py
-	$(PY) tools/ovltool.py pack $(BUILD)/m4game.sym $@ $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_fill.bin
+$(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_frm.bin $(BUILD)/ovl_fill.bin tools/ovltool.py
+	$(PY) tools/ovltool.py pack $(BUILD)/m4game.sym $@ $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_frm.bin $(BUILD)/ovl_fill.bin
 $(BUILD)/m4test.mzf: $(BUILD)/m4test.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 2000
 $(BUILD)/m4game.mzf: $(BUILD)/m4game.bin $(BUILD)/m4ovl.bin $(BUILD)/assets/sound.bin

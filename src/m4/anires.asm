@@ -31,7 +31,8 @@ cs_put:         ld      hl, SPRBUF_B
                 ld      (DR_Y0), de
 ; dirty_hook: RR_HOOK's target (game.asm) and cs_put's: the shadow's rect DR_* was redrawn: the cached button pictures
 ; it touches go, then it goes on the dirty list (sprite.asm dirty_from_dr)
-dirty_hook:     ld      a, (bc_v)
+dirty_hook:     call    frm_drop                ; (the pre-drawn pictures it touches: spike.asm)
+                ld      a, (bc_v)
                 or      a
                 jp      z, dirty_from_dr
                 push    ix
@@ -64,7 +65,7 @@ bi_n:           ld      de, 6
 ; room_drawn: game.asm after a room draw: every cached button picture goes; then the torch registry (tcache.asm)
 room_drawn:     xor     a
                 ld      (bc_v), a
-                jp      flames_rebuild
+                jp      frm_reset               ; (spike.asm: the pre-drawn pictures; then flames_rebuild)
 ; bc_drop: C = a slot's bit: its pictures are no longer valid
 bc_drop:        ld      a, c
                 cpl
