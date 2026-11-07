@@ -463,3 +463,6 @@ block2_end:
                 if block2_end > LEVEL
                 .error the tables block overlaps the level blueprint
                 endif
+                if flm_rect < GUARD_TABS + 88
+                .error tcache.asm flm_rect overlaps guard.asm GUARD_TABS
+                endif

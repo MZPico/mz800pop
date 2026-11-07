@@ -2480,3 +2480,133 @@ walk_gate and walk_potion scenes of the 9 rooms and of the busy rooms l03r16, l0
 plus walk_level1, gate_push, btn_bars, potion_heal, potion_hurt, potion_life (71 scripts a size): 0 state diffs, 0
 differing pixels. tools/movecheck.py torches: 0 differ. `make ci-build`, `make cheats`. The full regression on the
 runners: see the PR.
+
+## M8a part 17: direct copy of cached torch flames (2026-11-08)
+
+Status: **built.** Step 1 of "Option E: measured" section 7, reduced to what pays for its bytes. A torch flame whose
+chunk is a cached picture with nothing over it goes from its RAM-disk slot straight into VRAM, timed against the beam:
+no compose buffer, no pending chunk, no screen copy. And a potion bubble's frame no longer throws the flames' cached
+pictures away.
+
+### What changed
+
+- **The direct copy** (tcache.asm tc_direct, block 2). obj_chunk now asks tc_try before it picks a chunk buffer. On a
+  hit the RAM disk, at the slot, is read by INIR into VRAM, plane after plane (4 planes x CRH rows x 2 bytes; the
+  flame's rect is 2 bytes wide). Under the upside-down flip (set_flip patches blit into a jump) the chunk is composed as
+  before. A direct hit clears tc_slot: else a later chunk that takes the kept-picture path (oc_kept skips tc_try) would
+  reach tc_save with the stale slot and overwrite the flame's picture with its own.
+- **The beam wait** (sprite.asm td_beam, low block; it reuses pend_flush's pf_beam and pf_d). See "Why it cannot tear".
+- **fore_gen** (room.asm op_patch). The fore path bumped fore_gen at every potion bubble frame, and tc_try flushes
+  the whole torch cache when fore_gen moves: in a room with a potion the flames missed the cache at every bubble frame.
+  No bubble's rect touches a flame's on any screen of levels 1-14 (tools/movecheck.py caches: 2,352 screens x bubble
+  frames, 0 differ), so a flame's picture never holds a bubble and the bump is gone. frames.asm still bumps fore_gen
+  when a fore record in a flame's rect is patched.
+- **Memory found in what this touches:**
+  - FLM_MAX 8 -> 4: no screen of levels 1-14 shows more than 4 flames (movecheck caches). That frees page 6
+    0x1440-0x287F (the slots of flames 4-7, 5,184 bytes, runtime only) and 36 bytes of TC_VALID.
+  - flm_rec (8 bytes) moved from the low code block to low RAM 0x0124 (after TC_VALID), flm_rect (16) from block 2 to
+    0x9FE8 (the free bytes above GUARD_TABS; neither is read while VRAM is mapped).
+  - tc_hit's read into the compose buffer is gone; a few jumps in tc_try, tc_save and flames_build became relative.
+
+Resident: main 15 bytes smaller (311 free), low 15 larger (9 free), block 2 5 smaller (19 free). Nothing on the RAM
+disk is added.
+
+### Why it cannot tear
+
+The copy changes the rect's four planes one after the other, so all of it must fall between two passes of the beam
+over the rect's rows. Let d be the lines until the beam next reaches the rect's top row, (BEAM_Y0 + CRY - s) mod 312,
+where s is beam_lines: the 8253's HSYNC count since the VBLN interrupt, the same source and BEAM_Y0 as pend_flush's
+chunk copies. td_beam reads the beam until both hold:
+
+- d >= 2h + TD_PRE (8): the copy's length with room to spare. A row's four planes take 4 x (36 x 2 + 29) T of code
+  with the 15 wait states a RAM-disk byte the boot accepts at most (rdspeed.asm RD_SPEED_MAX), 1.77 lines, plus the
+  VRAM's own wait states: measured at 15 waits, a flame's copy (h = 18) is 34.6 lines at most, under the 44 it is given.
+  The copy starts a few dozen T after the last beam read.
+- d + h <= 312 - TD_POST (6): the beam left the rect's bottom row at least 6 lines before the copy starts.
+
+The window is shut for 3h + 14 = 68 of the 312 lines. The only interrupt is the VBLN one at line 0 (with the PSG player
+at most 2,204 T, under 10 lines). It cannot fall inside a copy that ends near the beam, nor between a passed check and
+the copy's start when the start is near the beam: canvas rows begin 113 lines after it, so a copy around line 0 has
+over 80 lines to spare.
+
+tools/optione.py direct traces every copy (td_go to td_end) and the VBLN interrupt's entry in the emulator; a copy
+tears when the beam is on one of the rect's rows at any time from its first write to its last:
+
+| scene (1 MB) | RAM-disk waits | copies (a tick) | torn | longest copy (lines) | beam after the end, before the start (lines, min) | wait a copy (lines, mean / max) |
+|---|---:|---:|---:|---:|---|---|
+| walk_level1 | 0 | 349 (1.10) | 0 | 28.4 | 17.3, 7.8 | 11.6 / 72.0 |
+| l04r07_stand_a | 0 | 180 (1.80) | 0 | 25.1 | 19.8, 7.9 | 10.8 / 59.1 |
+| l07r19_walk_a | 0 | 27 (0.23) | 0 | 25.1 | 26.7, 8.6 | 6.0 / 67.7 |
+| l05r07_walk_a | 0 | 106 (0.88) | 0 | 25.1 | 22.9, 8.0 | 9.2 / 65.6 |
+| walk_level1 | 15 | 349 (1.10) | 0 | 37.9 | 8.6, 7.7 | 12.5 / 69.9 |
+| l04r07_stand_a | 15 | 180 (1.80) | 0 | 34.6 | 15.3, 8.2 | 15.8 / 69.9 |
+| l07r19_walk_a | 15 | 27 (0.23) | 0 | 34.6 | 8.8, 9.3 | 12.8 / 67.7 |
+| l05r07_walk_a | 15 | 106 (0.88) | 0 | 34.6 | 10.2, 8.0 | 13.7 / 69.9 |
+
+(POP800_RD_WAIT=15.) The 37.9 is a copy far from the beam with the VBLN interrupt inside it. The closest the beam came
+to a copy's end is 8.6 lines, inside the allowance; to its start 7.7 (TD_POST 6 plus the read-to-copy delay). On the
+real machine the beam position comes from the same 8253 HSYNC count that pend_flush's chunk copies rely on (PLAN status
+11); a check on the hardware belongs to M8 with the rest of the beam timing.
+
+### Speed
+
+What each part costs and buys (1 MB; the busy-room scenes are tools/busyrooms.py find's, mean work a tick of the a
+scene, the median frames in brackets; only-torch / only-potion: that kind's variant minus walk_b, mean a tick). The
+variants were built and measured; A, B and C are main 3f95f09 plus:
+
+| | main / low / block 2 free | normal tick 512 KB / 1 MB | l04r07 stand | l05r07 walk | l07r07 stand | l01r05 stand | only-torch l07r19 | only-potion l05r07 |
+|---|---|---|---|---|---|---|---|---|
+| main | 296 / 24 / 14 | 5.72 / 5.20 | 5.07 (5.02) | 7.15 (6.02) | 6.12 (4.99) | 6.29 (5.91) | 1.22 | 0.50 |
+| A: fore_gen only | 311 / 24 / 14 | 5.72 / 5.20 | 4.58 (4.49) | 6.91 (5.98) | 6.12 (4.99) | 6.07 (5.96) | 1.22 | 0.47 |
+| **B: A + direct flames (this)** | **311 / 9 / 19** | **5.47 / 5.12** | **4.40 (4.34)** | **6.72 (5.95)** | **5.89 (4.98)** | **5.97 (5.95)** | **0.92** | 0.47 |
+| B': B, td_beam in main | 275 / 45 / 19 | as B | | | | | | |
+| C: the first draft (B + bubbles) | 137 / 34 / 18 | 5.47 / 5.09 | 4.08 (3.99) | 6.54 (5.82) | 5.82 (4.52) | 5.85 (5.49) | 0.92 | 0.13 |
+| D: B + slim bubbles (estimate) | ~255 / 9 / ? | as C | | | | | | |
+
+The draft (C) also cached the potion bubbles (spike.asm bub_build, a slot per bubble and frame in the page 6 space
+FLM_MAX 4 frees) and copied them directly: a bubble alone fell from 0.5 to 0.13 frames a tick. In whole scenes that
+came to -0.08 a tick on average (l04r07 -0.17 / -0.32, l05r07 -0.18 / -0.24, but l03r16 +0.06 / +0.13, l05r24 and
+l01r05 within 0.1 either way), for +58 bytes of main, and the room change was +0.1 (bub_build at every flush). B leaves
+the bubbles out. Its direct copy was also slimmed from the draft's 106 bytes in main (with blit's VRAM address moved
+into a shared vram_at) to tc_direct in block 2 plus the 36-byte td_beam.
+
+All rooms (1 MB, mean work a tick of the a scenes, main -> B; only-torch work in brackets):
+
+| room | walk | stand |
+|---|---|---|
+| l01r07 (2 torches) | 7.68 -> 7.61 (0.91 -> 0.72) | 3.84 -> 3.56 |
+| l04r07 (3, potion) | 7.38 -> 7.12 (1.55 -> 1.28) | 5.07 -> 4.40 |
+| l05r07 (2, potion) | 7.15 -> 6.72 (0.85 -> 0.49) | 6.65 -> 6.30 |
+| l07r07 (3) | 8.41 -> 8.39 (1.28 -> 0.86) | 6.12 -> 5.89 |
+| l07r19 (3) | 8.39 -> 8.37 (1.22 -> 0.92) | 5.66 -> 5.46 |
+| l03r16 (2, potion, chopper) | 9.32 -> 9.31 (0.83 -> 0.55) | 8.79 -> 8.77 |
+| l05r24 (2, potion, chopper) | 8.36 -> 8.26 (0.77 -> 0.48) | 8.04 -> 7.93 |
+| l01r05 (3, potion) | 7.79 -> 7.78 (1.37 -> 1.05) | 6.29 -> 5.97 |
+
+A cached flame costs ~0.1 frames a tick less (the copy ~25 lines and the wait ~10 instead of the compose read, the
+pending copy and its share of pend_flush). The rooms with a potion gain the most standing: their flames now hit.
+
+### perfcheck (one run per size; main = 3f95f09, the baselines; lowered where beaten, in this commit)
+
+| Stretch | 512 KB base / new | 1 MB base / new | 16 MB base / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.72 / **5.47** | 5.20 / **5.12** | 5.03 / **5.00** |
+| level door step (walkthrough 203-207) | 9.23 / 9.23 | 8.54 / 8.56 | 8.54 / 8.56 |
+| room change (walkthrough 89) | 105.92 / 106.05 | 105.92 / 106.05 | 105.22 / 105.22 |
+| walkthrough 190-260 | 6.44 / **6.35** | 6.19 / **6.14** | 5.85 / **5.78** |
+| gate (gate_push 200-260) | 4.10 / **4.09** | 4.10 / **4.09** | 4.10 / **4.09** |
+| traps (traps_b1 0-300) | 5.63 / **5.55** | 5.30 / **5.24** | 5.22 / **5.18** |
+| fight (fight1 60-160, guard on) | 7.17 / **7.09** | 6.36 / **6.28** | 5.98 / **5.96** |
+
+The normal tick (level 1's torches) gains 0.03 (16 MB) to 0.25 (512 KB): a tick saved shows only where it moves the
+tick's end over a frame's beam phase, which differs by size. The room change and the door step are as on main (main's
+own runs: 106.07 and 8.54 at 1 MB), within the tolerance; their baselines stay.
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state and VRAM every tick) at 512 KB, 1 MB and 16 MB: the walk_a and stand_a scenes of
+the torch rooms l01r07, l04r07, l05r07, l07r07, l07r19, the potion rooms l03r16, l05r24, l01r05 and the busy rooms
+l08r23, l10r10, l10r01, plus walk_level1, potion_heal, potion_hurt, potion_life, level5_shadow_potion and
+potion_upside_down (the flip: composed as before), 28 scripts a size: 0 state diffs, 0 differing pixels.
+tests/m4_test.py: 0 differing. tools/movecheck.py caches: 0 differ. `make ci-build`, `make cheats`. The full
+regression on the runners: see the PR.

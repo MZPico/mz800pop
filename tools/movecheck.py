@@ -30,7 +30,10 @@ extent reaches past the reference's image (a door piece's last pixel), the emula
            rects: whole byte columns). view.asm flames_build registers a flame when there are none, or when the one
            op after it is CH_ENV 46 (spike.asm fb_over: the base of the gate the flame's tile draws); then 46 must
            have no pixel inside the flame's rect (laying the flame alone gives the picture)
-usage: movecheck.py [gates|doors|buttons|chompers|spikes|torches ...]   (default all; ~15 minutes)"""
+  caches   (M8a part 17, tcache.asm) every screen of levels 1-14 (our room), every potion at each bubble frame 1..7: at
+           most 4 torch flames (view.asm FLM_MAX) on a screen, and no potion bubble's rect touches a flame's (room.asm
+           op_patch bumps no fore_gen for a bubble: the flames' cached pictures never hold a bubble)
+usage: movecheck.py [gates|doors|buttons|chompers|spikes|torches|caches ...]   (default all; ~15 minutes)"""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -324,6 +327,32 @@ def torches():
         n, alone, by46, other, bad), flush=True)
     return bad
 
+def caches():
+    from popdata import POTION_FRAM_BUBB
+    B = set(POTION_FRAM_BUBB[1:8]); n = bad = mf = 0
+    for lv in range(1, 15):
+        L = Level(lv)
+        pots = [i for i in range(len(L.fg)) if L.fg[i] & 0x1F == T.potion]
+        m0 = {i: L.bg[i] for i in pots}
+        for room in range(1, 25):
+            for f in range(1, 8):
+                for i in pots: L.bg[i] = (m0[i] & 0xF8) | f
+                rr = RoomRenderer(L); rr.draw_room(room); n += 1
+                fl = [o for o in rr.ops['back'] if o[0] == 1 and 1 <= o[1] <= 9 and o[3] >= 0]
+                bb = [o for o in rr.ops['fore'] if o[0] == 1 and o[1] in B]
+                mf = max(mf, len(fl)); errs = []
+                if len(fl) > 4: errs.append('%d flames' % len(fl))
+                for b in bb:
+                    w, h, _ = rr.sets[1].get(b[1]); bx0, bx1 = b[2] // 8, (b[2] + w - 1) // 8
+                    for o in fl:
+                        fw, fh, _ = rr.sets[1].get(o[1])
+                        if bx0 <= (o[2] + fw - 1) // 8 and bx1 >= o[2] // 8 and b[3] < o[3] + fh and o[3] < b[3] + h:
+                            errs.append('bubble %s touches flame %s' % (b, o))
+                if errs: bad += 1; print('caches: level %d room %d frame %d: %s' % (lv, room, f, ', '.join(errs)))
+        for i in pots: L.bg[i] = m0[i]
+    print('caches: %d screens x bubble frames, at most %d flames a screen, %d differ' % (n, mf, bad), flush=True)
+    return bad
+
 if __name__ == '__main__':
-    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes', 'torches']
+    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes', 'torches', 'caches']
     sys.exit(1 if sum(globals()[w]() for w in what) else 0)

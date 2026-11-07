@@ -3112,14 +3112,8 @@ op_found:       dec     hl              ; HL = record
                 ld      a, (OP_ONLY)            ; find only: HL = the record, A != 0
                 or      a
                 ret     nz
-                ld      a, (OP_LIST)            ; a fore op changes (a potion bubble): images cached with the
-                cp      2                       ; fore pieces in them are stale
-                jp      nz, opf1
-                ld      a, (fore_gen)
-                inc     a
-                ld      (fore_gen), a
-opf1:
-                push    hl
+                push    hl                      ; (a fore op, a potion bubble, never lies in a torch flame's rect:
+                                                ; the flames' cached pictures stay, M8a part 17)
                 call    dr_add          ; old rect
                 pop     hl
                 push    hl
@@ -3588,7 +3582,7 @@ rc_none:        or      a
 rr_kr:          ds      4               ; the last background-only rect (in SPRBUF_B) and whether it is unused
 rr_kv:          db      0
 ops_gen:        db      0               ; bumped whenever op records may move (tile_regen, room_ops)
-fore_gen:       db      0               ; bumped when a fore op is patched (op_patch)
+fore_gen:       db      0               ; bumped when a fore op in a torch flame's rect is patched (M4 frames.asm)
 rr_lastrec:     dw      0               ; the cover's record (its end)
 OP_ONLY:        db      0
 rr_cnt:         db      0

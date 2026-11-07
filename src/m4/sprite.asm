@@ -391,6 +391,8 @@ orr_ynext:      ld      a, (CRY)
 ; obj_chunk: one compose chunk (CRX, CRY, CRW, CRH): background, falling floors, kid, fore pieces, blit
 obj_chunk:      call    oc_kept                 ; the background-only redraw of this rect: its picture as base
                 jp      c, oc_base
+                call    tc_try                  ; a torch chunk seen before: from its cache straight into VRAM
+                ret     c
                 call    buf_pick                ; a free chunk buffer (flush when all are in use)
                 jr      nc, oc_free
                 ld      hl, (CRX)               ; (the flush uses the compose rect: keep this chunk's)
@@ -405,8 +407,6 @@ obj_chunk:      call    oc_kept                 ; the background-only redraw of 
                 call    buf_pick
 oc_free:        ld      (V_COMPOSE), de
                 ld      (oc_comp), de
-                call    tc_try                  ; a torch chunk seen before: the cached picture
-                jp      c, oc_rec
                 call    flames_cover            ; a chunk inside a torch flame needs no background
                 call    nc, restore_shadow
 oc_base:        call    flames_lay              ; the flames' current frames (the shadow may hold old ones)
@@ -655,6 +655,33 @@ pd_n:           bit     7, h
                 ret     z
                 add     hl, de
                 jp      pd_n
+; td_beam: wait until a direct copy of the compose rect (tcache.asm tc_direct: 4 planes x CRH rows of 2 bytes) can
+; lie wholly between two passes of the beam over the rect's rows. d (pf_d) = the lines until the beam next reaches the
+; rect's top row; the copy starts when d >= 2 CRH + TD_PRE (a row's 4 planes take at most 1.77 lines with the 15 wait
+; states a byte the boot accepts at most: at most 1.77 CRH < 2 CRH lines for the copy) and when the beam left the
+; bottom row at least TD_POST lines ago (d + CRH <= 312 - TD_POST). Keeps nothing (IX = CRX).
+TD_PRE          equ     8
+TD_POST         equ     6
+td_beam:        call    pf_beam
+                ld      ix, CRX
+                call    pf_d                    ; HL = d
+                ld      a, (CRH)
+                ld      c, a
+                add     a, a
+                add     a, TD_PRE
+                ld      e, a
+                ld      d, 0
+                or      a
+                sbc     hl, de
+                jr      c, td_beam
+                ld      b, d
+                add     hl, bc
+                add     hl, bc
+                add     hl, bc
+                ld      de, -(313 - TD_POST - TD_PRE)
+                add     hl, de
+                jr      c, td_beam
+                ret
 ; pf_blit1: copy the chunk at IX
 pf_blit1:       ld      a, (ix+0)
                 ld      (CRX), a
