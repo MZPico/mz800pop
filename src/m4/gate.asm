@@ -10,7 +10,9 @@
 ;     (our (row - 1, c + 1), or the above row's column c + 1 = tag 31 + c for row 0);
 ;   1 a gate in the left room's column 9: the bars tile is VS_TAG (our column 0), the top tile the one above it;
 ;   3 a gate in the below room's row 0: only its top shows, drawn by our (2, c + 1) = VS_TAG (0xff for c = 9: nothing).
-gate_redraw:    call    dr_reset
+gate_redraw:    call    gate_fast               ; (the animation overlay: a one-row step as a moving part)
+                ret     nc
+                call    dr_reset
                 call    lrl_lr                  ; (room.asm: load_room_links, load_leftroom)
                 ld      a, (VS_KIND)
                 ld      c, a
