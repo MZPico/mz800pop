@@ -790,3 +790,13 @@ So a level start with a new set is **+1.3-1.5 s on 1 MB** (64-75 frames for ~81 
 levels 1, 3, 4, 6, 7, 10, 12, 13 and 14 (9 x ~1.4 s); on 16 MB each set once (6 x ~5 s).
 
 **Results**: docs/perf.md "M8a part 12: guard frames" (fight1 60-160 7.20 -> 6.88 on 1 MB, 6.87 -> 6.52 on 16 MB).
+
+## 14. M8a part 15: the chopper and spike pictures (2026-11-07)
+
+The frames overlay (src/m4/frames.asm, docs/perf.md "M8a part 15") keeps the pictures of the choppers and spikes of
+the room on screen, filled the first time each is drawn and dropped at every room draw (runtime scratch, never
+compared: tests/m5_boot.py RUNTIME_SCRATCH). By size: 16 MB page 62 0x0000-0x5FFF (after the guard sets, free so far);
+1 MB and 512 KB nothing in pages 8-15 (the frame store's, as decided for 1 MB), but 20 slots in the free pieces of
+pages 0-7 (15 x 960 + 5 x 648 bytes: page 4 0xE000-0xFDFF, page 0 0xE868 and 0xFC00, page 6 0x2880, 0xF964 and
+0xFD24, page 1 0xDA58, 0xFC5C and 0x7D00, page 5 0x3AD0); the overlay's own image is in page 0 0xA400. Every chopper
+room has all its pictures on every size; the rooms with 3-4 spikes get 20 of their 23-24 on 512 KB and 1 MB.

@@ -959,3 +959,15 @@ piece used AND/XOR semantics.
    a closer: 6.88 -> 6.36). Next: A (pre-drawn chopper and spike
    pictures through cs_get / cs_put and the button cache's slot validity); left here: the closed-branch gate steps
    (~3 frames: the contact band's run_rect), the palace pillar, the dropping gate.
+58. M8a part 15, chopper and spike frames (2026-11-07, docs/perf.md "M8a part 15: chopper and spike frames"; option A
+   of item 55): a chopper's or spike's picture step in its own room copies the rect's picture (a chopper 4 x 60 bytes,
+   a spike 6 x 27) from a RAM-disk slot filled the first time that picture was drawn, and patches the pieces' records
+   in place (regenerating only where a piece comes or goes): the frames overlay 13 (src/m4/frames.asm, image in page 0
+   0xA400). Validity through part 14's dirty_hook (frm_drop) and room_drawn (frm_reset). Slots: 16 MB page 62; 512 KB
+   and 1 MB 15 x 960 + 5 x 648 bytes in the free pieces of pages 0-7 (nothing of the 1 MB frame store): every chopper
+   room complete, the 4-spike rooms 20 of 24 pictures. Checked on the reference for every chopper (780 picture pairs)
+   and spike (3,600) of levels 1-14 (tools/movecheck.py chompers, spikes). The model's chomp 6.09 -> 4.12 frames (a hit
+   with patched records: the step 1.25, the object pass over the kid ~1.7 more); busy-room medians (1 MB) l03r16 11.0 ->
+   8.8 (moving) / 10.8 -> 8.0 (standing), l08r23 9.6 -> 6.8, l10r10 10.2 -> 8.0, l08r04 9.4 -> 7.6, l05r24 10.3 -> 8.4
+   (standing); p90s down 2-5 frames. Resident: main +97 (329 free), block 2 +3 (14 free). perfcheck unchanged.
+   Left: the object pass over a chopper's rect with the kid in it (option E), cs_put's shadow write (0.7 a step).

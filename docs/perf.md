@@ -1980,3 +1980,153 @@ tile is the button, a cached press, then a gate step that regenerates the tile w
 (a slice-count change while the gate is open), then the next press or release. tests/m4_scripts/btn_bars.txt (level 8
 room 15: the opener right of the gate; found with kidsim and a model of the cache) runs the button through presses,
 releases and regenerating gate steps, pixel-exact every tick; with the fix the entry holds the tags (16, 17).
+
+## M8a part 15: chopper and spike frames (2026-11-07)
+
+Status: **built.** Option A of the busy-rooms measurement ("Busy rooms: per-room and per-object costs"): a chopper's or
+a spike's picture step copies a pre-drawn picture of its rect from the RAM disk instead of laying the pieces again,
+and patches the pieces' records in place instead of regenerating the tile. The code is a new W1 overlay (the frames
+overlay, 13: src/m4/frames.asm through src/m4/ovl_frm.asm, 1,020 bytes, image in RAM-disk page 0 0xA400) entered from
+spike.asm chomp_redraw / spike_redraw (our room's own choppers and spikes, VS_KIND 0; the other rooms' and a chopper
+with blood go the old way), on top of part 14's resident cs_put / dirty_hook / room_drawn.
+
+### What stays exact (tools/movecheck.py chompers, spikes)
+
+- **The rect.** Between any two pictures of a chopper only the rect x 4c..4c + 3, rows 63r + 3..63r + 62 changes (the
+  shadow's pixels to row 60, the fore pieces' rects to row 62); of a spike x 4c..4c + 5 (to 40), rows 63r + 34..63r +
+  60 (its right part is drawn by the right neighbour). Checked on the reference for all 39 choppers and 120 spikes of
+  levels 1-14 seen in their own room, every ordered pair of pictures (780 + 3,600 steps): the old picture with the
+  rect taken from the new one is the new one, whole screen, and the fore ops that change lie in the rect: 0 differ.
+  All four planes change, so a picture is the whole rect: 960 bytes (4 x 60 x 4), a spike's 648 (6 x 27 x 4).
+- **The pictures.** A chopper's picture n = CHOMPER_FRAM1[min(mod & 0x7F, 6)] (5 pictures), a spike's spike_frame
+  0..9 with equal images merged (0 = 9, 1 = 8, 2 = 7, 4 = 6: 6 pictures).
+- **The records.** What changes between two pictures is the object's pieces only, at the same place in the same list:
+  a chopper's bottom (101-105), top (111-113) and fore (106-110), a spike's left part (128-132), fore (139-143) and the
+  right neighbour's 134-138; their bottom rows stay (a chopper's top is CHOMPER_FRAM_Y[n] above its bottom piece's
+  bottom). The exceptions are a piece that comes or goes: a chopper's top at n 0, 1 (2 of its 5 steps), a spike's
+  picture 0 (2 of 9). Then the tile is regenerated as before (and the spike's right neighbour). Checked with the rect.
+
+### The step (frames.asm frm_step)
+
+1. The object's entry in FRM_TAB (low RAM 0x09DB: 4 objects, the first ones stepping after a room draw; its rect, its
+   valid pictures, its slots), else a free one: it takes its slots (below).
+2. Records: patched in place (op_patch's find, the id, size and top row written, the slice's extent widened), or the
+   tile(s) regenerated. A patched fore record over a torch flame (flm_touch) bumps fore_gen (the torch pictures with
+   fore pieces in them go); a patch leaves ops_gen alone, so the torch registry is not rescanned and the torch picture
+   cache (tcache.asm) is not flushed: before, every chopper step flushed it.
+3. Pixels: the picture valid: its slot read into SPRBUF_B (an INI chain per row, ~0.3 frames for 960 bytes) and put
+   (cs_put: the shadow, the dirty list, the object pass's kept background); else the dirty rect is the rect, dr_run lays
+   it (one chunk: its picture stays in SPRBUF_B) and the picture is written to its slot.
+4. Validity: frm_drop (main, called by anires.asm dirty_hook: every dr_run of the room renderer and every cs_put)
+   drops every picture of an object whose rect the redrawn rect touches; the object's own redraw keeps its others
+   (pictures of the same background); a room draw clears everything (room_drawn -> frm_reset). Two committed scripts
+   exercise it: tests/m4_scripts/frm_button.txt (level 10 room 10: a closer pressed next to the chopper; without the
+   drop tick 21 differs) and frm_spike_btn.txt (level 7 room 19: a closer and moving gates next to a spike; without it
+   tick 82 differs).
+
+### The slots (memory)
+
+- **16 MB:** page FRM_P16 = 62 (free after the frame store), 1 KB a slot, six per object: every picture of 4 objects.
+- **512 KB and 1 MB:** nothing in pages 8-15 (the frame store's, as decided for 1 MB). The free pieces of pages 0-7
+  that exist on every size: 15 chopper-sized slots (960 bytes: page 4 0xE000-0xFDFF x 8, page 0 0xE868 x 2 and 0xFC00,
+  page 6 0x2880 x 2 and 0xF964, page 1 0xDA58) and 5 spike-sized ones (648: page 6 0xFD24, page 1 0xFC5C and 0x7D00,
+  page 5 0x3AD0 x 2), 17,640 bytes in 13 pieces (frames.asm fs_bdir / fs_sdir; tests/m5_boot.py RUNTIME_SCRATCH reads
+  them from the overlay's image). A chopper takes five big slots, a spike six small ones, else six big ones, else what
+  is left; pictures without a slot are drawn the old way every time. What the rooms need (pictures, 960 / 648 bytes):
+  l03r16 (3 choppers) 15 big: all; l05r24, l08r23, l10r10 (2 choppers, + a spike in l08r23): all; l08r04 (2 choppers,
+  2 spikes) 22 pictures: 20 (the second spike 4 of 6); l10r14 (1 chopper, 3 spikes) 23: 20; the six 4-spike rooms
+  24: 20. Page 4's slots start at FRM_P4 = 0xE000, after the game image's second piece (0xD400-0xDD2F today;
+  tools/mkgamedisk.py asserts it ends below FRM_P4). Page 1 0xE918-0xFC5B stays the button cache's.
+- **Resident:** main +97 (end_of_code 0x7A56 -> 0x7AB7, 329 free: frm_drop with its early exit, frm_reset, the stub,
+  the calls in chomp_redraw / spike_redraw), block 2 +3 (dirty_hook calls frm_drop; 14 free), the low block unchanged.
+  Data: FRM_TAB 0x09DB-0x09FC (34 bytes) and the step's variables 0x09A6-0x09B3 (low RAM, runtime only; RV, the room
+  renderer's variables, ends at 0x09A5, not 0x09A3 as docs/memory.md had it: a first build put variables at 0x09A4,
+  which rr_table overwrites). The overlay table +8 bytes (page 7: 743 free).
+
+### The prototype (measure first)
+
+The first build regenerated the tile on every step and laid nothing on a hit (cs_put of the cached picture). 16 MB,
+l03r16_stand_a tick 45 (one chopper step, the kid next to it): 4.97 -> 8.48 frames against 4.97 for the same tick
+without a step; the step 1.87 (own_regen 0.60, the slot read 0.55, cs_put's shadow write 0.69), the object pass over
+the kid +1.6 (the chunk's fore pieces, the kid composed into it, the copy). The estimate (~2.0-2.5 for the step and the
+object pass) had no regeneration. So the records are patched where no piece comes or goes, and the slot read is an
+unrolled INI chain: the same tick now **7.97** (1 MB), the step **1.25** (read 0.42 with the scans, cs_put 0.72); a
+step that regenerates (2 of 5) 2.03 (tick 46: 8.96). What is left over the kid is the object pass (~1.7), which every
+redraw of that rect pays (option E's subject).
+
+### The busy rooms (1 MB, frames a tick: median / p90 / worst; tools/busyrooms.py measure, main 1ba17ed against this)
+
+| scene | ticks | main | now | mean work: main / now | b |
+|---|---:|---|---|---|---:|
+| 3 / 16 (3 choppers) moves | 118 | 10.96 / 16.99 / 20.06 | **8.79** / 14.00 / 17.62 | 11.31 / 9.33 | 3.99 |
+| 3 / 16 (3 choppers) stands | 98 | 10.78 / 16.81 / 16.95 | **7.99** / 12.29 / 16.94 | 10.80 / 8.79 | 3.99 |
+| 5 / 24 (2 choppers, gates) moves | 107 | 7.72 / 17.31 / 23.04 | **7.50** / 12.94 / 23.78 | 9.59 / 8.35 | 3.99 |
+| 5 / 24 (2 choppers, gates) stands | 98 | 10.27 / 17.36 / 17.50 | **8.42** / 12.96 / 18.38 | 9.30 / 8.04 | 3.99 |
+| 8 / 23 (2 choppers, spike) moves | 118 | 9.59 / 16.31 / 17.94 | **6.79** / 10.95 / 16.86 | 8.59 / 6.94 | 4.00 |
+| 8 / 23 (2 choppers, spike) stands | 98 | 9.54 / 16.41 / 16.94 | **6.64** / 10.97 / 16.60 | 8.27 / 6.48 | 3.99 |
+| 10 / 10 (2 choppers, gate) moves | 43 | 10.18 / 19.87 / 28.36 | **7.95** / 17.87 / 26.91 | 10.52 / 9.99 | 4.02 |
+| 10 / 10 (2 choppers, gate) stands | 98 | 9.06 / 15.56 / 26.26 | **7.32** / 12.07 / 27.32 | 8.22 / 7.18 | 3.99 |
+| 8 / 4 (2 choppers, 2 spikes) moves | 118 | 9.39 / 15.40 / 16.94 | **7.59** / 12.48 / 15.48 | 8.64 / 7.46 | 4.04 |
+| 8 / 4 (2 choppers, 2 spikes) stands | 98 | 8.84 / 14.77 / 14.95 | **6.69** / 11.01 / 14.97 | 7.66 / 6.52 | 3.99 |
+| 9 / 22 (gates, 2 spikes) moves | 41 | 8.32 / 13.52 / 16.60 | **8.33** / 13.11 / 18.30 | 8.91 / 9.06 | 3.98 |
+| 9 / 22 (gates, 2 spikes) stands | 98 | 3.99 / 8.55 / 10.82 | **3.99** / 8.57 / 10.76 | 4.90 / 4.90 | 3.99 |
+| 10 / 14 (chopper, 3 spikes) moves | 118 | 5.15 / 11.46 / 12.27 | **5.16** / 8.74 / 10.92 | 6.96 / 6.08 | 4.01 |
+| 10 / 14 (chopper, 3 spikes) stands | 98 | 3.99 / 10.17 / 10.95 | **3.99** / 7.66 / 10.03 | 6.05 / 5.16 | 3.99 |
+| 9 / 1 (chopper, gates) moves | 45 | 9.75 / 14.97 / 16.80 | **9.55** / 15.56 / 16.78 | 10.02 / 9.51 | 4.02 |
+| 9 / 1 (chopper, gates) stands | 98 | 4.99 / 11.29 / 16.16 | **4.98** / 9.16 / 14.48 | 6.47 / 5.85 | 3.99 |
+
+The 16 MB run of the same scenes (the prototype build, which regenerated every step): l03r16 8.96 / 8.60, l05r24 7.36
+/ 9.15, l08r23 7.23 / 7.41, l10r10 8.18 / 8.02, l08r04 7.86 / 7.96 (moving / standing medians). The busy scenes have
+few spike steps (the kid rarely sets them off): the l09r22 / l10r14 differences are the chopper and the torch cache
+(no flush at a patched chopper step).
+
+The cost model refitted over the same 4,120 ticks (`fit`, frames of work a change; main / now): **chomp 6.09 -> 4.12**,
+chomp- 0.08 -> 0.06, torch 0.49 -> 0.52, potion 0.63 -> 0.54, gate 3.96 -> 4.10 (277 ticks, the alternation with the
+frames overlay in W1: below), button 3.40 -> 3.28, spike 4.51 -> 4.94 (14 ticks: noise). The chomp mixes the misses
+(the first cycle after each room draw: the scenes die and restart often) with the hits.
+
+### Spikes (tools/tickcost.py --scene, 1 MB, frames a tick with a spike picture change and the kid moving, median /
+p90 / worst; before = this build with the frames overlay off, i.e. main's path)
+
+| scene | ticks | before | now | excess before / now |
+|---|---:|---|---|---|
+| l14_spike (a) | 9 | 10.42 / 11.58 / 11.68 | **9.57** / 10.57 / 12.55 | 5.76 / 4.22 |
+| l06_spike (a) | 13 | 10.70 / 13.54 / 16.14 | **9.16** / 11.00 / 11.61 | 2.05 / 0.94 |
+| l08_spike (a) | 18 | 10.89 / 12.56 / 17.16 | **9.43** / 11.56 / 13.27 | 3.65 / 2.54 |
+
+A spike's cycle is 9 picture changes, of which the first 5 after a room draw are misses (0 -> 1 .. 4 -> 5: laid, then
+saved) and the 4 back down hits (5 -> 4 -> 2 -> 1 -> 0, the pictures it rose through); 0 -> 1 and 1 -> 0 regenerate (the
+pieces come and go). These scenes set a spike off once or twice, so most of their steps are misses; a spike that keeps
+cycling (the kid standing next to it) is all hits from its second cycle.
+
+### Overlay loads
+
+The frames overlay is a W1 overlay: in a room where a gate moves while a chopper cycles, the gate and the frames
+overlays alternate (~0.3 frames a load, 1,020 bytes). The W1 window has no room for both (the gate overlay has 10
+bytes free, the frames overlay 4), and main has 329 bytes free. In the chopper rooms with a gate (l05r24, l08r23,
+l10r10, l09r01) that costs ~0.6 per chopper step while the gate moves; the gate's model cost went 3.96 -> 4.10.
+
+### perfcheck (one run per size; main = 1ba17ed, the baselines)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.72 / 5.75 | 5.20 / 5.20 | 5.03 / 5.03 |
+| level door step (walkthrough 203-207) | 9.23 / 9.23 | 8.54 / 8.54 | 8.54 / 8.54 |
+| room change (walkthrough 89) | 105.92 / 106.06 | 105.92 / 106.06 | 105.22 / 105.57 |
+| walkthrough 190-260 | 6.44 / 6.45 | 6.19 / 6.17 | 5.85 / 5.83 |
+| gate (gate_push 200-260) | 4.10 / 4.10 | 4.10 / 4.10 | 4.10 / 4.10 |
+| traps (traps_b1 0-300) | 5.63 / 5.64 | 5.30 / 5.31 | 5.22 / 5.23 |
+| fight (fight1 60-160, guard on) | 7.17 / 7.19 | 6.36 / 6.33 | 5.98 / 6.00 |
+
+No chopper or spike in the stretches; the differences are the beam phase (the 512 KB normal tick measured 5.75 on a
+build of part 14 too; the room change is one tick, its 16 MB value was 105.23 on an earlier build of this part).
+frm_drop exits at once while the room has no chopper or spike stepping (the first entry free). No baseline lowered.
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state and VRAM every tick) at 512 KB, 1 MB and 16 MB: chomper, fight_chomper,
+fight_spikes, the l14_spike_a, l06_spike_c and l08_spike_a scenes, frm_button, frm_spike_btn, traps_b1, and the walk_a
+and stand_a scripts of l03r16, l05r24, l08r23, l08r04, l10r14, l09r22, l09r01, the stand_a of l10r10 and the walk_a of
+l01r15 (25 scripts a size): 0 state diffs, 0 differing pixels. tests/m4_test.py on chomper, fight_chomper, frm_button,
+frm_spike_btn: 0 differing. tools/movecheck.py chompers, spikes: 0 differ. `make ci-build`, `make cheats`. The full
+regression on the runners: see the PR.

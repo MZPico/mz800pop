@@ -36,7 +36,7 @@ OVL_W2_END      equ     0xb000
 OVL_RD_PAGE     equ     7               ; the overlay table and images: RAM-disk page 7 after the vizier guard set (0x8D80-0xD8F3;
 OVL_RD_TAB      equ     0xd900          ; page 6 0xE300-0xFFFF until 2026-11-01, full then) (256-aligned: entry k at low byte 8 k)
 OVL_RD_LAST     equ     0xffff          ; (the area ends with the page)
-OVL_MAX         equ     13              ; table entries (the images follow the table)
+OVL_MAX         equ     14              ; table entries (the images follow the table)
 OVL_ROOM        equ     0               ; W1: the full room draw (src/m4/ovl_room.asm)
 OVL_LEVEL       equ     1               ; W2: load_level and the level start (src/m4/ovl_level.asm)
 OVL_EVENT       equ     2               ; W1: potions, scripted shadows, the mirror jump (src/m4/ovl_event.asm)
@@ -50,6 +50,7 @@ OVL_FILL        equ     9               ; WF: the frame store's fills (src/m4/ov
 OVL_ANIM        equ     10              ; W1: animated tiles' steps as moving parts: gates, the level door (src/m4/ovl_anim.asm)
 OVL_BTN         equ     11              ; W1: a button's press or release from cached pictures (src/m4/ovl_btn.asm)
 OVL_DOOR        equ     12              ; W1: the level door's opening step (src/m4/ovl_door.asm)
+OVL_FRM         equ     13              ; W1: choppers' and spikes' pre-drawn pictures (src/m4/ovl_frm.asm)
 OVL_WF          equ     0xaa00          ; the fill overlay's window: W2's top (the level-start overlay ends below it)
 OVL_FILL_PAGE   equ     6               ; its image in the RAM disk (written on every size; page 7's area is nearly full)
 OVL_FILL_RD     equ     0xec00
@@ -57,6 +58,8 @@ OVL_BTN_PAGE    equ     6               ; the button overlay's image: its own pl
 OVL_BTN_RD      equ     0xf200          ; cheat build's keys overlay), after the fill overlay's (written by the same writers)
 OVL_DOOR_PAGE   equ     6               ; the door overlay's image: its own place too
 OVL_DOOR_RD     equ     0xf600
+OVL_FRM_PAGE    equ     0               ; the frames overlay's image: its own place too (page 0 0xA400-0xA7FF)
+OVL_FRM_RD      equ     0xa400
 
 ; stubs: the entries resident code calls
 draw_room_full: push    af              ; A = room
@@ -171,6 +174,13 @@ btn_redraw:     ld      a, (VS_KIND)
                 jp      vrd_tile
 btn_fast:       push    af
                 ld      a, OVL_BTN
+                call    ovl_w1
+                pop     af
+                jp      OVL_W1 + 0
+; the frames overlay (src/m4/frames.asm): spike.asm chomp_redraw, spike_redraw; B = the picture, C = 0 a chopper, 1 a
+; spike; carry: not this way
+frm_fast:       push    af
+                ld      a, OVL_FRM
                 call    ovl_w1
                 pop     af
                 jp      OVL_W1 + 0

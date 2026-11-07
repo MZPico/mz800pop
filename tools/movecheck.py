@@ -17,12 +17,20 @@ extent reaches past the reference's image (a door piece's last pixel), the emula
            144 at 0 -> 1)
   buttons  every button seen in its own room, pressed and released: the changed pixels within x 4c..4c + 7 (to 40),
            rows 63r + 49..63r + 65, only back ops change, as many in both states
-usage: movecheck.py [gates|doors|buttons ...]   (default all; ~10 minutes)"""
+  chompers every chopper seen in its own room, every pair of pictures n -> m (n, m = 0..4, no blood: frames.asm): the
+           old picture with the rect x 4c..4c + 3, rows 63r + 3..63r + 62 taken from the new one is the new one; the
+           fore ops that change lie in the rect; the ops that change are the bottom (101-105), top (111-113) and fore
+           (106-110) pieces, in place (same list, same index), bottoms kept (the top's CHOMPER_FRAM_Y[m] above the
+           bottom's), unless the top piece comes or goes (then frames.asm regenerates the tile)
+  spikes   every spike seen in its own room, every pair of pictures (frames.asm fs_canon: 0..5): the rect x 4c..4c + 5
+           (to 40), rows 63r + 34..63r + 60 the same way; the pieces 128-132, 139-143 (own tile) and 134-138 (the right
+           neighbour) in place with their bottoms kept, unless one side is picture 0
+usage: movecheck.py [gates|doors|buttons|chompers|spikes ...]   (default all; ~15 minutes)"""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from collections import Counter
-from popdata import Level, RoomRenderer, T, COL_XH, CH_ENV, CH_WALL, B_NOTRANSP, B_OR, B_TRANSP, B_BLACK, B_MONO
+from popdata import Level, RoomRenderer, T, CHOMPER_FRAM_Y, COL_XH, CH_ENV, CH_WALL, B_NOTRANSP, B_OR, B_TRANSP, B_BLACK, B_MONO
 
 def shadow(rr):
     """the room's back and mid ops (and the wipes before them) painted: what the shadow room holds"""
@@ -209,6 +217,68 @@ def buttons():
     print('buttons: %d, %d differ' % (n, bad), flush=True)
     return bad
 
+def own_tiles(t):
+    """(level, room, tile index, row, column) for every tile of type t in its own room"""
+    for lv in range(1, 15):
+        L = Level(lv)
+        for room in range(1, 25):
+            for p in range(30):
+                if L.fg[(room - 1) * 30 + p] & 0x1F == t: yield lv, room, (room - 1) * 30 + p, p // 10, p % 10
+
+def frames_check(name, t, mods, W, Y0, H, ranges, top):
+    """the frames overlay's two claims for every object of type t: the rect and the records patched in place"""
+    n = bad = 0
+    for lv, room, i, r, c in own_tiles(t):
+        L = Level(lv); m0 = L.bg[i]
+        x0, x1, y0, y1 = 32 * c, min(32 * c + 8 * W, 320), 63 * r + Y0, 63 * r + Y0 + H
+        R = {}
+        for k, m in mods.items():
+            L.bg[i] = m; rr, sh = render(L, room); R[k] = (sh, rr.ops)
+        L.bg[i] = m0
+        for a in R:
+            for b in R:
+                if a == b: continue
+                n += 1; errs = []
+                old, oo = R[a]; new, no = R[b]
+                pred = [row[:] for row in old]
+                for y in range(y0, y1):
+                    for x in range(x0, x1): pred[y][x] = new[y][x]
+                d = diff(pred, new)
+                if d: errs.append('%d pixels outside the rect' % d)
+                for op in (Counter(oo['fore']) - Counter(no['fore'])) + (Counter(no['fore']) - Counter(oo['fore'])):
+                    rr = RoomRenderer(L); w, h, _ = rr.sets[op[0]].get(op[1])
+                    if not (op[2] >= x0 and op[2] + w <= x1 and op[3] >= y0 and op[3] + h <= y1): errs.append('fore op %s outside' % (op,))
+                for lst in ('wipe0', 'wipe1', 'mid'):
+                    if oo[lst] != no[lst]: errs.append(lst + ' ops change')
+                if top(a) == top(b):        # patched in place: same lists but the pieces, each at its index
+                    for lst in ('back', 'fore'):
+                        if len(oo[lst]) != len(no[lst]): errs.append(lst + ' count changes'); continue
+                        for po, pn in zip(oo[lst], no[lst]):
+                            if po == pn: continue
+                            rg = [g for g in ranges if g[0] <= po[1] <= g[1]]
+                            ho = RoomRenderer(L).sets[po[0]].get(po[1])[1]; hn = RoomRenderer(L).sets[pn[0]].get(pn[1])[1]
+                            ok = rg and rg[0][0] <= pn[1] <= rg[0][1] and po[0] == pn[0] and po[2] == pn[2] and po[4] == pn[4]
+                            if ok and rg[0][2] == 'top':
+                                bot = lambda ops: [q for q in ops if 101 <= q[1] <= 105 and q[0] == po[0]][0]
+                                bo, bn = bot(oo['back']), bot(no['back'])
+                                hb = lambda q: RoomRenderer(L).sets[q[0]].get(q[1])[1]
+                                ok = pn[3] + hn - 1 == bn[3] + hb(bn) - 1 - CHOMPER_FRAM_Y[b]
+                            elif ok:
+                                ok = po[3] + ho - 1 == pn[3] + hn - 1
+                            if not ok: errs.append('%s op %s -> %s' % (lst, po, pn))
+                if errs:
+                    bad += 1; print('%s: level %d room %d tile %d %d -> %d: %s' % (name, lv, room, i, a, b, ', '.join(errs[:4])))
+    print('%s: %d steps, %d differ' % (name, n, bad), flush=True)
+    return bad
+
+def chompers():
+    return frames_check('chompers', T.chomper, {3: 0, 2: 1, 0: 2, 1: 3, 4: 4}, 4, 3, 60,
+                        [(101, 105, 'bottom'), (106, 110, 'fore'), (111, 113, 'top')], lambda n: n >= 2)
+
+def spikes():
+    return frames_check('spikes', T.spike, {k: k for k in range(6)}, 6, 34, 27,
+                        [(128, 132, 'left'), (134, 138, 'right'), (139, 143, 'fore')], lambda p: p > 0)
+
 if __name__ == '__main__':
-    what = sys.argv[1:] or ['gates', 'doors', 'buttons']
+    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes']
     sys.exit(1 if sum(globals()[w]() for w in what) else 0)
