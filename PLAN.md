@@ -979,3 +979,13 @@ piece used AND/XOR semantics.
    flames_build now registers such a flame (spike.asm fb_over). Only-torch work in those rooms -0.7..-0.9 frames a tick;
    medians (1 MB) l07r19 8.25 -> 7.01 walking / 5.17 -> 4.99 standing, l07r07 8.79 -> 7.98, l04r24 5.99 -> 5.04, l05r10
    4.96 -> 4.02. Resident: main +33 (296 free), low -4 (24 free). perfcheck unchanged.
+60. M8a part 17, direct copy of cached torch flames (2026-11-08, docs/perf.md "M8a part 17: direct copy of cached torch
+   flames"; step 1 of the option E measurement, reduced to option B of the measured variants): a cached flame goes
+   from its RAM-disk slot straight into VRAM, plane by plane, when the beam is clear of its rect for the copy's length
+   (tcache.asm tc_direct, sprite.asm td_beam: d >= 2h + 8 lines to the beam's next pass, its last pass >= 6 lines ago;
+   tools/optione.py direct: 0 torn, also at 15 wait states). A potion bubble's frame no longer flushes the flames'
+   pictures (room.asm op_patch's fore_gen bump: no bubble touches a flame's rect, tools/movecheck.py caches). FLM_MAX
+   8 -> 4 (no screen shows more; page 6 0x1440-0x287F free), flm_rec to low RAM 0x0124, flm_rect to 0x9FE8. The
+   bubbles' own cache (the first draft, +58 bytes of main) was measured at -0.08 a tick and left out. Only-torch work
+   -0.2..-0.4 a tick a room; perfcheck normal tick 5.72 -> 5.47 (512 KB), 5.20 -> 5.12 (1 MB), baselines lowered.
+   Resident: main 15 bytes smaller (311 free), low 15 larger (9 free), block 2 5 smaller (19 free).

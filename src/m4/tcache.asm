@@ -1,9 +1,13 @@
 ; M4: torch chunks from a cache. A chunk that is exactly a registered flame's rect, with no kid, falling floor
 ; or overlay in it, is the flame frame plus the room's fore pieces: its picture depends on the frame only. The
-; pictures are kept in RAM-disk page TC_PAGE (one 144-byte slot per registered flame and frame) and reused
-; until the flame registry or a fore op changes.
+; pictures are kept in RAM-disk page TC_PAGE (one 144-byte slot per registered flame and frame: 0x0000-0x143F for
+; FLM_MAX 4) and reused until the flame registry or a fore op in a flame's rect changes. Since M8a part 17 a cached
+; picture goes from the RAM disk straight into VRAM (tc_direct: no compose buffer, no pending chunk).
 TC_PAGE         equ     6
-TC_VALID        equ     0x0100                  ; FLM_MAX * 9 flags (low RAM, runtime only)
+TC_VALID        equ     0x0100                  ; FLM_MAX * 9 flags (low RAM, runtime only), then view.asm flm_rec
+                if TC_VALID + FLM_MAX * 9 > flm_rec
+                .error tcache.asm: TC_VALID runs into flm_rec
+                endif
 tc_try:         xor     a
                 ld      (tc_slot), a
                 ld      a, (flm_gen)            ; registry or fore ops changed: forget everything
@@ -41,20 +45,20 @@ tc_f:           push    hl
                 inc     hl
                 ld      a, (CRX)
                 cp      (hl)
-                jp      nz, tc_fn
+                jr      nz, tc_fn
                 inc     hl
                 ld      a, (CRY)
                 cp      (hl)
-                jp      nz, tc_fn
+                jr      nz, tc_fn
                 inc     hl
                 inc     hl
                 ld      a, (CRW)
                 cp      (hl)
-                jp      nz, tc_fn
+                jr      nz, tc_fn
                 inc     hl
                 ld      a, (CRH)
                 cp      (hl)
-                jp      z, tc_hit
+                jr      z, tc_hit
 tc_fn:          pop     hl
                 inc     hl
                 inc     hl
@@ -78,27 +82,54 @@ tc_hit:         pop     hl
                 ld      a, (hl)
                 or      a
                 ret     z                       ; not cached yet: compose it (tc_save keeps it)
+                ld      a, (blit)               ; the screen upside down (set_flip patched blit into a jump): compose
+                xor     0xdb                    ; it (and keep it again)
+                ret     nz
                 call    tc_seek
+                xor     a                       ; (no tc_save: a later kept chunk skips tc_try)
+                ld      (tc_slot), a
+; tc_direct: the RAM disk at the slot: its picture (4 planes x CRH rows x 2 bytes) straight into VRAM at CRX, CRY,
+; plane after plane. The copy changes the rect's planes one after the other, so it must lie wholly between two passes
+; of the beam over the rect's rows: sprite.asm td_beam waits for that (docs/perf.md "M8a part 17"). The code and the
+; stack stay clear of 0x8000-0x9FFF (VRAM while it is mapped) and of 0x1000-0x1FFF (the CG-ROM's place). Out: carry.
+tc_direct:      ld      a, (CRY)                ; HL = VRAM + 40 CRY + CRX
+                ld      l, a
+                ld      h, 0
+                ld      d, h
+                ld      e, l
+                add     hl, hl
+                add     hl, hl
+                add     hl, de
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                ld      a, (CRX)
+                ld      e, a
+                add     hl, de
+                ld      de, VRAM
+                add     hl, de
+                push    hl
+                call    td_beam                 ; (sprite.asm: until the copy cannot meet the beam)
+td_go:          pop     hl
+                ld      de, 38
                 ld      c, RD_DATA
-                ld      hl, (V_COMPOSE)
-                ld      a, 4
-tc_rp:          push    hl
+                in      a, (0xe0)               ; VRAM at 0x8000
+                ld      a, 1
+td_p:           out     (PORT_WF), a
+                push    hl
                 push    af
                 ld      a, (CRH)
-tc_rr:          ld      b, 2
+td_r:           ld      b, 2
                 inir
-                ld      de, CW - 2
                 add     hl, de
                 dec     a
-                jp      nz, tc_rr
+                jr      nz, td_r
                 pop     af
                 pop     hl
-                ld      de, COMPOSE_PLANE
-                add     hl, de
-                dec     a
-                jp      nz, tc_rp
-                xor     a
-                ld      (tc_slot), a
+                add     a, a
+                cp      16
+                jr      nz, td_p
+td_end:         in      a, (0xe1)
                 scf
                 ret
 tc_flush:       ld      a, (flm_gen)
@@ -132,13 +163,13 @@ tc_wr:          ld      b, 2
                 ld      de, CW - 2
                 add     hl, de
                 dec     a
-                jp      nz, tc_wr
+                jr      nz, tc_wr
                 pop     af
                 pop     hl
                 ld      de, COMPOSE_PLANE
                 add     hl, de
                 dec     a
-                jp      nz, tc_wp
+                jr      nz, tc_wp
                 xor     a
                 ld      (tc_slot), a
                 ret
@@ -365,5 +396,8 @@ fr_l:           push    bc
                 pop     bc
                 djnz    fr_l
                 ret
-flm_rect:       ds      4 * FLM_MAX
+flm_rect        equ     0x9fe8                  ; 4 * FLM_MAX (runtime only; above guard.asm GUARD_TABS, never read inside
+                if flm_rect + 4 * FLM_MAX > 0xa000      ; blit or tc_direct's copy, while VRAM is mapped there)
+                .error tcache.asm: flm_rect
+                endif
 flm_touch:      db      0

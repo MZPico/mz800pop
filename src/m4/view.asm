@@ -434,7 +434,7 @@ vgp2:           xor     b
 ; current frame right after restoring the shadow, and a chunk inside a flame does not restore at all. A
 ; torch tick then only patches the op and marks the rect dirty. flames_build lists the exclusive flames of
 ; the room on screen (after a room draw and after ops were regenerated).
-FLM_MAX         equ     8
+FLM_MAX         equ     4                       ; (levels 1-14 show 4 flames at most: M8a part 17)
 flames_build:   ld      a, (ops_gen)
                 ld      (flm_gen), a
                 xor     a
@@ -464,7 +464,7 @@ fb_rec:         push    bc
                 inc     hl
                 ld      a, (hl)
                 or      a
-                jp      nz, fb_next             ; (above the screen: never)
+                jr      nz, fb_next             ; (above the screen: never)
                 inc     hl
                 ld      a, (hl)
                 ld      (CRW), a
@@ -499,7 +499,7 @@ fb_c0:          rrca
                 xor     a
                 ld      (RR_MODE), a
                 call    fb_over                 ; exclusive: the last op there is the cover (or a gate's base after
-                jp      nz, fb_next             ; it: spike.asm fb_over), and it is this flame
+                jr      nz, fb_next             ; it: spike.asm fb_over), and it is this flame
                 pop     hl
                 push    hl
                 ld      de, 8
@@ -507,7 +507,7 @@ fb_c0:          rrca
                 ld      de, (rr_lastrec)
                 or      a
                 sbc     hl, de
-                jp      nz, fb_next
+                jr      nz, fb_next
                 ld      a, (flm_n)
                 cp      FLM_MAX
                 jp      nc, fb_next
@@ -677,7 +677,10 @@ fc_n:           pop     hl
                 ret
 flm_n:          db      0
 flm_gen:        db      0xff
-flm_rec:        ds      2 * FLM_MAX
+flm_rec         equ     0x0124                  ; 2 * FLM_MAX (low RAM after tcache.asm TC_VALID, runtime only)
+                if flm_rec + 2 * FLM_MAX > 0x0148
+                .error view.asm: flm_rec runs into guard.asm G_SNAP
+                endif
 tf_tag:         db      0
 tf_frm:         db      0
 vr_pp:          dw      0

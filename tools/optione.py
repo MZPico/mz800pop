@@ -14,6 +14,8 @@
   touch A LEVEL ROOM           the object pass's chunks that touch a chopper's, spike's, gate column's or torch
                                flame's rect without being its own step chunk: the chunks E would have to lay that
                                object's picture in (count a tick, overlap bytes a plane)
+  direct SCRIPT ...            (M8a part 17) every direct copy of a cached torch flame into VRAM against the beam:
+                               torn copies (must be 0), the copy's length and the beam's closest approach
   model CSV [--e K=V,...]      the busy-rooms cost model (tools/busyrooms.py fit) with E's per-step costs:
                                frames a tick, median / p90, now and after E, per scene
 The stages (inclusive frames of mz800emu's call profiler, one tick):
@@ -274,9 +276,58 @@ def model(csv_path, e_costs):
         f = lambda i: '%5.2f / %5.2f' % (pct([l[i] for l in L], .5), pct([l[i] for l in L], .9))
         print('%-14s %5d | %s | %s | %s' % (s + ' ' + v, len(L), f(0), f(1), f(2)))
 
+def direct(scripts):
+    """M8a part 17: every direct copy (tcache.asm tc_direct, td_go to td_end) of each script against the beam. The beam's
+    line is the time since the VBLN interrupt's entry (game.asm isr; a frame is 312 x 228 T), canvas row = line - 113
+    (sprite.asm BEAM_Y0). A copy tears when the beam is on one of the rect's rows CRY..CRY + CRH - 1 at any time from its
+    first VRAM write to its last. Prints per script the copies, the torn ones (0 is the claim), the copy's length in
+    lines (max) and the closest the beam came: the lines from the copy's end to the beam's next arrival at the top row,
+    and from the beam leaving the bottom row to the copy's start (min)."""
+    F = TC.FRAME; bad_all = 0
+    for sp in scripts:
+        with Emu() as e:
+            S, n = TC.emu_setup(e, TC.script_path(sp))
+            i_isr = e.trace_add(S['isr']); i_go = e.trace_add(S['td_go'], mem=((S['CRX'], 4),))
+            i_in = e.trace_add(S['tc_direct']); t_in = None; waits = []
+            i_end = e.trace_add(S['td_end']); i_done = e.trace_add(S['tick_done'])
+            t = 0; isr = None; go = None; cps = []
+            for r in e.collect(200, stop=lambda r: t >= n):
+                k = r.get('id')
+                if k == i_isr or (k is None and r['addr'] == S['isr']): isr = r['cycles']
+                elif k == i_in or (k is None and r['addr'] == S['tc_direct']): t_in = r['cycles']
+                elif k == i_go or (k is None and r['addr'] == S['td_go']):
+                    go = (r['cycles'], r['mem'][0])
+                    if t_in is not None: waits.append((r['cycles'] - t_in) / 228.0)
+                elif k == i_end or (k is None and r['addr'] == S['td_end']):
+                    if go and isr is not None: cps.append((go[0] - isr, r['cycles'] - isr, go[1]))
+                    go = None
+                else: t += 1
+            e.trace_clear()
+        torn = 0; ln = 0; pre = post = 10 ** 9
+        if go:                                       # a copy still open when the trace ended: counted as torn
+            torn += 1; print('%s: warning: a copy was still open at the end of the trace (counted as torn)' % os.path.basename(sp))
+        for a, b, (x, y, w, h) in cps:
+            la, lb = a / 228.0, b / 228.0          # lines since the interrupt before the copy
+            ln = max(ln, lb - la)
+            top = 113 + y                            # the beam is on the rect in lines [top + 312 k, top + h + 312 k)
+            k = int((la - top) // 312)
+            for kk in (k - 1, k, k + 1, k + 2):
+                s0, s1 = top + 312 * kk, top + h + 312 * kk
+                if s0 < lb and la < s1: torn += 1; break
+            nxt = min(s for s in (top + 312 * kk for kk in range(k - 1, k + 3)) if s >= lb)
+            prv = max(s for s in (top + h + 312 * kk for kk in range(k - 2, k + 2)) if s <= la)
+            pre = min(pre, nxt - lb); post = min(post, la - prv)
+        bad_all += torn
+        print('%s: %d direct copies (%.2f a tick), %d torn; longest %.1f lines; the beam at least %.1f lines after the end, '
+              '%.1f lines before the start; the wait for the beam %.1f lines a copy (mean), %.1f at most' % (
+              os.path.basename(sp), len(cps), len(cps) / max(n, 1), torn, ln, pre if cps else 0, post if cps else 0,
+              sum(waits) / len(waits) if waits else 0, max(waits) if waits else 0))
+    return bad_all
+
 def main():
     a = sys.argv[1:]
     if not a: sys.exit(__doc__)
+    if a[0] == 'direct': sys.exit(1 if direct(a[1:]) else 0)
     if a[0] == 'profile': profile(a[1], a[2], [int(x) for x in a[3].split(',')])
     elif a[0] == 'diff': diff(a[1], a[2], [int(x) for x in a[3].split(',')])
     elif a[0] == 'chunks': chunks(a[1], [int(x) for x in a[2].split(',')])
