@@ -3165,8 +3165,18 @@ opf1:
                 call    yr_merge
                 pop     hl
                 call    dr_add          ; new rect
-                call    dr_run
-                ld      a, 1
+                ld      a, (OP_LIST)            ; a fore op in a background-only redraw (M4, a potion bubble): the
+                cp      2                       ; shadow holds no fore pieces, so its rects only go on the dirty
+                jp      nz, opr_run             ; list (the object pass lays the fore pieces)
+                ld      a, (RR_SHONLY)
+                or      a
+                jp      z, opr_run
+                ld      hl, (RR_HOOK)
+                ld      de, opr_done
+                push    de
+                jp      (hl)
+opr_run:        call    dr_run
+opr_done:       ld      a, 1
                 ret
 op_tmp:         db      0
 

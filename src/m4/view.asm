@@ -333,7 +333,7 @@ vrd_one:        ld      a, b
                 call    vs_entry
                 pop     de
                 pop     bc
-                ; only the modifier changed: the flame of a torch, a potion's bubble
+                ; only the modifier changed: the flame of a torch, a potion's bubble, a gate; the others in anim_redraw
                 ld      a, b
                 and     0x1f
                 cp      T_TORCH
@@ -342,10 +342,8 @@ vrd_one:        ld      a, b
                 jr      z, vrd_torch
                 cp      T_GATE
                 jr      z, vrd_gate
-                cp      T_SPIKE
-                jp      z, spike_redraw ; (room.asm: C, E = the new and the old modifier)
                 cp      T_POTION
-                jr      nz, vrd_tile
+                jp      nz, anim_redraw ; (spike.asm: spikes, choppers, the sword; C, E = the new and the old modifier)
                 ld      a, (VS_KIND)
                 or      a
                 jr      nz, vrd_tile

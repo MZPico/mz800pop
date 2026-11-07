@@ -1633,3 +1633,97 @@ source (the shadow at a row offset, or a RAM-disk slot), write it to the shadow,
 pass after it is unchanged. ~150-250 bytes: the per-step code in a W1 overlay (loaded when an animated step needs it
 and another overlay held W1: 21 T a byte, ~0.1 frames a load), ~30 bytes resident in main, nothing more in the low
 block.
+
+## M8a part 13: animated objects on change (2026-11-07)
+
+Status: **built.** Option C of the busy-rooms measurement ("Busy rooms: per-room and per-object costs", PR #28; its
+tools tools/busyrooms.py and tools/animexact.py): choppers, the sword and potion bubbles draw only when their picture
+changes, and then only the tile that draws it. view.asm vrd_one sends a modifier-only change of every type but the
+torches, gates and potions to anim_redraw (src/m4/spike.asm, main block), which handles spikes (part 11), choppers
+and the sword, and passes the rest on to vrd_tile:
+
+1. **Choppers.** The picture is n = CHOMPER_FRAM1[min(modifier & 0x7F, 6)] plus the blood bit (dta_chomper,
+   dtf_chomper: back and fore ops of its own tile). When the old and the new modifier give the same picture (10 of
+   the 15 ticks of a cycle: modifiers 5..15 and 0 all give n = 3) nothing is regenerated or laid; before, tile_redraw
+   regenerated 3 tiles for an empty rect. A picture change regenerates the chopper's own tile only (our room, or the
+   above room's row 2, whose fore op shows); a chopper in the left room's column 9 or the below room's row 0 draws
+   nothing on screen.
+2. **The sword.** The picture is image 10, or 11 at modifier 1 (dta_sword, a mid op of its own tile); the modifier
+   counts down every tick, the glint shows on 3 % of them. Only a change into or out of 1 regenerates the tile, and
+   only in its own room (draw_tile_above has no draw_tile_anim).
+3. **Potion bubbles.** op_patch (room.asm) of a fore op in a background-only redraw (RR_SHONLY, the game) hands the
+   old and the new rect to the dirty list (RR_HOOK) without dr_run: the shadow holds no fore pieces (rr_sw), so the
+   shadow write of the bubble's rect was redundant; the object pass lays the fore pieces over the restored shadow.
+   fore_gen and the slice extent are updated as before.
+
+Which tiles draw which picture was checked against the Python reference for every chopper, sword and potion of levels
+1-14 and every screen that shows one (its own room, the right room for column 9, the room below for row 2, the room
+above for row 0): RoomRenderer's op lists, each op tagged with the tile whose draw emitted it, for every modifier
+(choppers 0x00-0x0F and 0x80-0x8F, swords 0-3 / 0x28 / 0x67, potions the 8 bubbles). Modifiers with the same picture
+give identical lists; otherwise only the object's own tile's ops differ; from the left room and the below room
+nothing differs (choppers own 39 / above 4 / below 10 screens, swords 3 / 1 / 2, potions 57 / 23 / 7; 0 exceptions).
+The reference renders the room from the level state, so it has no redraw decision to follow.
+
+Resident: low block -4 bytes (vrd_one's spike case and potion test fold into one jump: end_of_low 0x1FEA -> 0x1FE6,
+26 free), main +100 (spike.asm +77, op_patch +23: end_of_code 0x79A6 -> 0x7A0A, 502 free).
+
+### The busy rooms (1 MB, frames a tick: median / p90 / worst; tools/busyrooms.py measure, main 64b93ed against this)
+
+| room | objects | kid | ticks | before | after | b (walking alone) |
+|---|---|---|---:|---|---|---:|
+| 5 / 24 | 2 choppers, 2 gates, potion, 2 torches | runs | 107 | 13.16 / 17.84 / 25.46 | **9.97** / 17.34 / 26.06 | 3.99 |
+| | | stands | 98 | 13.54 / 17.20 / 17.93 | **10.27** / 17.36 / 17.48 | 3.99 |
+| 3 / 16 | 3 choppers, potion, 2 torches | jumps | 118 | 15.94 / 20.93 / 24.10 | **10.96** / 16.97 / 20.06 | 3.99 |
+| | | stands | 98 | 15.85 / 20.09 / 20.60 | **10.78** / 16.80 / 16.95 | 3.99 |
+| 8 / 23 | 2 choppers, gate, potion, spike, torch | jumps | 118 | 13.17 / 19.46 / 20.93 | **9.61** / 16.35 / 17.95 | 4.00 |
+| | | stands | 98 | 13.10 / 19.40 / 19.93 | **9.53** / 16.41 / 16.94 | 3.99 |
+| 10 / 10 | 2 choppers, gate, 2 torches | jumps | 43 | 12.96 / 21.93 / 29.89 | **10.18** / 19.38 / 27.92 | 4.02 |
+| | | stands | 98 | 11.96 / 17.65 / 28.34 | **9.06** / 15.53 / 26.77 | 3.99 |
+| 8 / 4 | 2 choppers, 2 spikes, 2 torches | runs | 118 | 12.22 / 15.17 / 16.33 | **9.35** / 15.41 / 16.96 | 4.04 |
+| | | stands | 98 | 11.73 / 14.32 / 14.65 | **8.84** / 14.76 / 14.97 | 3.99 |
+| 1 / 15 | the sword, 2 torches | runs | 118 | 6.24 / 7.02 / 7.78 | **4.57** / 5.02 / 6.98 | 4.03 |
+| | | stands | 98 | 5.04 / 5.87 / 7.96 | **3.99** / 4.48 / 7.63 | 3.99 |
+| 1 / 5 | gate, loose floor, potion, 3 torches | runs | 74 | 9.97 / 12.97 / 17.16 | **9.23** / 12.09 / 16.53 | 4.00 |
+| | | stands | 98 | 6.50 / 12.45 / 16.35 | **6.35** / 11.60 / 16.31 | 3.99 |
+
+The cost model refitted over the 3,812 ticks of these scenes (`fit`, frames of work a change; before / after):
+
+| change | before | after | expected (option C) |
+|---|---:|---:|---:|
+| chomp- (a chopper's modifier only) | 1.92 | **0.11** | 0 |
+| chomp (its picture) | 6.68 | **6.05** | ~5.5 |
+| sword- (the sword's modifier only) | 1.61 | **-0.05** | 0 |
+| sword (the glint appears or goes; 9 ticks) | 3.07 | 2.30 | |
+| potion (a bubble frame) | 1.10 | **0.66** | ~0.6 |
+| torch / gate / button (unchanged paths) | 0.49 / 5.49 / 4.74 | 0.46 / 5.34 / 4.88 | |
+
+The chopper rooms lose 2.9-5.0 frames a tick at the median (l03r16 15.9 -> 11.0), the sword room reaches the walking
+floor, the potion rooms lose ~0.45 per potion. The worst ticks change little: they are the ticks where all choppers
+change their picture at once, and a picture step still costs ~6 frames (two tile_regens fewer, -0.6, but the tile's
+run_rect of 4 x 63 rows and the object pass over the kid in the chopper's row are the rest: option A's pre-drawn frames
+are for those). The gate's l01r05 and l05r24 differences are beam phase. Buttons keep their full tile_redraw (4.7-5.1 frames a press):
+a cheaper button redraw is a candidate of its own, not part of C.
+
+### perfcheck (one run per size, the emulator is cycle-exact; main = 64b93ed)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.72 / 5.72 | 5.20 / 5.20 | 5.03 / 5.03 |
+| level door step (walkthrough 203-207) | 17.16 / 17.16 | 16.23 / 16.23 | 16.23 / 16.23 |
+| room change (walkthrough 89) | 106.05 / 106.05 | 106.05 / 106.05 | 105.22 / 105.22 |
+| walkthrough 190-260 | 10.26 / 10.26 | 10.07 / 10.07 | 9.66 / 9.68 |
+| gate (gate_push 200-260) | 4.99 / 4.99 | 4.99 / 4.99 | 4.99 / 4.99 |
+| traps (traps_b1 0-300) | 5.63 / 5.63 | 5.30 / 5.30 | 5.23 / 5.23 |
+| fight (fight1 60-160, guard on) | 7.72 / 7.72 | 6.88 / 6.88 | 6.51 / 6.51 |
+
+The stretches have no chopper, sword or potion (level 1's walkthrough room 15 is not in them), so nothing moves but
+the 16 MB walkthrough 190-260 (+0.02: the level door's beam phase, as in part 11). The 16 MB fight baseline is
+lowered 6.52 -> 6.51 (main's median too).
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state and VRAM every tick) on chomper, sword, potion_heal / hurt / life, fight_chomper,
+level5_shadow_potion, potion_upside_down, death_text, the a scripts (walk and stand) of the seven busy rooms above,
+the l14 spike a and l06 spike c scenes, fight_spikes and traps_b1: 0 state diffs, 0 differing pixels.
+tests/m4_test.py on chomper, sword, the three potion scripts, fight_chomper and traps_b1: 0 differing. The full
+regression on the runners: see the PR.
