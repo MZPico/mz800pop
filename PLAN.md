@@ -926,3 +926,15 @@ piece used AND/XOR semantics.
    6.88 (1 MB), 6.87 -> 6.52 (16 MB), everything else and 512 KB unchanged. Level start +1.3-1.5 s on 1 MB at a set
    change, +4.2-5.2 s on 16 MB once per set; no indicator. Every stored guard entry byte-identical (tests/m8_fstore.py
    at a level of each set, 1 MB and 16 MB); the fight scripts pixel-exact at 1 MB and 16 MB.
+56. M8a part 13, animated objects on change (2026-11-07, docs/perf.md "M8a part 13: animated objects on change";
+   option C of the busy-rooms measurement, item 55 / PR #28): vrd_one sends modifier-only changes to anim_redraw
+   (src/m4/spike.asm): a chopper draws only when n = CHOMPER_FRAM1[min(mod & 0x7F, 6)] or the blood bit changes, and
+   then regenerates its own tile only (nothing for the left room's column 9 or the below room's row 0); the sword only
+   when the glint (modifier 1) appears or goes, in its own room; a potion bubble (a fore op) goes on the dirty list
+   without the shadow pass (op_patch under RR_SHONLY). Checked against RoomRenderer for every chopper, sword and potion
+   of levels 1-14. Per change: chomp- 1.92 -> 0.11, chomp 6.68 -> 6.05, sword- 1.61 -> 0, potion 1.10 -> 0.66 frames;
+   medians l05r24 13.2 -> 10.0 (running) / 13.5 -> 10.3 (standing), l03r16 15.9 -> 11.0, l08r23 13.2 -> 9.6, l10r10
+   13.0 -> 10.2, l08r04 12.2 -> 9.4, l01r15 (the sword) 6.2 -> 4.6, l01r05 10.0 -> 9.2. Resident: low -4 (26 free),
+   main +100 (502 free). perfcheck unchanged (16 MB fight baseline 6.51). Next: D (the gate and level-door column
+   shift), then A (pre-drawn chopper and spike frames: a chopper picture step is still ~6 frames); a cheaper
+   button redraw (a press still costs ~5 frames, a full tile_redraw) is a candidate of its own.
