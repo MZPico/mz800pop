@@ -2130,3 +2130,278 @@ and stand_a scripts of l03r16, l05r24, l08r23, l08r04, l10r14, l09r22, l09r01, t
 l01r15 (25 scripts a size): 0 state diffs, 0 differing pixels. tests/m4_test.py on chomper, fight_chomper, frm_button,
 frm_spike_btn: 0 differing. tools/movecheck.py chompers, spikes: 0 differ. `make ci-build`, `make cheats`. The full
 regression on the runners: see the PR.
+
+## Option E: measured (2026-11-07)
+
+Status: **measured, nothing merged.** Option E of "Busy rooms: per-room and per-object costs" (the exclusive animated
+layer: the shadow keeps the room without the moving parts, every chunk that touches an animated object lays its current
+picture after the restore, as flames_lay does for torches), measured on main 4d375f2 (C #29, D #30, A #31), 1 MB, no
+waits, in the six busy rooms l03r16, l05r24, l08r23, l10r10, l10r01 and l07r19 (tools/busyrooms.py find / measure).
+
+**Tools** (committed): tools/optione.py `profile A B TICKS` (per stage, the inclusive frames of one tick in script A,
+in B and A - B: the redraw with its regenerations, run_rect, shadow writes and overlay loads; people_place; the object
+pass's chunks with their restore, flames, torch cache, people and fore pieces; the copy to VRAM; the beam wait),
+`diff` (the routines that differ most), `chunks` (the object pass's chunks of a tick), `touch A LEVEL ROOM` (the chunks
+that touch an object's rect without being its own step: E's extra work), `census` (every animated object of levels
+1-14 on the Python reference: which static ops lie over its moving part) and `model`. The prototype is on the branch
+**proto/option-e** (pushed, not a PR, not exact). It has three build switches, `make -B m4game E1=1 E2=1 E3=1`:
+
+- **E1**: anires.asm cs_put writes no shadow. Every cs_put step (a chopper or spike hit, a gate or door step, a cached
+  button) only puts the picture on the dirty list as the kept background.
+- **E2**: sprite.asm obj_chunk takes a kept chopper chunk (4 x 60) or spike chunk (6 x 27) as complete when there is
+  no kid and no falling floor in it. No people and no fore pieces are laid, as if the slot held the picture with its
+  fore pieces.
+- **E3**: tcache.asm tc_hit (a torch chunk from the torch cache: no kid, nothing else in it) reads the slot from the RAM
+  disk straight into VRAM. There is no compose buffer, no pending chunk and no beam wait (68 bytes, spike.asm
+  e_tdirect).
+
+The pixels are wrong (the shadow goes stale, the fore pieces are missing), so these builds measure cost only. The logic
+is unchanged, so the scenes run the same ticks.
+
+### 1. Where the time goes now (tools/optione.py profile; frames of the tick in the scene's only-kind variant minus walk_b; 1 MB)
+
+| step (scene, tick) | redraw: of it shadow write / run_rect / regen | chunks: restore / people / fore | copy | wait | work |
+|---|---|---|---:|---:|---:|
+| chopper hit, nobody in its rect (l08r23_stand_a 30) | 1.38: 0.70 / - / - (the slot read and patches 0.68) | ~1.0 people, ~1.0 its fore pieces | ~0.4 | 0 | **2.68** |
+| chopper hit, the kid beside it (l03r16_walk_chomper 20) | 1.25: 0.70 / - / - | +1.87: 0 / 0.27 / 1.58 | 0.48 | 0.32 | 3.25 |
+| two chopper hits, the kid at them (l03r16 18) | 3.48: 1.39 / - / - | +7.25: 0.61 / 1.30 / 2.93 | 0.95 | 1.88 | 9.8 |
+| spike hit (l07r19_walk_spike 82) | 0.77: 0.38 | +1.59: - / 0.42 / 0.39 | 0.27 | 0.37 | 1.9 |
+| gate open step (l07r19_walk_gate 30, 36) | 1.0-1.1: 0.42-0.48 / - / - | +0.8 (the kept column, no restore) | 0.3 | 0 | ~2.1 |
+| gate step that regenerates the bars tile (26) | 2.23: 0.52 / - / 0.88 | +0.9 | 0.34 | 0.05 | ~3.5 |
+| gate closed step: the contact band (13) | 3.04: 0.68 / 1.71 / - | +1.9: 0.45 / 0.13 / 0.06 | 0.44 | 0.47 | ~5.9 |
+| gate the old way: palace pillar (l10r01_walk_gate 20, 30) | 7.4-9.2: 1.2 / 4.3-4.8 / 0.9-2.5 | +3-4: 0.6-1.0 / 0.9-1.1 / 0.8-1.0 | 0.8 | 0.3-0.9 | 10-13 |
+| level door step (walk_level1 204, the whole tick) | 2.66: 0.69 | 2.73 (with the torches' chunks) | 1.11 | 0.24 | 7.48 a tick |
+| button press, cached (part 14: 0.52) | of it the shadow write 0.42 | | | | 0.52 |
+| potion bubble (l03r16_walk_potion 25, 30) | 0.06 | +0.34: 0.08 / - / 0.20 (the bubble) | 0.05 | 0.04 | 0.45-0.5 |
+| two exclusive torches, cached (l03r16_walk_torch 25, 30) | 0.06 (torch_fast) | +0.26 (tc_try's read 0.20) | 0.23 | 0 | 0.36-0.57 |
+| torch behind a gate's bars (l07r19_walk_torch 30: p26, next to the gate p27) | 1.04: torch_redraw, run_rect 0.88 (the room cache's replay 0.57) | | | | **~1.2-1.4** a tick |
+
+What E can remove:
+
+- the shadow write of every cs_put step: 0.4-0.7 a step (choppers, spikes, gates, the door, cached buttons);
+- for a chopper or spike with nobody in its rect, the people and fore passes over the picture: 1.0-2.5 (the chopper's
+  own fore pieces are 60-row masked pieces, ~0.75 each);
+- for small cached rects (flames, bubbles), the chunk and the copy through a compose buffer: ~0.2 a torch.
+
+What it cannot remove:
+
+- the people and the fore pieces when the kid is in the rect (he must go between the layers);
+- a miss (the first cycle after a room draw, which takes today's dr_run);
+- the gates' top band, contact band, regenerating steps and the old-way gates (these are run_rect and regenerations,
+  not shadow writes);
+- the beam wait (it follows the chunks' sizes and the kid's chunk).
+
+### 2. The mechanism in this codebase
+
+- **The shadow without the moving parts.** The op lists do not separate the moving parts. An object's pieces are
+  ordinary back, mid or fore records (flags, chtab, id, x, y, w, h) of the tile that draws them, found by tag and id
+  range: choppers 101-113, spikes 128-143, gates 50-68 and the frame slice, the door 33 / 34 / 99 / 144, flames CH_OBJ
+  1-9, bubbles in the fore list. A full E marks them (a free flag bit, set by room_ops and tile_gen). run_rect's
+  shadow write (rr_sw) and run_ops (the room draw) skip the marked back and mid records. flames_build's registry
+  (flm_rec, 8 entries) becomes an object registry: the object, its rect, its records and its picture's source.
+- **Which objects are exclusive** (`optione.py census`, the Python reference, each object over all its states). A
+  layer is exclusive when no static back or mid op drawn after it touches its pixels (then nothing has to be laid
+  again over it):
+
+  | kind | exclusive | what lies over the others |
+  |---|---:|---|
+  | torches | 371 of 383 | 3 have chopper pieces 104 / 112 over them; 9 touch only by rect |
+  | choppers | 39 of 39 | |
+  | potions | 56 of 56 | |
+  | the sword | 3 of 3 | |
+  | spikes | **14 of 120** | 106 have the right neighbour's 133 or a wipe over them |
+  | gates | **3 of 38** | the floor pieces 41 / 43 where the bars meet the floor, the pillar bases 92 / 147 / 149, the top 68 / 48 |
+  | level doors | **0 of 28** | the frame 34, 37-40 and 99 |
+  | loose floors | 17 of 172 | |
+
+  Exclusivity also changes with another object's state. 9 torches stand left of a gate (l01r07, l04r07, l04r08,
+  l04r24, l05r07, l05r10, l07r03, l07r07, l07r19), and the bars, drawn after the flame, cover it while the gate is
+  down. The census (one object varied at a time) calls them exclusive; the Z80's registry (record rects, the current
+  state) does not. l07r19's torch p26 costs 1.2-1.4 frames a tick for that.
+- **How each chunk lays them.** After restore_shadow (or instead of it), for each registered object whose rect the
+  chunk touches, the chunk lays:
+  - a flame: its record (rec_lay, as today);
+  - a chopper or spike: its slot (fix A's picture: the background with the object, i.e. what the shadow would hold);
+  - a gate: a strip (the bars are rigid and opaque: one picture of the column, read at the gate's offset), then its
+    over pieces laid again.
+
+  `touch` measured how many such chunks there are. While the kid walks: chopper rects 0.3-0.6 chunks a tick (68-106
+  bytes a plane of overlap each), gate columns 0.3-0.4 (57-107 bytes), spikes 0.5 (l07r19), flames 0.1-0.3 (7-16
+  bytes; l08r23_stand 1.0). While he stands there are none, except l08r23's flame. What each costs:
+  - from a slot, a second read of the overlap rows instead of the shadow's: ~0.05-0.2 a chunk (a seek per plane row);
+  - from pieces, two masked 60-row pieces: ~0.5 a chunk;
+  - for a gate, the strip plus its over pieces: the contact band and the pillar base again in every chunk, ~1-2.
+- **A step becomes "mark the rect dirty"** (E1, what the prototype measures). The step patches its records (as C, D
+  and A do) and puts its rect on the dirty list; the chunk takes the picture from the slot (or the strip) in place of
+  the restore. Without a full E, the same saving is exact for every object whose picture is cached: the shadow is
+  allowed to go stale under a registered rect (a **lazy shadow**). restore_shadow then takes that rect's rows from the
+  current slot, and a dr_run into the rect first writes the slot back; the slot's bytes are the shadow's by
+  construction. The gates and the door do not fit this: their next step shifts the shadow itself (D's cs_get), so
+  skipping their write needs the strip.
+- **The direct VRAM path** (E3). A chunk that is exactly a cached small rect with nothing in it (today tc_try's
+  condition) goes from the RAM disk into VRAM by INI, plane by plane (e_tdirect: 4 planes x 18 rows of 2 bytes). In a
+  real build it must be a pending entry, so that pend_flush times it against the beam (+~30 bytes). The same holds for:
+  - a potion bubble (1 x 9 over black: a 7-frame cache like the torch's);
+  - a chopper or spike picture with its fore pieces (E2) when nobody is in its rect (960 bytes: ~0.42 frames by INI,
+    against today's slot read 0.42 + copy 0.48).
+- **The changes by file:**
+  - **room.asm**: a marked-record bit and its skip in rr_sw and run_ops; the dr_run write-back hook (lazy shadow).
+  - **view.asm**: the flame registry generalized (objects, sources, exclusivity by the current state: a flame under a
+    gate's bars is registered with the bars as its over records).
+  - **overlay.asm / sprite.asm**: obj_chunk's per-object lay after the restore (flames_lay generalized), the
+    complete-picture path (E2), and the direct path (E3) in pend_flush.
+- **What C, D and A become:**
+  - **C** stays: it decides that a picture changed.
+  - **D** stays for gates and the door: their shadow write stays unless the strip is built.
+  - **A** stays and becomes the restore's source. Its slots are still needed, and the complete pictures need more of
+    them.
+
+### 3. The prototype (proto/option-e; tools/busyrooms.py measure on the same scenes)
+
+Frames of work a step: the tick in the scene minus walk_b, the same ticks in every build. Misses and steps that
+regenerate are left out. The ticks: l08r23_stand_a 30, 35, 45, 60 and the like, l07r19_walk_spike 81-83, walk_level1
+204 and the walk_torch scenes.
+
+| step | now | E1 (no shadow write) | + E2 (nobody in the rect: complete picture) | + E3 | estimate |
+|---|---:|---:|---:|---:|---:|
+| chopper hit, nobody in its rect | **2.68** | 1.96 | **0.97** | 0.97 (direct copy: ~0.5, not built) | 1.0-1.5 |
+| chopper hit that regenerates (a piece comes or goes) | 3.6 | 2.8 | 1.85 | | |
+| two chopper hits in one tick (l08r23 18, 33) | 7.1 | 5.4 | 4.4 | | |
+| spike hit (l07r19 81-83) | 1.25-1.89 | 1.14-1.24 | 0.50-1.14 | | |
+| gate step (l07r19_walk_gate, all visible steps, median) | 3.20 | 2.91 | | | 1.0-1.5 |
+| level door step (walk_level1 204, the whole tick) | 7.48 | 6.95 | | | |
+| button press (l05r24 walk, median of its ticks) | 7.35 | 6.77 | | | |
+| two exclusive torches (walk_torch scenes, median a tick) | 0.71-0.78 | | | **0.38** | 0.3 |
+| three torches, one behind bars (l07r19_walk_torch) | 2.02 | | | 1.78 | |
+
+The fitted costs (`busyrooms.py fit`, all ticks including misses; main / E1 / E1+E2 / E1+E2+E3):
+
+| change | main | E1 | E1+E2 | E1+E2+E3 |
+|---|---:|---:|---:|---:|
+| chomp | 4.23 | 3.65 | 3.12 | 3.15 |
+| gate | 4.44 | 4.18 | 4.19 | 4.27 |
+| button | 3.05 | 2.93 | 3.03 | 3.09 |
+| torch | 0.61 | 0.61 | 0.60 | **0.52** |
+| spike (28 ticks, mostly misses) | 5.33 | 5.26 | 5.22 | 5.31 |
+
+So E reaches its estimate in two cases: a chopper with nobody near it (2.68 -> 0.97, ~0.5 with the direct copy) and
+exclusive torches (0.39 -> 0.19 a torch). It does not for gates (3.20 -> 2.91: what is left is the top band, the
+contact band, the regenerating steps and the old way), nor with the kid in the chopper's rect (he is composed between
+the layers either way).
+
+E's extra cost on other chunks (section 2): from a slot, +0.05-0.2 per touching chunk; with 0.3-0.6 such chunks a tick
+in the chopper rooms while the kid walks, that is +0.02-0.1 a tick. From pieces (no slot: the 512 KB / 1 MB spike
+rooms, misses), +0.15-0.3 a tick.
+
+### 4. Memory
+
+The prototype: E1 -3 bytes (block 2), E2 36 bytes (main), E3 68 bytes (main). A real build must be resident, since the
+object pass runs after view_redraw with any overlay in W1:
+
+| part | resident bytes | where |
+|---|---:|---|
+| lazy shadow: restore_shadow's redirect to the slot (overlap rows, per plane), the write-back before a dr_run into a stale rect, the stale flags | ~160 | main (every chunk calls restore_shadow); FRM_TAB has no spare bit per object: +4 bytes of low RAM (0x09FD-0x09FF has 3) |
+| complete pictures (E2): the capture after a chunk composed one (a tc_save for the chopper rect), the chunk's test (e_kept) | ~80 | main; the frames overlay has 4 bytes free (the slot choice would move out of it: ~0.3 a load) |
+| the direct copy (E3) as a pending entry, the potion bubble cache | ~130 | main (e_tdirect 68 + pend_flush's branch ~30 + the bubble's cache entry ~30) |
+| the torch under bars (flames_build registers a flame with the bars' records over it; the torch cache flushed at a gate step) | ~40 | the low block (view.asm, 20 free), or flames_build moved into main |
+| full E for gates (the strip built, the over pieces laid in every chunk) | ~250 | the gate overlay has 10 free: a second overlay, and more W1 loads |
+
+That is ~400 bytes without the gates, against main 329, block 2 14 and low 20, so a reclaim of ~100-150 bytes is
+needed. Candidates: tc_flush / tc_save into the room overlay, which runs after every room draw; spike.asm's
+anim_redraw dispatch into the frames overlay.
+
+The W1 overlays do not help the object pass: any step overlay can be in W1 when the chunks run. The gate overlay and
+the frames overlay (1,014 + 1,020 bytes) cannot share the 1 KB window, so the alternation that fix A reported (~0.3 a
+load, ~0.6 per chopper step while a gate moves) stays. Moving trigger_button's 272-byte copies out of the gate and door
+overlays into main would not make room for both either.
+
+RAM disk:
+
+- A's slots stay: they are the restore's source.
+- Complete pictures double them (a chopper +5 x 960 bytes, a spike +6 x 648). On 16 MB, page 62 has room for them. On
+  512 KB and 1 MB, part 15's 15 large (960-byte) + 5 small (648-byte) slots are already in use by A's pictures:
+  a chopper takes 5 large slots, so l03r16 (3 choppers) uses all 15, and a 2-chopper room (l05r24, l08r23, l10r10)
+  leaves 5, enough for one chopper's complete pictures. The small slots cannot hold a chopper's 960 bytes, and the
+  spike rooms are already short (20 of 22-24 pictures). Without more slots, step 4 on 512 KB and 1 MB therefore
+  covers no chopper in l03r16 and one of the two in the 2-chopper rooms; on 16 MB (page 62) it covers all.
+- The torch's direct path needs nothing new (TC_PAGE 6). The bubble cache needs 56 x 36 = 2,016 bytes. It does not
+  fit at page 6 0x2880: the two A slots there are 1,920 bytes and 0x3000 starts the dungeon guard set. It needs three
+  of A's 960-byte slots (or a free piece of 2,016 bytes elsewhere: to be found in step 1's PR), which costs A one
+  chopper's or several spikes' pictures on 512 KB and 1 MB.
+
+### 5. Exactness
+
+- **The lazy shadow and the complete pictures are exact by construction.** A slot holds the bytes dr_run wrote into
+  the shadow (fix A; tools/movecheck.py chompers / spikes: 0 differ). A complete picture is the chunk's own composition
+  when no person, falling floor or overlay op (OV_MID / OV_FORE) is in it, which is tc_try's rule for torches. The
+  risks are in the order, not in the pixels:
+  - a dr_run, cs_put or regeneration that touches a stale rect must write the slot back first (today dirty_hook runs
+    after the shadow write: E needs a hook before it);
+  - a complete picture must go with every frm_drop and every fore_gen change.
+- **The full exclusive layer is not exact for most gates, spikes and doors unless their over ops are laid again** (the
+  census above). The hard cases:
+  - **a fore piece over a chopper** (its own fore pieces 106-110 and the floor's fore pieces): no problem. They are
+    fore, laid by every chunk after the people, as today.
+  - **the kid between layers**: SDLPoP's redraw_at_char2 overlays lay a tile's base and its spike or chopper parts
+    over him. They come from the op records, which C, D and A keep current, so the overlay pass is unchanged.
+  - **a gate with the kid in it**: the bars are behind him, but the floor pieces 41 / 43 and the pillar base 92 are
+    drawn after the bars and over them. Every chunk with the kid in the gate column must lay them again (~1-2 frames),
+    which D pays once per step.
+  - **a torch behind a gate's bars**: two layers in one rect (the flame, then the bars' rows, then the fore).
+- The Python reference renders from the level state. The layer order back, objects, sprites, fore is SDLPoP's as long
+  as every chunk lays the layer's records in their list order and the over ops after them. The tests that would cover
+  it: the busy rooms' a and stand scripts at --every 1 (25 a size in part 15), plus the 9 torch-by-gate rooms.
+
+### 6. Projected (1 MB, frames a tick, median / p90; "E1+E2+E3" is the prototype measured, cost only)
+
+| scene | now | E1+E2+E3 measured | reduced E projected (below) | mean work now / E1+E2+E3 |
+|---|---|---|---|---|
+| 3 / 16 walk | 8.81 / 14.00 | **7.40** / 12.95 | ~6.6 / ~12 (16 MB); ~7.6 (512 KB, 1 MB: no step 4) | 9.33 / 8.13 |
+| 3 / 16 stand | 7.98 / 12.29 | **6.00** / 10.01 | ~5.3 / ~9.5 (16 MB); ~6.3 (512 KB, 1 MB) | 8.80 / 7.43 |
+| 5 / 24 walk | 7.50 / 12.94 | **6.67** / 10.95 | ~6.1 / ~10.5 (16 MB); ~6.4 (1 MB) | 8.36 / 7.64 |
+| 5 / 24 stand | 8.43 / 12.96 | **6.76** / 10.50 | ~6.2 / ~10 (16 MB); ~6.6 (1 MB) | 8.04 / 7.09 |
+| 8 / 23 walk | 6.80 / 10.96 | **5.52** / 8.97 | ~4.9 / ~8.5 (16 MB); ~5.2 (1 MB) | 6.95 / 6.07 |
+| 8 / 23 stand | 6.64 / 10.97 | **4.96** / 8.57 | ~4.4 / ~8 (16 MB); ~4.8 (1 MB) | 6.48 / 5.51 |
+| 10 / 10 walk | 7.99 / 17.87 | **7.34** / 16.98 | ~7.0 / ~16.5 (16 MB); ~7.3 (1 MB) | 9.99 / 9.55 |
+| 10 / 10 stand | 7.32 / 12.07 | **5.57** / 9.67 | ~5.3 / ~9.3 (16 MB); ~5.7 (1 MB) | 7.17 / 6.20 |
+| 10 / 1 walk | 9.90 / 16.89 | 9.93 / 16.06 | ~9.9 / ~16.5 | 9.63 / 9.32 |
+| 10 / 1 stand | 3.99 / 15.23 | 3.99 / 14.87 | 3.99 / ~15 | 8.04 / 7.71 |
+| 7 / 19 walk | 8.25 / 13.03 | 7.81 / 13.03 | ~6.8 / ~12 | 9.23 / 8.96 |
+| 7 / 19 stand | 5.17 / 9.66 | 5.56 / 8.95 | ~4.4 / ~8.5 | 6.51 / 6.07 |
+| walking (perfcheck normal tick, level 1's torches) | 5.20 | | ~4.8-5.0 | |
+
+How the reduced-E column is derived from the measured E1+E2+E3 (the 512 KB / 1 MB figures in the chopper rooms add
+back step 4's ~1.0 a chopper hit for the choppers without complete-picture slots, above: l03r16 all of its ~1.0 hits
+a tick, the 2-chopper rooms half of their ~0.7: estimates, not measured):
+
+- without E1's gate, door and button savings (they need the strip, which the reduced E does not build: +0.1-0.3 in
+  l07r19 and l10r01);
+- with the chopper and spike complete pictures copied directly (-~0.45 a step);
+- with the potion bubble cached and copied directly (-~0.3 a tick a potion);
+- with the torch under bars cached (l07r19: -~1.2 a tick).
+
+The p90s are the measured ones less about half of that. The pacing floor is 4 frames. The busy rooms go from ~7-10 to
+~4.5-7 frames a tick at the median. What is left: the old-way gates (l10r01's palace pillar gate, 10-13 frames a step)
+and the kid at a chopper (4.4 for two steps).
+
+### 7. Effort, risk, order (separate PRs)
+
+1. **The direct copy of cached small rects**: torch flames now, potion bubbles with their own 7-frame cache, as a
+   pending entry timed by pend_flush. 2-3 days, risk low-medium (the copy must stay untorn and in order with the
+   kid's chunks). Every room with torches gains -0.2 a torch a tick (walking 5.2 -> ~4.8-5.0); potions -0.3. **The
+   first gain, and it reaches every room.**
+2. **The torch under a gate's bars**: register such a flame with the bars' records over it, and key its cached picture
+   by the gate's position (flushed at the gate's step). 1-2 days, risk low; l07r19 -1.2 a tick, and the other 8 rooms.
+3. **A lazy shadow for cached pictures** (choppers, spikes, cached buttons: no shadow write, the restore from the slot,
+   a write-back before a dr_run). 4-5 days, risk medium (the invalidation order; it needs the ~100-150-byte reclaim);
+   -0.7 a chopper or spike step, -0.4 a cached button press. With step 4, **the largest gain in the chopper rooms**.
+4. **Complete pictures for choppers and spikes with nobody in the rect**, copied directly. 3-4 days, risk medium (more
+   slots: all of them on 16 MB, choppers only on 1 MB); -1.0..-1.5 a step on top of step 3 (l08r23_stand 6.64 ->
+   ~4.4).
+5. **Full E for gates and the door** (the strip, the over pieces in every chunk). 1-2 weeks, risk high, -0.3..-0.5 a
+   step (35 of 38 gates have static pieces over their bars): **not recommended**. If gates still matter after the
+   hardware milestone, the old-way gates (palace pillar, drops) are the better target.
+
+Recommendation: a **reduced E** (steps 1-4, ~2-2.5 weeks with the reclaim), in that order. Step 1 alone is the
+cheapest gain for every room; steps 3-4 are for the chopper rooms. No full exclusive layer, and no E for gates. Then
+M8, the hardware.
