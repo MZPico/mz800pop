@@ -2405,3 +2405,78 @@ and the kid at a chopper (4.4 for two steps).
 Recommendation: a **reduced E** (steps 1-4, ~2-2.5 weeks with the reclaim), in that order. Step 1 alone is the
 cheapest gain for every room; steps 3-4 are for the chopper rooms. No full exclusive layer, and no E for gates. Then
 M8, the hardware.
+
+## M8a part 16: torches by a gate (2026-11-08)
+
+Status: **built.** Step 2 of "Option E: measured" section 7, done first (smaller). In 9 rooms a torch stands left of a
+gate (l01r07, l04r07, l04r08, l04r24, l05r07, l05r10, l07r03, l07r07, l07r19). view.asm flames_build did not register
+their flames, so every flame frame took torch_fast's slow path (torch_redraw: op_patch, dr_run into the shadow, the
+room cache's replay), ~0.8-0.9 frames a tick more than a registered flame.
+
+### What lies over the flame (tools/movecheck.py torches)
+
+Option E's census put it down to the gate's bars. On the reference it is not the bars: the bars are drawn by the gate's
+right neighbour, a byte column right of the flame, and never touch its rect at any gate position. What lies over the
+flame's rect is CH_ENV 46, the **gate's base** (TILE_TABLE[gate]'s base piece, a transparent 4 x 60 piece). The gate's
+own tile draws it right after the flame (draw_tile_anim_right, then draw_tile_base), and its records' rect covers the
+flame's, so flames_build saw an op after the cover and called the flame not exclusive. The base has no pixel inside the
+flame's rect, and it does not change with the gate's position. So the flame alone is the picture there, and nothing
+has to be keyed by the gate's position.
+
+tools/movecheck.py torches checks this for every torch flame drawn on a screen of levels 1-14 (our room's columns 0-8,
+the left room's column 9), at every position of a gate right of the torch (0..188 by 4): 806 flame states. 371 have no
+op after them in their rect, 432 (the 9 torches x 48 gate positions) have exactly the gate's base 46 there, with no
+pixel in the flame's rect. 3 have other ops (choppers' 104 / 112, as the census found): still the slow path. 0 differ.
+
+### The change
+
+spike.asm fb_over (main, 33 bytes), called by flames_build in place of its `rr_cnt == rr_last` test: Z when the flame's
+cover is the last op in the rect, or when the one op after it is CH_ENV 46 (rr_table's scan records every op in the
+rect in RR_PTRS, so the op after the cover is at RR_PTRS[rr_cnt - 1]). The rest of the registry works unchanged:
+- flames_lay lays the flame after the restore, and flames_cover skips the restore of a chunk inside it. Both are exact,
+  since 46 adds no pixel there.
+- The torch cache (tcache.asm) keeps the chunk as composed. A gate step that regenerates the tile moves the records
+  (ops_gen), and flames_sync finds the flame again by its place; part 14's one-row step does not touch the flame's rect.
+
+Resident: main +33 (end_of_code 0x7AD8, 296 free), low block -4 (the 10-byte test became a call and a jump; end_of_low
+0x1FE8, 24 free), block 2 unchanged (14 free).
+
+### Before / after (1 MB, frames a tick, median / p90; tools/busyrooms.py find + measure, main 8c5ca08 against this)
+
+| room (torches) | walk main | walk new | stand main | stand new | only torch (work - b, median) main / new |
+|---|---|---|---|---|---|
+| l07r19 (3) | 8.25 / 13.03 | **7.01** / 12.07 | 5.17 / 9.63 | **4.99** / 8.56 | 2.02 / **1.15** |
+| l01r07 (2) | 7.14 / 12.67 | **6.56** / 11.96 | 4.14 / 5.32 | **3.99** / 4.65 | 1.67 / **0.82** |
+| l04r07 (3) | 6.21 / 11.88 | **5.97** / 10.91 | 5.71 / 5.91 | **5.02** / 5.19 | 2.45 / **1.73** |
+| l04r08 (2) | 5.99 / 8.42 | **5.13** / 7.48 | 5.14 / 8.31 | **4.53** / 7.61 | 1.59 / **0.69** |
+| l04r24 (3) | 5.99 / 10.66 | **5.04** / 10.09 | 4.99 / 5.04 | **3.99** / 4.81 | 2.03 / **1.32** |
+| l05r07 (2) | 6.97 / 10.47 | **6.02** / 9.96 | 5.98 / 9.96 | **5.55** / 8.98 | 1.75 / **0.86** |
+| l05r10 (2) | 4.96 / 6.09 | **4.02** / 5.83 | 4.50 / 4.52 | **3.98** / 4.00 | 1.86 / **0.98** |
+| l07r03 (2) | 7.70 / 10.96 | **6.80** / 10.00 | 4.99 / 9.93 | **3.99** / 9.05 | 1.73 / **0.98** |
+| l07r07 (3) | 8.79 / 11.96 | **7.98** / 10.98 | 5.47 / 10.92 | **4.99** / 9.95 | 2.12 / **1.24** |
+
+The only-torch work falls by 0.7-0.9 frames a tick in every one of them (the torch by the gate now costs what the
+others do, ~0.4). The medians fall by 0.2-1.0 (the pacing floor is 4). The other busy rooms and the perfcheck stretches
+have no torch by a gate: unchanged.
+
+### perfcheck (one run per size; main = 8c5ca08, the baselines)
+
+| Stretch | 512 KB base / new | 1 MB base / new | 16 MB base / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.72 / 5.75 | 5.20 / 5.20 | 5.03 / 5.03 |
+| level door step (walkthrough 203-207) | 9.23 / 9.23 | 8.54 / 8.54 | 8.54 / 8.54 |
+| room change (walkthrough 89) | 105.92 / 106.06 | 105.92 / 106.07 | 105.22 / 105.57 |
+| walkthrough 190-260 | 6.44 / 6.45 | 6.19 / 6.17 | 5.85 / 5.82 |
+| gate (gate_push 200-260) | 4.10 / 4.10 | 4.10 / 4.10 | 4.10 / 4.10 |
+| traps (traps_b1 0-300) | 5.63 / 5.64 | 5.30 / 5.31 | 5.22 / 5.23 |
+| fight (fight1 60-160, guard on) | 7.17 / 7.19 | 6.36 / 6.36 | 5.98 / 5.99 |
+
+No torch by a gate in the stretches: unchanged within the beam phase. No baseline lowered.
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state and VRAM every tick) at 512 KB, 1 MB and 16 MB: the walk_a, stand_a, walk_torch,
+walk_gate and walk_potion scenes of the 9 rooms and of the busy rooms l03r16, l05r24, l08r23, l10r10, l10r01, l08r04,
+plus walk_level1, gate_push, btn_bars, potion_heal, potion_hurt, potion_life (71 scripts a size): 0 state diffs, 0
+differing pixels. tools/movecheck.py torches: 0 differ. `make ci-build`, `make cheats`. The full regression on the
+runners: see the PR.

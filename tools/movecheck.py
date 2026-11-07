@@ -25,7 +25,12 @@ extent reaches past the reference's image (a door piece's last pixel), the emula
   spikes   every spike seen in its own room, every pair of pictures (frames.asm fs_canon: 0..5): the rect x 4c..4c + 5
            (to 40), rows 63r + 34..63r + 60 the same way; the pieces 128-132, 139-143 (own tile) and 134-138 (the right
            neighbour) in place with their bottoms kept, unless one side is picture 0
-usage: movecheck.py [gates|doors|buttons|chompers|spikes ...]   (default all; ~15 minutes)"""
+  torches  (M8a part 16) every torch flame drawn on a screen (our room's columns 0-8, the left room's column 9), at
+           every position of a gate right of the torch: the ops after the flame that touch its rect (the Z80's record
+           rects: whole byte columns). view.asm flames_build registers a flame when there are none, or when the one
+           op after it is CH_ENV 46 (spike.asm fb_over: the base of the gate the flame's tile draws); then 46 must
+           have no pixel inside the flame's rect (laying the flame alone gives the picture)
+usage: movecheck.py [gates|doors|buttons|chompers|spikes|torches ...]   (default all; ~15 minutes)"""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -279,6 +284,46 @@ def spikes():
     return frames_check('spikes', T.spike, {k: k for k in range(6)}, 6, 34, 27,
                         [(128, 132, 'left'), (134, 138, 'right'), (139, 143, 'fore')], lambda p: p > 0)
 
+def torches():
+    n = bad = alone = by46 = other = 0
+    for t in (T.torch, T.torch_with_debris):
+        for lv, room, i, r, c in tiles(t):
+            L = Level(lv)
+            gi = None
+            if c < 10:
+                gi = (room - 1) * 30 + r * 10 + c            # the tile right of the torch draws the flame
+                if L.fg[gi] & 0x1F != T.gate: gi = None
+            m0 = L.bg[gi] if gi is not None else None
+            for m in range(0, 189, 4) if gi is not None else [None]:
+                if gi is not None: L.bg[gi] = m
+                rr = RoomRenderer(L); rr.draw_room(room)
+                ol = [('img',) + tuple(o) for o in rr.ops['back'] + rr.ops['mid']] + [('wipe',) + tuple(o) for o in rr.ops['wipe1']]
+                xf = 32 * c + 8                                # the flame: draw_xh + 1 of the drawing tile
+                fl = [k for k, o in enumerate(ol) if o[0] == 'img' and o[1] == 1 and 1 <= o[2] <= 9 and o[3] == xf
+                      and 63 * r <= o[4] + 40 <= 63 * r + 63]
+                for k in fl:
+                    n += 1
+                    f = ol[k]; fw, fh, _ = rr.sets[1].get(f[2])
+                    fx0, fx1, fy0, fy1 = f[3] // 8, (f[3] + fw - 1) // 8, f[4], f[4] + fh - 1
+                    ov = []
+                    for o in ol[k + 1:]:
+                        if o[0] == 'wipe': x0, x1, y0, y1 = o[1] // 8, (o[1] + o[3] - 1) // 8, o[2], o[2] + o[4] - 1
+                        else:
+                            w, h, _ = rr.sets[o[1]].get(o[2]); x0, x1, y0, y1 = o[3] // 8, (o[3] + w - 1) // 8, o[4], o[4] + h - 1
+                        if x1 >= fx0 and x0 <= fx1 and y1 >= fy0 and y0 <= fy1: ov.append(o)
+                    if not ov: alone += 1; continue
+                    if len(ov) != 1 or ov[0][:3] != ('img', CH_ENV, 46): other += 1; continue
+                    by46 += 1
+                    scr = [[None] * 320 for _ in range(200)]
+                    paint(scr, rr, ov[0][1:], clip=(8 * fx0, 8 * fx1 + 8, fy0, fy1 + 1))
+                    px = sum(1 for y in range(200) for x in range(320) if scr[y][x] is not None)
+                    if px:
+                        bad += 1; print('torches: level %d room %d tile %d gate %s: 46 has %d pixels in the flame' % (lv, room, i, m, px))
+            if gi is not None: L.bg[gi] = m0
+    print('torches: %d flames (states), %d alone, %d with the gate base 46 after them, %d with other ops, %d differ' % (
+        n, alone, by46, other, bad), flush=True)
+    return bad
+
 if __name__ == '__main__':
-    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes']
+    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes', 'torches']
     sys.exit(1 if sum(globals()[w]() for w in what) else 0)

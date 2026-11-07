@@ -971,3 +971,11 @@ piece used AND/XOR semantics.
    8.8 (moving) / 10.8 -> 8.0 (standing), l08r23 9.6 -> 6.8, l10r10 10.2 -> 8.0, l08r04 9.4 -> 7.6, l05r24 10.3 -> 8.4
    (standing); p90s down 2-5 frames. Resident: main +97 (329 free), block 2 +3 (14 free). perfcheck unchanged.
    Left: the object pass over a chopper's rect with the kid in it (option E), cs_put's shadow write (0.7 a step).
+59. M8a part 16, torches by a gate (2026-11-08, docs/perf.md "M8a part 16: torches by a gate"; step 2 of the option E
+   measurement, #32, which has no item of its own): in 9 rooms a torch stands left of a gate, and its flame took the
+   slow path every tick (torch_redraw), because the gate's base (CH_ENV 46, drawn by the same tile right after the
+   flame) lies over the flame's records' rect. It has no pixel there (not the bars, which never reach the flame; checked
+   for every flame of levels 1-14 at every gate position, tools/movecheck.py torches: 806 states, 0 differ), so
+   flames_build now registers such a flame (spike.asm fb_over). Only-torch work in those rooms -0.7..-0.9 frames a tick;
+   medians (1 MB) l07r19 8.25 -> 7.01 walking / 5.17 -> 4.99 standing, l07r07 8.79 -> 7.98, l04r24 5.99 -> 5.04, l05r10
+   4.96 -> 4.02. Resident: main +33 (296 free), low -4 (24 free). perfcheck unchanged.

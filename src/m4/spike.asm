@@ -176,3 +176,32 @@ frr_l:          ld      (hl), a
                 inc     hl
                 djnz    frr_l
                 jp      flames_rebuild
+; fb_over (M8a part 16; view.asm flames_build, after rr_table's scan of a flame's rect): Z when the flame's cover
+; (rr_last) is the last op there, or when the one op after it is CH_ENV 46. That is the base of a gate right of the
+; torch (its own tile draws the flame, then the base, a transparent piece with no pixel inside the flame's rect: checked
+; for every flame of levels 1-14 at every gate position, tools/movecheck.py torches), so laying the flame alone still
+; gives the picture there.
+fb_over:        ld      a, (rr_cnt)
+                ld      c, a
+                ld      hl, rr_last
+                sub     (hl)
+                ret     z
+                dec     a
+                ret     nz
+                ld      a, c                    ; RR_PTRS[rr_cnt - 1]: the record's end
+                add     a, a
+                ld      l, a
+                ld      h, RR_PTRS >> 8
+                dec     l
+                ld      d, (hl)
+                dec     l
+                ld      e, (hl)
+                ld      hl, -7
+                add     hl, de
+                ld      a, (hl)                 ; chtab
+                cp      CH_ENV
+                ret     nz
+                inc     hl
+                ld      a, (hl)                 ; id
+                cp      46
+                ret
