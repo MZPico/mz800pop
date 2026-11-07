@@ -498,10 +498,8 @@ fb_c0:          rrca
                 call    rr_table
                 xor     a
                 ld      (RR_MODE), a
-                ld      a, (rr_cnt)             ; exclusive: the last op there is the cover, and it is this flame
-                ld      hl, rr_last
-                cp      (hl)
-                jp      nz, fb_next
+                call    fb_over                 ; exclusive: the last op there is the cover (or a gate's base after
+                jp      nz, fb_next             ; it: spike.asm fb_over), and it is this flame
                 pop     hl
                 push    hl
                 ld      de, 8
