@@ -2943,3 +2943,194 @@ every tick (a per-tick CRC comparison of the two builds), and m4_test (logic onl
 ride_a and shake_a differed too, on main as well (the floor falling in from above, see "What changed" 3).
 tests/m4_test.py on the ten scenes, traps_b1, b9, b39, b40 and walk_level1: 0 differing. tools/movecheck.py loose: 0
 differ. `make ci-build`, `make cheats`. The full regression on the runners: see the PR.
+
+## Speed roadmap: re-evaluation measurements (2026-11-08)
+
+Status: **measured, nothing built.** These are the numbers for re-ranking sections 6 and 8 of "Speed roadmap
+(2026-11-08)" after M8a part 18. Measured on main 5c0596e, 1 MB, no waits. The tool is tools/reeval.py (`fixed`, `lay`,
+`loose`, `gates`, `events`, `census`, `oplists`, `blocks`, `masks`). The scenes are those of loosescenes.py and of
+busyrooms.py `find --worst` (not committed). "a - b" is the work above the same ticks with the objects patched away.
+
+### Per situation (frames a tick; a - b where measured)
+
+| situation | frames median / p90 | a - b median / mean | source |
+|---|---|---|---|
+| walking (walk_level1 30-60) | 4.30 / 7.71 (mean 4.89) | | roadmap.py range |
+| fight (fight1 60-160) | 5.37 / 10.08 (mean 6.30) | | roadmap.py range |
+| loose floor, one picture change (shp, kid moving, 57 ticks) | 7.97 / 9.30 | **4.01 / 3.36** | reeval.py loose, the 10 scenes |
+| loose floors, two or more pictures (shp2: knocks) | 11.59 / 30.87 | 7.39 / 12.89 | |
+| loose floor, frame only (shf) | 3.94 / 5.15 | 0.06 / 0.18 | |
+| release (rel) / landing (land) | 13.38 / 18.09; 13.58 / 20.56 | 9.37 / 9.07; 7.61 / 5.91 | |
+| one floor falling (mob1) / 2-5 (mob2+) | 7.97 / 11.11; 12.01 / 17.48 | 3.93 / 4.17; 7.53 / 7.31 | |
+| chopper picture change / modifier only | | 4.22 / 0.14 a change (fit) | busyrooms.py fit, 9,446 ticks |
+| C1: a chopper with blood (the kid dead next to it) | 11.52 work | ~+7.0 a step (against 4.49 dead with no change) | chomper.txt, 19 steps |
+| spike picture change | | 4.12 a change (fit) | |
+| torch / potion (each, every tick) | | 0.39 / 0.46 | fit |
+| gate, a plain shift (open, 39 % of the 1,182 visible gate steps) / at a dungeon pillar (13 %) | | 1.72 / 2.74 | reeval.py gates (walk_gate, ticks with one step) |
+| gate, a regenerating step (8 %) / at a dungeon pillar (3 %) | | 3.21 / 4.32 | |
+| **G3** closed band (15 %) / at a dungeon pillar (5 %) | | **4.10** / 5.55 | |
+| **G1** palace pillar (13 % in these scenes; 8 of the 90 gates) | | **6.06** | |
+| **G2** drop (2.4 %) | | **8.15** | |
+| **G4** to or from 47 (1.6 %) | | **8.25** (6 ticks) | |
+| button: a hit (79 % of the 77 button changes) / **B1** the first change since the room draw (21 %) | | 1.41 / **5.55** (with the overlay loads) | |
+| room change, l01r01 dungeon (walkthrough 89) | 106.07 | op lists 11.79 + buckets 2.44, fill 2.75, laying 57.61, shadow write 11.67, copy 11.36 | roadmap.py stages |
+| room change, l04r04 palace | 86.02 | 9.00 + 2.08, 2.75, 43.44, 11.66, 11.44 | |
+| R3: the restart after a death (traps_b9 1446) | 107.43 | load_level 12.10 + the room draw 89.03; then 4 ticks of 8-13 | |
+
+T1 (the cost model's "tile" kind, 7.59 a change over 4 ticks) is **the loose floor's release and landing**. Those 4
+ticks are l02r18's ticks 20 and 29, the only "tile" ticks in the scenes. Their costs are the rel and land rows above.
+
+### S1: the fixed costs (walk_level1 30-60, frames a tick)
+
+| part | frames a tick |
+|---|---:|
+| view_snapshot | 0.071 |
+| trace_cksum (the harness only) | 0.081 |
+| text_chk | 0.030 |
+| the interrupt (with the PSG player at SND_MODE 1: ~0.02) | 0.013-0.030 |
+| the controls: the script / the keyboard and joystick scan (read_inputs 0.014, key_scan 0.002) | 0.005 / 0.019 |
+| hp_draw + ghp_draw | 0.006 |
+| the sound model | 0.005-0.013 |
+| flash_tick + dirty_reset | 0.002 |
+
+The game pays **~0.17 a tick** for these, and nothing is above 0.07. Not a lever.
+
+### How often (levels 1-14)
+
+There is no playthrough of levels 2-14. walkfind.py runs at ~37 expansions a second and found no route on level 2 in
+3,000. The counts below come from kidsim (reeval.py events) and the level data (reeval.py census):
+
+- **walk_level1 (318 ticks):** 3 room draws, 9 shp, 5 shf, 1 release, 1 landing, 4 G2 steps, 1 B1, 3 button hits.
+- **The test scripts (m4, m5, m6: 18,119 ticks):** a room draw every 181 ticks, 12 deaths. Of 53 button visits, 18
+  changed the button once (the press is the only change, so B1 is all there is) and 35 changed it twice or more.
+- **The census:** 316 rooms, 90 gates (8 at a palace pillar: G1), 99 openers, 29 closers (drops), 39 choppers, 116
+  spikes, 169 loose floors, 354 torches, 50 potions. 16 screens have a chopper or spike in the room above's row 2 or
+  the left room's column 9 (C2).
+- **A gate's open-and-close cycle** has 94 visible steps: 56 plain, 14 regenerating, 22 in the closed band (G3), 2 at
+  47 (G4). A closer's drop is 4-5 G2 steps instead of the closing. The per-game gate mix below comes from this
+  cycle and the census (G3 = 22/94 of the steps of the 82 non-G1 gates, G1 = 8 of the 90 gates' steps, G4 2 a cycle,
+  G2 = 29 closers x ~1.5 x 4.5), not from the busy scenes' shares in the table above (busy rooms over-represent G1).
+
+The table estimates one completion. It assumes ~40,000 ticks, each gate ~1.5 cycles with ~70 steps seen, each button
+pressed 1-1.5 times, ~60 % of the loose floors set off and 5-15 deaths on choppers:
+
+| event | a game (estimate) | gain a hit (candidate) | frames a game |
+|---|---:|---:|---:|
+| room changes | 300-500 | R1 -8.4..-13.2; laying loops -18..-20; R2 -25..-30; copy + shadow floor -9 | R1 -2,500..-6,600; loops ~-7,600 |
+| deaths (R3) | 20-100 | each is a full room draw + 12 (load_level) | |
+| gate steps | ~8,000 | | |
+| of them G3 / G1 / G4 / G2 | ~1,700 / ~700 / ~250 / ~200 | -2.1 / -3.5 / -6 / -5.6 | -3,600 / -2,450 / -1,500 / -1,100 |
+| loose picture changes (shp) | ~800-1,000 | L2: -3 | ~-2,700 |
+| releases + landings (T1) | ~200 | | |
+| chopper steps / C1 | ~2,000 / 100-300 | C1 -5.7 (the kid is dead: little is seen) | C1 ~-1,100 |
+| C2 steps | < 100 | ~-2 | < -200 |
+| button misses (B1) | ~130-200 | -4 | ~-700 |
+| every tick (the copy by POP / PUSH or LDI, plane-major) | ~40,000 | ~-0.14 walking (pf_blit1 0.43) | ~-5,600 |
+
+### R1: op lists precomputed per room (reeval.py oplists; the Python reference's lists, equal to room.asm's)
+
+**Size.** A room has 56-103 back records and 35-68 fore records (max 185 / 126). The lists and their tags (9 bytes a
+record) take **820-1,448 bytes a room** (max 1,872). The cell buckets add ~124-202 bytes. The slice tables (480 bytes)
+are rebuilt by slices_build in under 0.7 frames. **Per level that is 8.4-34.7 KB**, 397 KB for all 14 levels. zlib -9
+packs a level into 1.7-7.8 KB (89 KB for all).
+
+**Read cost.** At the room draw, ~1.6-2.1 KB by INIR (21 T a byte) plus ~10 seeks is **~0.5-0.7 frames**, and the
+slices ~0.5 more. room_ops + bkt_build cost **11.1-14.2** today (l04r04 9.00 + 2.08, l01r01 11.79 + 2.44).
+
+**What is not static.** These are the records of the screen's animated tiles: its own, the left room's column 9, the
+above room's row 2 and the below room's row 0. A screen has 2.7-6.5 such tiles (max 15). Per room 5.7-17.5 records (level means; max 69, level 10's gates) are
+changed or removed by a state, or added by one (counted per tile as its state with the most added):
+
+- gates: the bar records and slices move with the position;
+- loose floors: the picture, and empty or rubble after a fall;
+- choppers and spikes: the frame, and the blood;
+- buttons: pressed is drawn as floor or stuck;
+- torches: the flame (op patch);
+- potions: the bubble (op patch), and floor once taken;
+- the sword and the level door.
+
+**The patch at the draw.** Every animated tile whose (type, modifier) differs from the stored state is regenerated by
+tile_regen (~0.5 frames each); op_patch handles the flames and bubbles. That is typically 0-3 tiles. The new cost is the
+read 0.5-0.7 + the slices ~0.5 + the patches 0-1.5 = 1.0-2.7 frames, against 11.1-14.2: **-8.4..-13.2 a room change
+on every size**.
+
+**Where the lists come from:**
+
+- precomputed on the PC: ~7 KB a level, packed on the floppy;
+- built at the level start: 24 x ~13 frames, ~6 s;
+- built at each room's first visit: then only revisits gain.
+
+They need ~35-47 KB of RAM disk a level: free on 16 MB, after a reclaim on 512 KB / 1 MB.
+
+### The room change's laying (reeval.py lay: a tracepoint at the head of every phase, cycles to the next)
+
+l01r01 reads 53,500 bytes (rec_lay 57.61 frames: ~77 T a byte); l04r04 reads 39,510 (43.44):
+
+| phase | l01r01 | l04r04 | per unit |
+|---|---:|---:|---|
+| masked rows (7,228 / 5,460 plane rows: cmx_n and the row step) | 28.46 | 21.23 | 280 T a row: 53 T a byte (20,720 bytes) + ~128 T a row (call 17, ret 10, three strides, the drop test, the loop) |
+| copy rows (5,432 / 3,752 rows) | 11.63 | 7.73 | 147 T a row: INIR 21 T a byte + ~65 T a row |
+| the mask block (INIR), the per-plane setup and seek, the plane ends, the masked setup | 6.76 | 5.21 | ~400 T a plane |
+| copy plane setup, seek, end | 2.33 | 2.26 | ~700 T a piece |
+| piece setup (lay_piece16 1,640 T; the record and dir_entry 750 T) | 6.21 | 5.34 | ~2,400 T a piece (185 / 158 pieces) |
+| the scan (rec_lay's tests 342 T, the cover scan, the buckets) | 2.54 | 2.47 | |
+| mono / black rows | 0.51 | 0.13 | |
+
+**Best per byte with today's data format:** a specialised loop per width (rows unrolled, page-aligned buffers, inc l /
+inc e, no drop test):
+
+- the masked row step 128 -> ~30 T: -10 frames;
+- the masked bytes 53 -> ~45 T: -2;
+- the copy row step 65 -> ~30 T: -2.5;
+- precomputed plane offsets and one seek a plane: -2..-3;
+- a lighter piece setup: -3.
+
+Together **~-18..-20 of 57.6**, to ~50 T a byte.
+
+**With a new mask format.** Of the masked pieces' bytes, 29.9 % are fully opaque, 27.7 % fully transparent and 42.4 %
+partial (reeval.py masks). Copying the opaque runs and skipping the transparent ones would cut the masked arithmetic
+from 53 to ~31 T a byte on average, another ~-6.
+
+**Not a lever:** the fore pieces are ~55 % of the bytes laid in a full draw, but a fore piece that lays its back twin
+again with nothing over it is only 0.2 % of them.
+
+**R2** (reeval.py blocks) is a cache keyed by a block's op list (equal lists give equal pixels):
+
+- **Repeats.** The renderer's 8 x 64 cells repeat little: 21 % of the instances are repeats, 18 % with the fore
+  pieces. **Tile blocks (4 bytes x 63 rows, one tile's place) repeat 87 %** for back + mid and 78 % with the fore. A
+  level has 49-113 distinct back blocks (1,216 for all levels), 129-169 with the fore (2,070).
+- **Cost.** A hit reads ~1 KB a version by INIR (~0.3 frames) instead of ~1.9 frames of laying. With both versions,
+  that is ~-25..-30 a room change once a level's blocks are cached.
+- **Memory.** ~230 KB of RAM disk a level: 16 MB only, 1 MB has no room.
+- **Design.** The block ids are static per room (R1's data, 30 bytes a room), and the animated tiles' blocks are drawn
+  as today. The full draw needs tile-aligned 8 x 63 cells and a 3-row strip.
+
+### The copy and the shadow write (bounds for candidate 9)
+
+**Today, per room change:**
+
+- The copy (blq_8) costs 196 T a plane row of 8 bytes (8 LDI 128, the plane select 18, the pointers 50): 24.5 T a
+  byte, 11.1-11.4 frames. The emulator shows no VRAM waits.
+- The shadow write costs OUTI 16 T a byte plus a seek every 8-byte row: 27 T a byte, 11.67 frames.
+
+**Floors for the 30,720 bytes (4 planes x 40 x 192):**
+
+- **The copy, plane-major by POP / PUSH: ~15.6 T a byte, 6.7 frames.** 8 LDI plane-major take ~18.4-20.5 T (7.9-8.8
+  frames). The write modes do not help 4-plane data: they write one byte to every selected plane, or one colour.
+- **The shadow write, OUTI with one seek a contiguous run: 16.1 T a byte, 6.9 frames** (a cell-major shadow; band
+  cells 17.2 T, 7.4 frames).
+
+Together **22.8 -> ~13.6 (-9)**. The copy alone gains -4.4. In play, the same rule takes ~0.14 of walking's 0.43 frames
+a tick of pf_blit1.
+
+### Memory (main 5c0596e)
+
+| area | free |
+|---|---|
+| main (end_of_code 0x7B11, W1 at 0x7C00) | **239** |
+| low (end_of_low 0x1FE7) | **25** |
+| block 2 (block2_end 0xEBED, LEVEL 0xEC00) | **19** |
+| W1 overlays | room 86, events 15, gleave 682, genter 81, keys 555, rare 601, gate (anim) 10, buttons 203, door 156, frames 4 |
+| W2 overlays | level 1,823, text 3,075, save 3,399 |
+| the fill overlay (WF) | 83 |
+| RAM disk page 7's overlay area | 743 |
