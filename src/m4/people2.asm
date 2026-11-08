@@ -365,3 +365,43 @@ st_tab:         dw      SPR_A
                 dw      0
 st_chg:         db      0
 st_res:         db      0
+
+; ---------------------------------------------------------------- falling floors in a compose chunk (M8a part 18)
+; mob_lay (sprite.asm obj_chunk): lay the falling floors drawn this tick (MOBR) whose rect (OMOBR, the same index:
+; their three pieces lie inside it) meets the compose rect CR*; the others lay nothing here (lay_piece16 clipped
+; them away, after a directory lookup and its setup: ~0.35 frames a floor and chunk).
+; mob_meet (tcache.asm tc_try): A = 1 (NZ) when one of them meets the compose rect, else Z.
+mob_meet:       ld      c, 1
+                db      0x21                    ; (ld hl, nn: skips the ld c, 0)
+mob_lay:        ld      c, 0
+                ld      a, (MOBR_N)
+                or      a
+                ret     z
+                ld      b, a
+                ld      hl, MOBR
+ml_l:           push    bc
+                push    hl
+                ld      de, OMOBR - MOBR
+                add     hl, de
+                call    okt_meet
+                pop     hl
+                pop     bc
+                jr      z, ml_n
+                and     c                       ; (A = 1) mob_meet: found
+                ret     nz
+                push    bc
+                push    hl
+                ld      b, (hl)                 ; xb
+                inc     hl
+                ld      e, (hl)
+                inc     hl
+                ld      d, (hl)                 ; ybottom
+                call    lay_mob
+                pop     hl
+                pop     bc
+ml_n:           inc     hl
+                inc     hl
+                inc     hl
+                inc     hl
+                djnz    ml_l
+                ret
