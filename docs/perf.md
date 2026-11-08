@@ -2781,10 +2781,10 @@ pixel tests check it).
 | 6 | the visited-room cache (with the op lists) | revisit 106 -> ~15-20 (2 s -> 0.3-0.4 s) | most room changes after a room's first visit | ~20-40, a second room overlay | **16 MB only** | 1-2 weeks, medium, exact |
 | 7 | a faster op-list build | -3..-4 a room change; -0.1..-0.2 a tile regeneration in play (helps 1's remaining steps, gates' regenerating steps, chopper misses) | every room change | room.asm in main: likely +50..+100 | none | 3-5 days, medium, exact (m3 tests) |
 | 8 | band cells for the full room draw | -6..-8 a room change (estimate) | every room change | ~300 overlay (a second room overlay) | none | 1-1.5 weeks, high; a prototype first |
-| 9 | the VRAM copy by POP / PUSH or the write modes | -2..-4 a room change, ~-0.1 a tick | everywhere | ~50-100 main | none | 2-3 days, medium |
+| 9 | the VRAM copy by POP / PUSH or the write modes (**measured and dropped**: "Step 3 (the VRAM copy): measured and dropped"; PUSH waits on the GDG, banded LDI -2.5 a room change for ~680 bytes) | -2..-4 a room change, ~-0.1 a tick | everywhere | ~50-100 main | none | 2-3 days, medium |
 | 10 | the fill skipped under a covering back op in the full draw | -1..-1.5 a room change | every room change | room overlay (86 free) | none | 1 day, low, exact |
 | 11 | M3: a falling floor's three pieces looked up once a tick (directory entries and seeks kept for its chunks) | ~-0.1 a floor and chunk after 2 | falling floors | ~30 main | none | 1 day, low, exact |
-| 12 | kid logic trims (collision rows, tile lookups) | -0.2..-0.3 a tick | every tick | main | none | 3-5 days, medium (tick-exact against kidsim) |
+| 12 | kid logic trims (collision rows, tile lookups; **A', C, E built: M8a part 21**, the logic -0.10..-0.17 a tick) | -0.2..-0.3 a tick | every tick | main | none | 3-5 days, medium (tick-exact against kidsim) |
 | 13 | #8, the beam-wait scheduler | -0.05..-0.06 a tick | everywhere | +476 net: no | none | parked |
 
 Order by what the player gets: **1 and 2 first** (2-3 days, ~75 resident bytes, no reclaim: a falling floor's ticks go
@@ -3359,3 +3359,233 @@ regression on the runners (regress/laying at 550a205, run 42506358462: the m4 / 
 story, PRES, launch / keys and sound parts at 512 KB, 1 MB and 16 MB, launch / keys at 1 MB + 1 wait; m3_test and
 m3_anim_test of every level, the logic oracles at 1 MB): all 28 jobs passed. The commit after it changes only the
 docs.
+
+## Kid logic: measured (2026-11-08)
+
+Status: **measured; A', C and E built in "M8a part 21: kid logic trims"** (the rest not built). Candidate 12 of "Speed roadmap (2026-11-08)" section 6 ("kid logic trims"), on
+main e334925 (M8a part 20), 1 MB, no waits. The tool is tools/kidlogic.py `profile SCRIPT T0 T1 [--csv OUT]`. For each
+tick it stops at kid_tick's entry and runs mz800emu's call profiler from there to kid_tick's return. The return
+address is read from the stack, so only the logic is profiled, and the logic's time is exact by cycles. It then
+replays the pacing (game.asm mainloop, mode 0) from the measured work (ml_go to tick_done) and applies each trim's
+modelled saving per tick. The busy-room scenes are busyrooms.py `find --worst` (not committed).
+
+**The logic is less than the roadmap said.** kid_tick contains everything: tick_pre (the timers, mobs and trobs, the
+guard's sight) and tick_post (jumped to: the guard's frame, the sword hits). Sections 3 and 4 added tick_pre and the
+trobs to kid_tick's inclusive time a second time. The 1.00 of section 4 also held trace_cksum (0.08), which part 19
+removed. Walking costs **0.92** a tick, not 1.20; a fight costs **1.20**, not 1.44.
+
+### Per stretch (frames a tick)
+
+| stretch | logic mean / median / p90 / max | frames mean / median (measured; replayed) | ticks with work > 4 |
+|---|---|---|---:|
+| walk_level1 30-60 | 0.918 / 0.905 / 1.091 / 1.126 | 4.694 / 4.36; 4.672 / 4.26 | 16 of 30 |
+| fight1 60-160 | 1.204 / 1.162 / 1.378 / 1.643 | 5.916 / 5.02; 5.921 / 5.02 | 75 of 100 |
+| traps_b1 1-300 | 0.886 / 0.916 / 1.084 / 1.497 | 4.635 / 3.99; 4.649 / 4.01 | 91 of 299 |
+| l03r16 walk_a 1-100 (3 choppers) | 0.865 / 0.951 / 1.131 / 1.230 | 8.754 / 7.97; 8.749 / 7.97 | 95 of 99 |
+| l05r24 walk_a 1-100 (palace, busy) | 1.028 / 1.000 / 1.342 / 1.602 | 7.612 / 6.63; 7.610 / 6.63 | 98 of 99 |
+| l08r23 walk_a 1-100 | 0.755 / 0.878 / 1.071 / 1.204 | 6.526 / 6.34; 6.515 / 6.34 | 77 of 99 |
+| l10r01 walk_a 1-100 (pillars, 4 gates) | 0.988 / 1.019 / 1.088 / 1.388 | 8.491 / 8.87; 8.503 / 8.87 | 76 of 99 |
+
+The replay matches the measured mean within 0.02 (it leaves out the interrupt inside the halt).
+
+### Top routines (exclusive frames a tick; calls a tick, T a call)
+
+| routine | walk | fight | traps_b1 | l10r01 | what it is |
+|---|---|---|---|---|---|
+| k_get_tile | 0.155 (32.4, 340) | 0.168 (36.4, 329) | 0.148 | 0.177 (31.7, 398) | SDLPoP get_tile: room / column / row normalised through the links by a loop on memory variables, then tbl_line, tile_base, k_tbl. Inclusive 0.24-0.29 |
+| get_row_collision_data | 0.121 (3.0, 2,860) | 0.124 | 0.110 | 0.119 | one collision row, 3 a tick. **Inclusive 0.41**: ~9,600 T a row, ~2,000 T a column |
+| k_tbl | 0.090 (145) | 0.112 (181) | 0.085 | 0.085 | A = (HL + A): 44 T + the call, 61 T a lookup; ~65 a tick from k_get_tile, 40 from check_collisions' loop, 28 from wall_type |
+| tile_base | 0.054 (39, 98) | 0.068 (50) | 0.048 | 0.058 | the room's fg / bg address from a table |
+| prandom | 0.050 (2.2, 1,634) | 0.028 (1.2) | 0.047 | 0.046 | the LCG (~850 T) and a 16-step division (~780 T). Called with 255 by the torches, potions and the guard |
+| kid_tick (own) | 0.038 (2,723) | 0.038 | 0.038 | 0.038 | the controls' copies, the harness snapshot (KV_SNAP), the dispatch |
+| move_coll_to_prev | 0.032 (2,292) | 0.032 | 0.029 | 0.030 | copies 20 bytes, then clears 60 by djnz loops |
+| check_collisions | 0.025 (1,805) | 0.026 | 0.023 | 0.025 | the bump loop: 10 columns x 4 k_tbl calls |
+| set_char_collision | 0.024 (2.0, 855) | 0.036 (3.0) | 0.025 | 0.024 | of it dir_entry 452 T (the image's height from the RAM disk) |
+| wall_type + get_left / right_wall_xpos | 0.044 | 0.046 | 0.044 | 0.045 | wall_type twice a column, k_tbl, k_sext, 16-bit adds |
+| get_tile_div_mod | 0.018 (8, 155) | 0.030 (14) | 0.017 | 0.017 | two k_tbl lookups |
+| play_seq / far_seek | 0.015 / 0.008 | 0.031 / 0.012 | | | the sequence table (RAM disk): **0.02-0.04, not a lever** |
+| check_chomped_kid | 0.015 (1,060) | 0.015 | 0.015 | 0.015 | 10 columns of flags |
+| far_copy (overlay loads) | 0 | 0.021 | 0 | 0 | l05r24: **0.085** (28 events-overlay loads in 100 ticks) |
+
+**Groups** (exclusive): tile lookups (k_get_tile, k_tbl, tile_base, get_tile_*, links_of ...) 0.35 walking / 0.44
+fighting; collision (check_collisions, get_row_collision_data, the wall routines, move_coll_to_prev,
+set_char_collision ...) 0.25 / 0.27; sequence 0.02 / 0.04; frame loading 0.03 / 0.06; prandom 0.05 / 0.03; **mul /
+div helpers 0** (none runs in the logic). The guard (fight1): play_guard_frame 0.21 inclusive, tick_pre 0.12, the
+trobs 0.07-0.09. Inclusive: check_collisions is **0.48 of the 0.92** walking, and 0.49 of the 1.20 in a fight.
+
+**The overlay thrash (new):** a kid on a plate calls trigger_button every tick. Its stub loads the events overlay into
+W1 unless W1 holds the gate or the door overlay. In a room whose draw uses W1 itself (ovl_frm for choppers and
+spikes, ovl_btn for the button pictures), each such tick loads two overlays of ~1 KB (~21,400 T, 0.3 frames each):
+the events overlay in the logic and the draw's overlay back. l05r24 walk_a: 43 trigger_button calls, 28 logic loads
+and 30 ovl_frm loads in 100 ticks. fight1 60-160: 7 + 7 (ovl_btn).
+
+### Why it is slow, and the trims (modelled per tick from each tick's profile, then the pacing replayed)
+
+The new code's costs are hand counts of sketched code. They live in kidlogic.py TRIMS: a row walker costs 600 T a row
+plus 280 T a column; the in-room k_get_tile saves 130 T a call.
+
+| # | trim | why today is slow | logic saved: walk / fight / traps / busy (4 rooms) | **mean frames a tick after the floor**: walk / fight / traps / busy | resident bytes (main) | risk to tick-exactness | effort |
+|---|---|---|---|---|---|---|---|
+| A | **get_row_collision_data as a row walker**: resolve (room, row) once with k_get_tile, again only where the columns cross into the left or right room (as k_get_tile resolves them: row first when negative, columns, row 3 last); walk a pointer through fg; one 32-byte table a side by tile (the wall offset, the none case); the compares against CX_RCOLL / CX_LCOLL as running 16-bit differences (-14 a column); the last column's CURR_ROOM / TILE_COL / TILE_ROW / CURR_TILEPOS / CURR_TILE2 stored at the end | per column: k_get_tile twice (the second is the same call), wall_type twice, k_tbl, k_sext, 16-bit loads and stores through memory variables: ~2,000 T | -0.33 / -0.33 / -0.32 / -0.23..-0.36 | **-0.14 / -0.23 / -0.08 / -0.21..-0.31** | ~200 code + 64 table, against the old 170: **+~95** | medium: room 0 (wall), the room crossings, the state left behind. Exact by construction if those are kept; m4_test, the oracles and tests/m4_game.py check it | 2-3 days |
+| A' | (A's first step alone: the second k_get_tile of each column dropped, the tile kept in a register) | the same call with the same inputs; get_left_wall_xpos changes no tile variable | -0.11 / -0.11 / -0.11 / -0.08..-0.13 | -0.05 / -0.08 / -0.03 / -0.07..-0.10 | ~0 | **none** (a pure function, unchanged state) | 1 hour |
+| B | check_collisions' bump loop by pointers (HL / DE over CURR / PREV rooms and flags, no k_tbl) | 40 k_tbl calls and their setups a tick | -0.022 / -0.022 / -0.020 / -0.014..-0.021 | -0.010 / -0.022 / -0.007 / -0.011..-0.020 | ~0 (181 rewritten) | low | half a day |
+| C | move_coll_to_prev: the 60-byte clear unrolled x2 (`ld (hl),a; inc l` twice a djnz; KV + 0x60..0xAF stays in one page) | 60 djnz iterations | -0.009 / -0.009 / -0.008 / -0.005..-0.008 (628 T a call, as built in part 21: 2,292 -> 1,664; first modelled as 1,000) | -0.004 / -0.007 / 0 / -0.005..-0.008 | +~10 (built: -23) | none | 1 hour |
+| D | k_get_tile: an in-room path (0 <= column < 10, 0 <= row < 3, room != 0: row x 10 + column, the room's base, one read; the same variables stored) | the general loop of memory loads and tests for the common case | -0.013 / -0.019 / -0.012 / -0.010..-0.012 (after A; ~-0.07 without A) | -0.006 / -0.022 / 0 / -0.009..-0.013 | +~30 | low | half a day |
+| E | prandom: when max + 1 is a power of two (255: the torches, potions, the guard), the result is SEED+2's byte AND max; no division | a 16-step restoring division for a mask | -0.021 / -0.012 / -0.020 / -0.010..-0.020 | -0.010 / -0.021 / -0.003 / -0.010..-0.020 | +~10 | none (the seed's update unchanged) | 1 hour |
+| F | trigger_button resident (buttons.asm, 272 bytes, in main; the copies in the events, gate and door overlays go) | the W1 thrash above | 0 / -0.022 / 0 / **-0.088** (l05r24; 0 in the other three) | 0 / -0.020 / 0 / -0.088 in l05r24, **plus about as much in the draw** (ovl_frm / ovl_btn not reloaded; not modelled) | **+~255** (frees ~272 in three overlays) | low | 1 day |
+| G | get_tile_div_mod: tile_mod_tbl / tile_div_tbl page-aligned, k_tbl inlined | two calls a lookup | -0.010 / -0.018 / -0.010 / -0.009..-0.010 | -0.004 / -0.021 / 0 / -0.008..-0.013 | ~0 (the tables placed) | none | half a day |
+| | **A + B + C + D + E + F + G** | | -0.41 / -0.44 / -0.40 / -0.29..-0.48 | **-0.19 / -0.33 / -0.09 / -0.27..-0.48** (l05r24 with F) | **~+400** (~+145 without F) | | ~1.5 weeks |
+
+Also looked at and not worth it: caching the collision rows across ticks (CX_LCOLL / RCOLL change every tick, and
+after A a column's tile part is ~60 T: invalidating on every tile change would cost more); set_char_collision's image
+lookup cached by OBJ_ID (~0.007); check_chomped_kid (~0.008); inlining the remaining k_tbl calls (~0.02 for 3 bytes a
+site); the sequence table (0.02-0.04 in all); the harness snapshot in kid_tick (~0.005).
+
+### The effective gain (the pacing replayed)
+
+What a cut of X frames of logic every tick gives, as mean frames a tick:
+
+| X | walk_level1 30-60 | fight1 60-160 | traps_b1 1-300 | l10r01 walk | l03r16 walk |
+|---:|---:|---:|---:|---:|---:|
+| 0.1 | -0.043 | -0.068 | -0.026 | | |
+| 0.2 | -0.087 | -0.144 | -0.046 | -0.145 | -0.196 |
+| 0.3 | -0.130 | -0.218 | -0.062 | -0.218 | -0.287 |
+| 0.5 | -0.217 | -0.345 | -0.095 | | |
+
+On a walking stretch the floor absorbs about half of a logic saving: 16 of 30 ticks do more than 4 frames of work. In
+traps_b1 it absorbs three quarters (182 of 299 ticks sit at the floor). In fights and in the busy rooms (75-98 % of
+ticks above the floor) nearly all of the saving shows. The medians barely move while walking (4.26 -> 4.15 with
+everything); the p90 moves by -0.1..-0.5.
+
+### Recommendation
+
+1. **A' + C + E first** (an afternoon, ~20 bytes, exact by construction): walking -0.07, fight -0.11, the busy rooms
+   -0.09..-0.13 frames a tick.
+2. **A, the row walker** (2-3 days, ~+95 bytes, with D folded in, since A resolves its rooms through k_get_tile):
+   the only large item. Walking -0.14 more than today in all (A replaces A'), fight -0.23, busy rooms -0.21..-0.31.
+   Below the roadmap's rule of thumb (>= 0.2 a tick for < 250 bytes) while walking, above it in fights and the busy
+   rooms.
+3. **F** if the plate rooms matter: ~255 bytes of main for -0.1..-0.2 frames on the ticks the kid stands on a plate in
+   a chopper, spike or button-picture room (l05r24: -0.088 in the logic alone). Measure the draw side when building.
+4. B and G only as fill-ins in the same PR as A (-0.02 / -0.01).
+
+The whole set is at most ~-0.2 walking and ~-0.3 in fights, so it does not change the ranking of section 6. It is
+general (every tick, every size, no RAM-disk space), but smaller than one frame's worth of any drawing step. The
+check for every step: tests/m4_test.py and tests/m4_game.py --every 1 against kidsim, plus the logic oracles on the
+runners.
+
+## Step 3 (the VRAM copy): measured and dropped (2026-11-08)
+
+Status: **dropped by the user; nothing built.** Candidate 9 of "Speed roadmap (2026-11-08)" section 6, the copy of the
+compose buffer into VRAM (blq_8 and the narrower widths), after part 20. The unfinished patch is kept locally, not in
+the repo.
+
+**POP / PUSH does not help on the MZ-800.** The GDG makes a VRAM write that comes within ~6.4 T of the previous one
+wait 3-6 T (mz800emu models it from the GDG's HDL; docs/research/mz800-hardware.md already said that PUSH-to-VRAM tricks
+lose). PUSH writes its two bytes 3 T apart, so the second always waits: ~18 T a byte with the POP, no better than LDI.
+The ~15.6 T a byte of "The copy and the shadow write (bounds for candidate 9)" assumed no waits.
+
+**The best found: a plane-major LDI copy in bands of 16 rows, for width 8 only** (one plane select per band and plane
+instead of per row):
+
+| room change (1 MB, one tick) | before | after |
+|---|---:|---:|
+| l01r01 (walk_level1 89) | 88.31 | 85.79 (-2.5) |
+| l04r04 (palace, simple) | 72.89 | 70.38 (-2.5) |
+| l10r01 (palace, pillars, 4 gates) | 95.84 | 93.14 (-2.7) |
+
+-2.2..-2.7 frames a room change at all three sizes, ~-0.02 a walking tick, for **~680 bytes of main**. It also showed a
+16-row strip of mixed planes for one frame during the room draw (before: one row): the band is copied plane by plane
+while the beam passes. Widths 1-7 banded as well: ~-0.02 a tick more for ~420 bytes. Neither is worth its memory and the
+visible strip, so the copy stays row-major (blq_8 and the narrow paths unchanged).
+
+## M8a part 21: kid logic trims (2026-11-08)
+
+Status: **built.** Trims A', C and E of "Kid logic: measured (2026-11-08)" (recommendation 1): three small changes to
+the logic's code with the same results, tick-exact against kidsim (and so SDLPoP) by construction and by the tests.
+
+### What changed
+
+1. **A': get_row_collision_data reads each column's tile once** (kid.asm). SDLPoP calls get_tile twice a column (for
+   the left and the right wall); the port did too, with the same inputs (K_ROOM, the column, the row: pushed and
+   popped around get_left_wall_xpos). The tile is now kept in C across get_left_wall_xpos and handed to
+   get_right_wall_xpos. ~-1,250 T a row (three rows a tick).
+2. **C: move_coll_to_prev's 60-byte clear in one loop** (kid.asm): the three rows (CURR, BELOW, ABOVE: rooms 0xff,
+   flags 0) are contiguous, so one loop of three rows, two bytes a `djnz` by `ld (hl), a; inc l` (the 60 bytes stay
+   in one 256-byte page: KV + 116..175; two `.error` guards keep the layout). 2,290 -> 1,662 T a call.
+3. **E: prandom without the division when max + 1 is a power of two** (room.asm pr_slow): the result is the seed's
+   third byte AND max (max 255: the torches, the potions' bubbles, the guard; also 0, 1, 3, ..., 127). The seed's update
+   is unchanged. ~1,636 -> ~925 T a call for those maxes; the others keep the division.
+
+Resident (main e334925 -> this):
+
+| area | before | after | |
+|---|---|---|---:|
+| main code (end_of_code) | 0x76DA, 1,318 free | 0x76C9, **1,335 free** | **-17** (A' -6, C -23, E +12) |
+| low code, block 2, low RAM, overlays, RAM disk | | unchanged | 0 |
+
+### Why it is exact
+
+- **A'.** k_get_tile is a function of its inputs (A = room, C = column, B = row) and of the level in memory (fg and the
+  links): it writes CURR_ROOM, TILE_COL, TILE_ROW, CURR_TILEPOS and CURR_TILE2 and returns CURR_TILE2 in A; links_of
+  and tile_base only read. Between the two calls only get_left_wall_xpos runs: wall_type, k_tbl, k_sext and an add
+  with COLL_TLX. It writes no memory (so neither the inputs, K_ROOM and the level, nor the five variables change) and
+  leaves BC alone, so the second call would rewrite the same five variables with the same values and return the same
+  A. The registers the old second call left behind differ only in C at the routine's end, and its one caller
+  (check_collisions) loads C before it reads it.
+- **C.** The same 60 bytes get the same values (CURR_ROOMS .. ABOVE_FLAGS + 9, contiguous by the equates); the caller
+  uses none of the registers or flags afterwards (it reloads A).
+- **E.** For every max with (max + 1) & max = 0 (mod 256), the old 16-step division (`add hl, hl; rla; cp c; sub c`,
+  c = max + 1, so 0 for 255) leaves exactly the low bits of the seed's high word. Checked exhaustively by an
+  instruction-level model of that loop over all 65,536 high words and the nine maxes 0, 1, 3, 7, 15, 31, 63, 127, 255
+  (589,824 cases: the division equals both `hw & max` and SDLPoP's `hw % (max + 1)`). The test that picks the path,
+  (max + 1) & max, is the one the table path already used. The seed's sequence is untouched (the update runs before),
+  and no caller of a power-of-two max reads the flags after the call (they all store or test A first).
+
+### The logic (tools/kidlogic.py profile; 1 MB, no waits; main e334925 + the tool / this)
+
+| stretch | logic mean (frames a tick) | frames a tick, mean (measured) | median | p90 | ticks with work > 4 |
+|---|---|---|---|---|---|
+| walk_level1 30-60 | 0.918 / **0.776** (-0.142) | 4.694 / **4.590** (-0.10) | 4.36 / 4.26 | 6.96 / 6.75 | 16 / 14 of 30 |
+| fight1 60-160 | 1.203 / **1.070** (-0.133) | 5.926 / **5.876** (-0.05) | 5.02 / 4.98 | 9.27 / 9.18 | 75 / 72 of 100 |
+| traps_b1 1-300 | 0.886 / **0.746** (-0.140) | 4.635 / **4.598** (-0.04) | 3.99 / 3.99 | 5.00 / 4.99 | 91 / 80 of 299 |
+| l03r16 walk_a 1-100 (3 choppers) | 0.865 / **0.756** (-0.109) | 8.754 / **8.663** (-0.09) | 7.97 / 7.97 | 12.99 / 12.99 | 95 / 95 of 99 |
+| l05r24 walk_a 1-100 (palace, busy) | 1.028 / **0.897** (-0.131) | 7.612 / **7.436** (-0.18) | 6.63 / 6.59 | 11.94 / 11.61 | 98 / 98 of 99 |
+| l08r23 walk_a 1-100 | 0.755 / **0.655** (-0.100) | 6.526 / **6.395** (-0.13) | 6.34 / 6.11 | 9.98 / 9.95 | 77 / 75 of 99 |
+| l10r01 walk_a 1-100 (pillars, 4 gates) | 0.988 / **0.822** (-0.166) | 8.491 / **8.359** (-0.13) | 8.87 / 8.87 | 14.67 / 14.64 | 76 / 69 of 99 |
+
+The logic gains what the model said (A' + C + E: -0.140 modelled walking with C at its measured 628 T a call, -0.142 measured). Per routine (walking):
+k_get_tile 32.4 -> 18.4 calls a tick (0.243 -> 0.138 inclusive), get_row_collision_data 0.406 -> 0.293 inclusive,
+move_coll_to_prev 2,292 -> 1,664 T, prandom 1,634 -> 978 T a call (the torches' 255 calls ~925 T). The frames a tick
+move by less where ticks sit at the 4-frame floor (walking, traps) and by about the logic's saving where the work is
+above it (l05r24, l08r23, l10r01). The fight's -0.05 is below the replay's estimate (-0.09): its time also depends on
+where the copies meet the beam.
+
+### perfcheck (one run per size; main e334925's own runs (equal to the baselines but gate 4.10); baselines lowered where beaten, in this commit)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.93 / **4.91** | 4.69 / **4.59** | 4.61 / **4.52** |
+| level door step (walkthrough 203-207) | 9.14 / **8.98** | 8.47 / **8.23** | 8.47 / **8.23** |
+| room change (walkthrough 89) | 88.31 / **88.27** | 88.31 / **88.25** | 87.48 / **87.32** |
+| walkthrough 190-260 | 6.21 / **6.12** | 6.00 / **5.90** | 5.63 / **5.56** |
+| gate (gate_push 200-260) | 4.10 / **4.08** | 4.10 / **4.08** | 4.10 / **4.08** |
+| traps (traps_b1 0-300) | 5.18 / **5.12** | 4.90 / **4.87** | 4.86 / **4.83** |
+| fight (fight1 60-160, guard on) | 6.75 / **6.64** | 5.92 / **5.87** | 5.66 / **5.62** |
+
+Every stretch gains on every size: -0.02..-0.24 frames a tick (the level door step most: its ticks sit just above the
+floor).
+
+### Same pixels, same logic
+
+tests/m4_test.py (the Z80 logic against kidsim: kid, guard, state and sound lines every tick) on all 74 scripts of
+tests/m4_scripts, m6_scripts, m5_scripts and m7_scripts: 0 differing ticks. tests/m4_game.py --every 1 (the state with
+the level checksum, and VRAM every tick) at 1 MB on 31 scripts (walk_level1, gate_push, run_rooms, traps_b1, btn_bars,
+chomper, frm_button, frm_spike_btn, fight1, fight_killpush, fight_spikes, fight_chomper, fight_follow, fight_leave,
+level2_fight, level4_mirror, level6_shadow_exit, level12_exit_level13, level13_exit, level3_checkpoint,
+feather_fall_guard, level5_shadow_potion, potion_upside_down and seven busy-room scenes of busyrooms.py `find
+--worst`: l03r16, l05r24, l08r23, l04r18, l10r01, l10r10, l02r18 walk_a): 0 state diffs, 0 differing pixels; at 512
+KB and 16 MB on walk_level1, fight1, fight_killpush, traps_b1, level6_shadow_exit, level12_exit_level13 and the l03r16,
+l05r24, l10r01 scenes: 0. tests/m3_test.py levels 1 and 4: 0 differing pixels (the wall patterns' seeds are all below
+64, so they take PR_TAB, not the generator). E's exhaustive check: 589,824 cases equal. `make ci-build`, `make
+cheats`, `make pace`. The full regression on the runners: see the PR.

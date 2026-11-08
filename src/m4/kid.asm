@@ -1691,34 +1691,31 @@ mcp_curr:       ld      hl, CURR_ROOMS
 mcp_copy:       ld      de, PREV_ROOMS  ; rooms then flags (contiguous 20 bytes in every set)
                 ld      bc, 20
                 ldir
-                ld      hl, CURR_ROOMS
-                ld      b, 10
-mcp_clr:        ld      (hl), 0xff
-                inc     hl
+                ld      hl, CURR_ROOMS  ; the three rows (rooms 0xff, flags 0), two bytes a djnz (M8a part 21)
+                ld      c, 3
+mcp_row:        ld      a, 0xff
+                ld      b, 5
+mcp_clr:        ld      (hl), a
+                inc     l
+                ld      (hl), a
+                inc     l
                 djnz    mcp_clr
-                ld      b, 10
-mcp_clr2:       ld      (hl), 0
-                inc     hl
+                xor     a
+                ld      b, 5
+mcp_clr2:       ld      (hl), a
+                inc     l
+                ld      (hl), a
+                inc     l
                 djnz    mcp_clr2
-                ld      hl, BELOW_ROOMS
-                ld      b, 10
-mcp_clr3:       ld      (hl), 0xff
-                inc     hl
-                djnz    mcp_clr3
-                ld      b, 10
-mcp_clr4:       ld      (hl), 0
-                inc     hl
-                djnz    mcp_clr4
-                ld      hl, ABOVE_ROOMS
-                ld      b, 10
-mcp_clr5:       ld      (hl), 0xff
-                inc     hl
-                djnz    mcp_clr5
-                ld      b, 10
-mcp_clr6:       ld      (hl), 0
-                inc     hl
-                djnz    mcp_clr6
+                dec     c
+                jp      nz, mcp_row
                 ret
+                if (CURR_ROOMS / 256) != ((ABOVE_ROOMS + 19) / 256)
+                .error  the collision rows must stay in one 256-byte page (inc l)
+                endif
+                if (BELOW_ROOMS != CURR_ROOMS + 20) or (ABOVE_ROOMS != CURR_ROOMS + 40)
+                .error  the three collision rows must be contiguous
+                endif
 ; get_row_collision_data: A = row, HL = rooms array, DE = flags array
 get_row_collision_data:
                 ld      (grc_row), a
@@ -1746,13 +1743,11 @@ grc_loop:       ld      a, (grc_col)
                 ld      a, (grc_row)
                 ld      b, a
                 ld      a, (K_ROOM)
-                push    bc
                 call    k_get_tile
-                call    get_left_wall_xpos
-                ld      (K_TMPW), hl
-                pop     bc
-                ld      a, (K_ROOM)
-                call    k_get_tile
+                ld      c, a            ; the tile: the right wall's input too (M8a part 21: SDLPoP's second
+                call    get_left_wall_xpos ; get_tile has the same inputs and get_left_wall_xpos changes no
+                ld      (K_TMPW), hl    ; memory and keeps BC, so the call would return this tile again)
+                ld      a, c
                 call    get_right_wall_xpos
                 ld      (K_TMPW2), hl
                 ; flags: (left_wall < cx_rcoll) * 0x0F | (right_wall > cx_lcoll) * 0xF0

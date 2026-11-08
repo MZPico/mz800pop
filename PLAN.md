@@ -1031,3 +1031,13 @@ piece used AND/XOR semantics.
    96); in play the normal tick -0.20..-0.26, the fight -0.20..-0.29, traps -0.21..-0.23 (baselines lowered).
    Resident: main -1,021 bytes (1,318 free), low RAM 0x0E00-0x0FFF (DATABUF) freed; nothing in overlays or the
    0x0500 low RAM. Pixel-exact: m3_test every room of levels 1-14, m3_anim_test, m4_game --every 1 (see the PR).
+65. M8a part 21, kid logic trims (2026-11-08, docs/perf.md "Kid logic: measured (2026-11-08)", tools/kidlogic.py, and
+   "M8a part 21: kid logic trims"; candidate 12 of the speed roadmap, recommendation 1): A' get_row_collision_data reads
+   each column's tile once (SDLPoP's second get_tile has the same inputs and get_left_wall_xpos writes no memory), C
+   move_coll_to_prev's 60-byte clear as one loop, two bytes a djnz, E prandom masks instead of dividing when max + 1 is
+   a power of two (255: the torches, potions, the guard; checked exhaustively). The logic -0.10..-0.17 frames a tick
+   (walking 0.918 -> 0.776, fight 1.203 -> 1.070); the frames a tick -0.04..-0.18 (l05r24 7.61 -> 7.44); perfcheck
+   lower on every stretch and size (1 MB normal tick 4.69 -> 4.59, level door step 8.47 -> 8.23). Main -17 bytes
+   (1,335 free). Tick-exact: m4_test all 74 scripts, m4_game --every 1 (see the PR). Also measured and dropped by the
+   user: step 3, the VRAM copy (docs/perf.md "Step 3 (the VRAM copy): measured and dropped"; PUSH waits on the GDG,
+   the banded LDI copy -2.5 frames a room change for ~680 bytes and a 16-row mixed-plane strip).
