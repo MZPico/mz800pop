@@ -1920,8 +1920,11 @@ pr_slow:        push    bc
                 ld      (SEED+2), de
                 ; (seed >> 16) % (max+1): 16-bit by 8-bit restoring division, remainder in A
                 ld      a, (pr_max)
+                ld      b, a
                 inc     a
                 ld      c, a
+                and     b
+                jp      z, pr_pow2              ; max + 1 a power of two (or 256): the low bits (M8a part 21)
                 ld      hl, (SEED+2)
                 xor     a
                 ld      b, 16
@@ -1931,10 +1934,13 @@ pr_div:         add     hl, hl
                 jp      c, pr_div2
                 sub     c
 pr_div2:        djnz    pr_div
-                pop     hl
+pr_ret:         pop     hl
                 pop     de
                 pop     bc
                 ret
+pr_pow2:        ld      a, (SEED+2)             ; (seed >> 16) & max: what the division leaves for these
+                and     b
+                jp      pr_ret
 pr_max:         db      0
 pr_ptr:         dw      0                       ; the next table draw (0: the generator)
 ; pr_start: after the wall pattern's seed is set: draw from the table when the seed has one (uses AF, BC, DE, HL;
