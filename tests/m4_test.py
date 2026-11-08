@@ -36,13 +36,31 @@ LEVEL_TYPE = RV + 20
 A = os.path.join(ROOT, 'build', 'assets')
 GAME_OVER = {1: 'EXPIRED', 2: 'END', 3: 'TITLE'}    # objects.asm GO_*
 
-def z80_state(e, tick):
-    """The kid's state as of SDLPoP's trace point (snapshot taken by kid_tick), in kidsim's trace format."""
+def level_cksum(lv, room):
+    """the kid trace's last field (kidsim room_checksum): the room's 30 tiles + 3 x their modifiers; lv = the level's
+    1440 bytes (tiles, then modifiers)"""
+    if not 1 <= room <= 24: return 0
+    b = (room - 1) * 30
+    return sum(lv[b + i] + 3 * lv[720 + b + i] for i in range(30))
+
+def z80_state(e, tick, level=None):
+    """The kid's state as of SDLPoP's trace point (snapshot taken by kid_tick), in kidsim's trace format. The room
+    checksum (the last field): m4test's own (TR_SNAP + 4, objects.asm room_checksum at the trace point); level = the
+    level's address: computed here from the level in memory now (the game, which has no room_checksum since M8a part
+    19: its harness reads at tick_done, so the reference's field must be the tick end's too: tick_end_line)."""
     k = e.mem(KV_SNAP, 16); t = e.mem(TR_SNAP, 6)
     s8 = lambda v: v - 256 if v > 127 else v
     seq = k[14] | (k[15] << 8)
+    cs = t[4] | (t[5] << 8) if level is None else level_cksum(e.mem(level, 1440), k[9])
     return '%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d' % (tick, k[0], k[1], k[2], s8(k[3]), s8(k[5]), s8(k[4]), k[6], s8(k[7]), s8(k[8]), k[9], seq, s8(k[13]),
-        t[0], t[1], t[2], t[3], t[4] | (t[5] << 8))
+        t[0], t[1], t[2], t[3], cs)
+
+def tick_end_line(sim, line):
+    """kidsim's kid line with the room checksum of the tick's end (the line's room, sim.level after the step): what
+    z80_state(level=...) reads at the game's tick_done"""
+    v = line.split()
+    v[-1] = str(level_cksum(bytes(sim.level.fg) + bytes(sim.level.bg), int(v[10])))
+    return ' '.join(v)
 
 def guard_opts_bytes(o):
     """guard.asm guard_opts: flags (bit 0 guards off, bit 1 sword), count, (room, tile, dir, skill, colour) each"""

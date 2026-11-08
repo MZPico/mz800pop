@@ -186,9 +186,9 @@ $(BUILD)/assets/fstore_equ.inc $(BUILD)/assets/fstore_masks.bin $(BUILD)/assets/
 # with the .bin), packed into build/m4ovl.bin for the RAM disk (tests/m4_game.py setup writes it)
 $(BUILD)/ovl_%.inc: src/m4/ovl_%.asm $(BUILD)/m4game.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym $< src/m1 $@
-$(BUILD)/ovl_room.bin: src/m4/ovl_room.asm src/m3/roomfull.asm $(BUILD)/ovl_room.inc
+$(BUILD)/ovl_room.bin: src/m4/ovl_room.asm src/m4/sprforget.inc src/m3/roomfull.asm $(BUILD)/ovl_room.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_room.asm ../../$(BUILD)/ovl_room.bin ../../$(BUILD)/ovl_room.sym
-$(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fsvars.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc $(BUILD)/ovl_level.inc
+$(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m4/sprforget.inc src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fsvars.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc $(BUILD)/ovl_level.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_level.asm ../../$(BUILD)/ovl_level.bin ../../$(BUILD)/ovl_level.sym
 $(BUILD)/ovl_fill.bin: src/m4/ovl_fill.asm src/m4/fstore.asm src/m4/fsgen.asm src/m4/fsvars.inc src/boot/launch.inc $(BUILD)/assets/fstore_equ.inc $(BUILD)/ovl_fill.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_fill.asm ../../$(BUILD)/ovl_fill.bin ../../$(BUILD)/ovl_fill.sym

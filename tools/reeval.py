@@ -94,14 +94,15 @@ def lay(sp, tick):
         e.call('bp_add', addr=S['tick_done'])
         for t in range(tick): e.run(400)
         e.call('bp_clear')
-        start = e.trace_add(S['draw_room_full']); end = e.trace_add(S['room_drawn'])
+        stop = S['room_drawn'] if 'room_drawn' in S else R['rf_forget']    # (the draw's end; M8a part 19: the room
+        start = e.trace_add(S['draw_room_full']); end = e.trace_add(stop)  # overlay's rf_game calls rf_forget after it)
         for a in addr: e.trace_add(a)
         recs = []; done = [False]
-        for r in e.collect(50, stop=lambda r: r['addr'] == S['room_drawn']):
+        for r in e.collect(50, stop=lambda r: r['addr'] == stop):
             recs.append(r)
         e.trace_clear()
     i0 = next(i for i, r in enumerate(recs) if r['addr'] == S['draw_room_full'])
-    i1 = next(i for i, r in enumerate(recs) if r['addr'] == S['room_drawn'])
+    i1 = next(i for i, r in enumerate(recs) if r['addr'] == stop)
     recs = recs[i0:i1 + 1]
     cyc = {}; hits = {}
     for a, b in zip(recs, recs[1:]):

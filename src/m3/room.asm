@@ -45,9 +45,14 @@ TILE_LEFT       equ     RV + 18
 MOD_LEFT        equ     RV + 19
 LEVEL_TYPE      equ     RV + 20         ; 0 dungeon, 1 palace
 PTR_TABLE       equ     RV + 21         ; 0 back, 1 mid (ptr_add_table)
-PR_TAB          equ     0x0500          ; wall pattern draws mod 140: PR_SEEDS seeds x PR_DRAWS (runtime, built once)
+PR_PAGE         equ     6               ; wall pattern draws mod 140, PR_SEEDS seeds x PR_DRAWS: in the RAM disk, page 6
+PR_TAB          equ     0x1440          ; 0x1440-0x16BF (runtime, built once; M8a part 19: low RAM 0x0500 before)
+PR_BUF          equ     0x012c          ; the seed's PR_DRAWS draws, read from PR_TAB by pr_start (low RAM)
 PR_SEEDS        equ     64
 PR_DRAWS        equ     10
+                if (PR_BUF / 256) - ((PR_BUF + PR_DRAWS - 1) / 256)
+                .error PR_BUF must not cross a 256-byte page (pr_start)
+                endif
 RR_PTRS         equ     0x0200          ; the scan's records in the rect, in lay order (RC_MAX words, page-aligned)
 RC_MAX          equ     64
 OPCOUNT         equ     RV + 22         ; 3 bytes: back, mid, fore counts (OPCOUNT+tbl)
@@ -1807,8 +1812,8 @@ dld2:           ld      a, 1
 ; prandom: A = max -> A = random in 0..max
 MUL_K           equ     RV + 100        ; 32-bit constant copy
 ; The wall pattern seeds the generator with row*10 + col + room and draws at most 10 numbers, all reduced mod
-; 2, 4, 5 or 7 (divisors of 140): for seeds below 64 they come from a table of the draws mod 140 (PR_TAB,
-; built once by the generator itself); other seeds use the generator.
+; 2, 4, 5 or 7 (divisors of 140): for seeds below 64 they come from a table of the draws mod 140 (PR_TAB in the RAM
+; disk, built once by the generator itself; pr_start reads the seed's row into PR_BUF); other seeds use the generator.
 prandom:        push    hl
                 ld      hl, (pr_ptr)            ; 0: the generator
                 inc     h
@@ -1932,7 +1937,8 @@ pr_div2:        djnz    pr_div
                 ret
 pr_max:         db      0
 pr_ptr:         dw      0                       ; the next table draw (0: the generator)
-; pr_start: after the wall pattern's seed is set: draw from the table when the seed has one
+; pr_start: after the wall pattern's seed is set: draw from the table when the seed has one (uses AF, BC, DE, HL;
+; the RAM disk is left positioned after the row)
                 if not defined GAME_OVL          ; (the game builds PR_TAB at its start: src/m4/gstart.asm)
 pr_ok:          db      0                       ; PR_TAB built
                 endif
@@ -1955,6 +1961,13 @@ pr_start:
                 add     hl, de                  ; seed * 10
                 ld      de, PR_TAB
                 add     hl, de
+                ex      de, hl
+                ld      a, PR_PAGE              ; the seed's row from the RAM disk (M8a part 19)
+                call    far_seek
+                ld      hl, PR_BUF
+                ld      bc, PR_DRAWS * 256 + RD_DATA
+                inir
+                ld      l, PR_BUF % 256         ; (PR_BUF's row stays in one 256-byte page)
 prs_x:          ld      (pr_ptr), hl
                 ret
 ; pr_build: src/m3/prbuild.asm (the game: the level-start overlay)

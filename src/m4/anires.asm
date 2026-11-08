@@ -62,10 +62,8 @@ bi_n:           ld      de, 6
                 djnz    bi_l
                 pop     ix
                 jp      dirty_from_dr
-; room_drawn: game.asm after a room draw: every cached button picture goes; then the torch registry (tcache.asm)
-room_drawn:     xor     a
-                ld      (bc_v), a
-                jp      frm_reset               ; (spike.asm: the pre-drawn pictures; then flames_rebuild)
+; room_drawn (after a room draw: every cached button picture goes, then frm_reset): the room overlay's rf_game
+; (src/m4/ovl_room.asm, M8a part 19)
 ; bc_drop: C = a slot's bit: its pictures are no longer valid
 bc_drop:        ld      a, c
                 cpl

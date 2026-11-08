@@ -216,9 +216,7 @@ gmt_draw:       xor     a
                 cp      (hl)
                 jr      z, gmt3
                 ld      (hl), a
-                call    draw_room_full
-                call    room_drawn      ; (anires.asm: the cached button pictures go, then flames_rebuild)
-                call    sprite_forget
+                call    draw_room_full  ; (the room overlay's rf_game: then sprite_forget, room_drawn's work)
                 jr      gmt4
 gmt3:           ld      a, 1            ; the tiles that changed this tick: into the shadow room only; their rects
                 ld      (RR_SHONLY), a  ; go on the dirty list and draw_objects puts them on screen with the
@@ -410,12 +408,6 @@ edge_bits:      db      0               ; key_scan: the key (key_tab's code) dow
 ; state_snap, snd_snap: the harness's 'S' and 'N' trace points (m4test takes snapshots there; the game has nothing to do)
 state_snap:
 snd_snap:       ret
-; trace_cksum: the kid's room checksum for the harness trace, only under script control
-trace_cksum:    ld      hl, (SCRIPT_PTR)
-                ld      a, h
-                or      l
-                ret     z
-                jp      room_checksum
 
 ; beam_lines: HL = lines since the last VBLN interrupt (the 8253 counter 1 counts HSYNCs down)
 beam_lines:     di

@@ -16,7 +16,7 @@ import base64, os, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
 from m3_test import syms, load_assets, LEVEL_ADDR, RV, rebase_dir, write_pack
-from m4_test import z80_state, KV, KV_SNAP, TR_SNAP, norm, guard_opts_bytes, ev_opts_bytes, encode
+from m4_test import z80_state, tick_end_line, KV, KV_SNAP, TR_SNAP, norm, guard_opts_bytes, ev_opts_bytes, encode
 from emu import Emu, Hits, PALETTE, image_planes, planes_crc
 from popdata import Level, RoomRenderer, B_TRANSP, B_NOTRANSP, B_OR, B_BLACK, B_MONO, MZ, EGA2MZ, T
 import build_assets as BA
@@ -623,7 +623,7 @@ def run_script(e, sp, args, every, kp, kidset, fast):
     for (rm, p, t, m) in patches:                  # patches go in where SDLPoP's hook applies them: at the first
         e.call('mem_write', addr=LEVEL_ADDR + (rm - 1) * 30 + p, data_hex='%02x' % t)      # tick's control step
         e.call('mem_write', addr=LEVEL_ADDR + 720 + (rm - 1) * 30 + p, data_hex='%02x' % m)
-    ranges = [(KV_SNAP, 16), (TR_SNAP, 6), (S['FL_SHOWN'], 1), (S['level_number'], 1)]
+    ranges = [(KV_SNAP, 16), (TR_SNAP, 6), (S['FL_SHOWN'], 1), (S['level_number'], 1), (LEVEL_ADDR, 1440)]
     hits = Hits(e, S['tick_done'], ranges, 400, vram_hash=True, fast=fast)
     frames_out = []; bad_state = 0; bad_px = 0; first = None; t0 = time.time(); stop = None
     for t, ((x, y, sh), k) in enumerate(zip(moves, keys)):
@@ -632,7 +632,8 @@ def run_script(e, sp, args, every, kp, kidset, fast):
         if ref is None or sim.game_over:        # (M5 scenes: a restart tick has no state; game over: the end)
             if sim.game_over: break
             continue
-        got = z80_state(m, int(ref.split()[0]))
+        ref = tick_end_line(sim, ref)           # (the room checksum: the game's level at tick_done, M8a part 19)
+        got = z80_state(m, int(ref.split()[0]), LEVEL_ADDR)
         fl = m.mem(S['FL_SHOWN'], 1)[0]         # the flash the tick showed (flash_if_hurt), MZ colour
         want = EGA2MZ[sim.flash_shown & 15] if sim.flash_shown else 0
         if fl != want:

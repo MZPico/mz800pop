@@ -1315,6 +1315,7 @@ cgi_no:         xor     a
 
 ; anim_tile_modif (room entry): src/m4/genter.asm (the guard-enter overlay)
 ; (check_the_end: guard.asm)
+                if not defined GAME_OVL         ; (m4test's trace; the game's harness computes it: M8a part 19)
 ; room_checksum: HL = sum of the kid room's tiles + 3 x modifiers (the trace's last field)
 room_checksum:  ld      a, (K_ROOM)
                 or      a
@@ -1354,3 +1355,4 @@ rcs2:           ld      a, (de)
                 ret
 rcs0:           ld      hl, 0
                 ret
+                endif

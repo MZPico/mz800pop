@@ -241,7 +241,7 @@ ll_g1:          push    af
                 ld      (GHP_SHOWN), a          ; (the guard's strip: drawn again, empty)
                 xor     a
                 ld      (GHP_M), a
-                jp      sprite_forget
+                include "../m4/sprforget.inc"         ; (sprite_forget; M8a part 19: no longer resident)
 
 ; per level: the guard set (0 guard, 1 fat, 2 skeleton, 3 vizier, 4 shadow; 5 = the palace guard, chosen by level
 ; type) as SDLPoP's tbl_guard_type (-1 = none: 0)

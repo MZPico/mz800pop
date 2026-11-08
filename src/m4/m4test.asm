@@ -175,7 +175,6 @@ SS_N            equ     ($ - ss_tab) / 2
                 include "../m4/buttons.asm"
                 include "../m4/kid2.asm"
                 include "../m4/sndobj.asm"
-trace_cksum:    jp      room_checksum
 ; the PSG player (src/m4/psg.asm) is the game's: here no audio (the player never plays). The sound mode SND_MODE
 ; (psg.asm's address): 0 silent, 2 ticks ('# sound ticks' scripts: tests/m4_test.py pokes it before the start)
 SND_MODE        equ     0x03c8 + 8

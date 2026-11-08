@@ -2613,7 +2613,8 @@ regression on the runners: see the PR.
 
 ## Speed roadmap (2026-11-08)
 
-Status: **measured; candidates 1 and 2 (L1, M1 + M2) since built** (see "M8a part 18: loose floors"). After the playtest remark "falling floors look quite slow": the loose floors, the
+Status: **measured; candidates 1 and 2 (L1, M1 + M2) since built** (see "M8a part 18: loose floors"); **section 7's
+reclaims PR_TAB, room_checksum, sprite_forget and room_drawn since built** (see "M8a part 19: reclaim"). After the playtest remark "falling floors look quite slow": the loose floors, the
 room change, fights and walking measured by stage on main f004916 (M8a part 17), 1 MB unless noted, no waits; then one
 ranked list of what is left, with the busy-room steps of "Option E: measured" in it.
 
@@ -3134,3 +3135,104 @@ a tick of pf_blit1.
 | W2 overlays | level 1,823, text 3,075, save 3,399 |
 | the fill overlay (WF) | 83 |
 | RAM disk page 7's overlay area | 743 |
+
+## M8a part 19: reclaim (2026-11-08)
+
+Status: **built.** Step 0 of the speed roadmap's order: resident memory for the next steps (faster piece laying in the
+room draw, the POP / PUSH copy into VRAM), from section 7 of "Speed roadmap (2026-11-08)". No visible change: the
+pixels and the logic are exact by construction and by the tests.
+
+### What changed
+
+1. **PR_TAB to the RAM disk** (room.asm, prbuild.asm). The wall pattern's draws mod 140 (64 seeds x 10, the table the
+   generator builds once) moved from low RAM 0x0500-0x077F to RAM-disk page 6 0x1440-0x16BF (the torch cache's part
+   freed by M8a part 17; the same place on 512 KB, 1 MB and 16 MB: the frame store and the 16 MB slots are in pages 8
+   and up). pr_build writes it in order through the data port (pr_slow does not touch the RAM disk); pr_start seeks the
+   seed's row and reads its 10 bytes by INIR into PR_BUF (low RAM 0x012C, free since part 17), from which prandom takes
+   them as before. The game builds it at every start of the program (gstart.asm game_start: every boot and every swap
+   back from PRES, whose sound bank overwrites page 6 0x0000-0x287F; the launcher zeroes low RAM then too); the test
+   programs (m3test, m3demo, m4test) at their first wall pattern, as before.
+2. **The kid trace's room checksum out of the game** (objects.asm room_checksum 53 bytes, its call and store in kid.asm
+   6, game.asm trace_cksum 9). It is assembled into m4test only (`if not defined GAME_OVL`), which keeps its own
+   checksum at the trace point (tests/m4_test.py against kidsim, unchanged). The game's harness computes it from the
+   level in memory at tick_done (tests/m4_test.py level_cksum, z80_state(level=...)): tests/m4_game.py captures the
+   level (1,440 bytes) in its tracepoint and compares it with kidsim's level after the step (tick_end_line), tests/m8_pace.py
+   reads it at tick_done in both runs. The value at tick_done is not always the trace point's: the guard's frame
+   (check_press, spikes), exit_room and a level load come after it; over the 74 scripts of tests/m*_scripts kidsim's two
+   values differ on 22 of 20,377 ticks (fight_killpush 10, fight_spikes 2, the shadow and exit scenes, Shift+L),
+   so both sides take the tick's end.
+3. **sprite_forget and room_drawn into the room overlay** (section 7's cheap overlay moves). The room overlay's entry
+   0 is now rf_game: draw_room_full, then sprite_forget's body (src/m4/sprforget.inc), the button cache's bc_v = 0 and
+   a jump to frm_reset (which ends in flames_rebuild); game.asm's two calls after draw_room_full and anires.asm's
+   room_drawn are gone. sprite_forget now runs before frm_reset, not after it: nothing in frm_reset, flames_rebuild,
+   flames_build or op_patch reads what it clears (the characters' old rects, OMOBR_N, ST_OK). The level-start overlay
+   has its own copy (its jp sprite_forget). tc_flush stays resident: tc_try calls it in play.
+4. tools/roadmap.py stages: the wall pattern rows (pr_start) as a stage; the room draw counted once (the overlay now
+   calls its draw_room_full); "after the draw" is measured by tracepoints from the draw's return (room_drawn, since
+   rf_forget) to game.asm gmt4, the same interval in both revisions (the button cache's reset, frm_reset with
+   flames_rebuild, sprite_forget): walk_level1 tick 89 at 1 MB 0.40 before, 0.41 after. tools/reeval.py lay (#37)
+   ends at rf_forget where room_drawn is gone.
+
+Resident (main 5c0596e -> this):
+
+| area | before | after | freed |
+|---|---|---|---:|
+| main code (end_of_code) | 0x7B11, 239 free | 0x7AD7, 297 free | **58** (checksum 68, the two calls 6; pr_start +16) |
+| low RAM data 0x0000-0x0FFF | PR_TAB 0x0500-0x077F | 0x0500-0x077F free; PR_BUF 10 bytes at 0x012C | **640** contiguous (630 net) |
+| low code block (end_of_low) | 0x1FE7, 25 free | 0x1FCF, 49 free | **24** (sprite_forget) |
+| block 2 (block2_end) | 0xEBED, 19 free | 0xEBE6, 26 free | **7** (room_drawn) |
+| room overlay (W1) | 938 B, 86 free | 975 B, 49 free | -37 |
+| level-start overlay (W2) | 2,273 B, 287 below WF | 2,299 B, 261 below WF | -26 |
+| page 7's overlay area | 743 free (the cheat build ~329) | 680 free (the cheat build 266) | -63 |
+| RAM disk page 6 | 0x1440-0x287F free | PR_TAB 0x1440-0x16BF; 0x16C0-0x287F free | -640 |
+
+What the freed low RAM can hold: docs/memory.md "The free low RAM 0x0500-0x077F" (code too, also code that runs
+with VRAM mapped, but copied in by game_start at every start: the launcher zeroes 0x0000-0x11FF and no loader can put
+it there).
+
+### Cost (tools/roadmap.py stages walk_level1 89, the perfcheck room change: 42 wall patterns with a table row)
+
+pr_start: 0.09 -> 0.27 frames, +0.18 (+305 T a wall pattern: the seek 65, INIR 205, the rest 35; 42 more seeks and
+pages, 420 more data reads; the room overlay's load +37 bytes, +0.01). The kid's tick -0.08 in the harness runs only
+(trace_cksum ran room_checksum under script control; the release returned at once). The work of a room change: +0.11.
+
+| tick 89 (frames) | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| the tick | 106.06 / 106.17 | 106.07 / 106.58 | 105.57 / 105.56 |
+| op-list build (room_ops, with pr_start) | 11.79 / 11.97 | 11.79 / 11.97 | 11.79 / 11.97 |
+| kid logic (kid_tick) | 1.59 / 1.51 | 1.59 / 1.51 | 1.59 / 1.51 |
+| object pass (draw_objects) | 5.35 / 5.35 | 5.36 / 5.75 | 4.86 / 4.73 |
+
+The rest is the beam: the object pass's last copy waits for it (1 MB +0.39, 16 MB -0.13), as in part 18's 16 MB room
+change.
+
+### perfcheck (one run per size; main = 5c0596e, the part 18 runs (512 KB and 1 MB measured again here, within 0.02);
+lowered where beaten, in this commit)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.27 / **5.22** | 4.89 / 4.89 | 4.81 / 4.81 |
+| level door step (walkthrough 203-207) | 9.23 / 9.23 | 8.51 / 8.51 | 8.51 / 8.51 |
+| room change (walkthrough 89) | 106.06 / 106.17 | 106.07 / 106.58 | 105.57 / 105.57 |
+| walkthrough 190-260 | 6.35 / **6.27** | 6.11 / **6.08** | 5.78 / **5.71** |
+| gate (gate_push 200-260) | 4.09 / 4.09 | 4.09 / 4.09 | 4.09 / 4.09 |
+| traps (traps_b1 0-300) | 5.46 / **5.41** | 5.15 / **5.11** | 5.10 / **5.07** |
+| fight (fight1 60-160, guard on) | 7.09 / **7.00** | 6.30 / **6.21** | 5.94 / **5.86** |
+
+The faster stretches are the harness's trace_cksum gone (room_checksum ran every tick under script control: ~0.08 a
+tick of work; the release never paid it), so the baselines follow the measurement, not a gain for the player. The room
+change is the cost above plus the beam (1 MB +0.51 of which +0.39 is the object pass's wait). The 16 MB column is the
+build before change 3 (the overlay moves: +37 bytes of room overlay load, +0.01 a room change); a 16 MB perfcheck run
+of the final build hung in the emulator when run beside the others (as one of main's did) and was not repeated.
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state, with the checksum from the level, and VRAM every tick) at 512 KB, 1 MB and 16 MB on
+20 scripts a size (walk_level1, run_rooms, traps_b1, gate_push, frm_button, frm_spike_btn, btn_bars, chomper, fight1,
+fight_killpush, fight_spikes, fight_chomper, level4_mirror, level6_shadow_exit, level12_exit_level13, level13_exit,
+level3_checkpoint, feather_fall_guard, level5_shadow_potion, potion_upside_down): 0 state diffs, 0 differing pixels.
+tests/m3_test.py levels 1 and 4 (every room, the wall patterns): 0 differing pixels. tests/m4_test.py on walk_level1,
+fight_killpush, fight_spikes, level12_exit_level13, level3_checkpoint: 0 differing. tests/m7_launch.py (the PRES swaps:
+PR_TAB rebuilt after PRES's sound bank) and tests/m8_pace.py: ok. `make ci-build`, `make cheats`. tests/m5_boot.py
+needs a newer emulator than the local trace build (its 16 MB probe: "lists 52 RAM-disk pages of 256"): on the runners.
+The full regression on the runners: see the PR.

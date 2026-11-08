@@ -7,8 +7,9 @@
                               (inclusive frames): the op-list build (room_ops with slices_build), the cell buckets
                               (bkt_build), the 15 cells (run_rect: the black fill, laying the pieces (rec_lay, of it
                               lay_piece16 and the masked cmx_* rows), the shadow write, the copy to VRAM (blq_*
-                              inside the cells), the scan), the overlay loads, the hooks after the draw (room_drawn:
-                              flames_build, the caches), the kid's logic, the object pass; and the tick's RAM-disk
+                              inside the cells), the scan), the wall pattern table rows (pr_start), the overlay loads,
+                              the hooks after the draw (flames_build; and by tracepoints the whole interval from the
+                              draw's return to gmt4: the caches, frm_reset, sprite_forget), the kid's logic, the object pass; and the tick's RAM-disk
                               accesses (data-port reads / writes, seeks) counted by I/O breakpoints
   range SCRIPT T0 T1          ticks T0..T1-1 of a script (perfcheck's stretches: walk_level1 30 60, fight1 60 160): the
                               frames a tick (tick_done to tick_done, paced) and the work (ml_go to tick_done) as
@@ -76,10 +77,10 @@ STAGES = [
     ('      masked rows cmx_1/2/4', ('cmx_1', 'cmx_2', 'cmx_4')),
     ('      seeks (far_seek_entry, RD_LV_ADDR)', ('far_seek_entry', 'RD_LV_ADDR')),
     ('      wall patterns (wp_*)', ('wp_botdiv', 'wp_middiv')),
+    ('  wall pattern table rows (pr_start)', 'pr_start'),
     ('    shadow write', 'shadow_write'),
     ('    copy to VRAM (blq_*)', ('blq_1', 'blq_2', 'blq_3', 'blq_4', 'blq_5', 'blq_6', 'blq_7', 'blq_8')),
     ('overlay loads (ovl_w1)', 'ovl_w1'),
-    ('after the draw (room_drawn)', 'room_drawn'),
     ('  flames_build', 'flames_build'),
     ('kid logic (kid_tick)', 'kid_tick'),
     ('object pass (draw_objects)', 'draw_objects'),
@@ -91,8 +92,10 @@ def stages(sp, tick):
         if 0x7C00 <= v < 0x8000: names.setdefault('%04X' % v, k)
     fr, rows = TC.emu_profile(sp, [tick], 0)[tick]
     inc = {}; calls = {}
-    for i, e, c, n in rows:
-        n = names.get(n, n); inc[n] = inc.get(n, 0) + i; calls[n] = calls.get(n, 0) + c
+    for i, e, c, n in rows:     # (M8a part 19: the room overlay's entry calls its draw_room_full: the stub is apart)
+        n = names[n] if n in names else 'draw_room_full stub' if n == 'draw_room_full' else n
+        inc[n] = inc.get(n, 0) + i; calls[n] = calls.get(n, 0) + c
+    if 'draw_room_full' not in inc: inc['draw_room_full'] = inc.get('draw_room_full stub', 0)     # (before: one jp)
     print('%s tick %d: %.2f frames (lay_piece16 %d calls, rec_lay %d, cmx rows %d)' % (os.path.basename(sp), tick, fr,
           calls.get('lay_piece16', 0), calls.get('rec_lay', 0), sum(calls.get(x, 0) for x in ('cmx_1', 'cmx_2', 'cmx_4'))))
     for lab, s in STAGES:
@@ -100,7 +103,30 @@ def stages(sp, tick):
         print('  %-44s %7.2f' % (lab, v))
     # blq inside the cells: the object pass's copies use them too
     print('  (pf_blit1, the object pass copies: %.2f)' % inc.get('pf_blit1', 0))
+    after_draw(sp, tick)
     io(sp, tick)
+
+def after_draw(sp, tick):
+    """the work after the room draw, to game.asm gmt4 (draw_objects next), by tracepoints: the same interval in every
+    revision (the button cache's reset, frm_reset with flames_rebuild, sprite_forget). It starts where the draw returns:
+    room_drawn (game.asm called it, then sprite_forget, until M8a part 19) or the room overlay's rf_forget (rf_game
+    calls it after draw_room_full, then ends in a jump to frm_reset)"""
+    with Emu() as e:
+        S, n = TC.emu_setup(e, sp)
+        R = syms(os.path.join(ROOT, 'build', 'ovl_room.sym'))
+        start = S['room_drawn'] if 'room_drawn' in S else R['rf_forget']
+        e.call('bp_add', addr=S['tick_done'])
+        for t in range(tick): e.run(400)
+        e.call('bp_clear')
+        e.trace_add(start); e.trace_add(S['gmt4'])
+        recs = []
+        for r in e.collect(50, stop=lambda r: r['addr'] == S['gmt4'] and any(q['addr'] == start for q in recs)):
+            recs.append(r)
+        e.trace_clear()
+    i0 = next(i for i, r in enumerate(recs) if r['addr'] == start)
+    i1 = next(i for i, r in enumerate(recs) if i > i0 and r['addr'] == S['gmt4'])
+    print('  %-44s %7.2f' % ('after the draw (to gmt4: frm_reset, sprite_forget)',
+                             ((recs[i1]['cycles'] - recs[i0]['cycles']) & 0xFFFFFFFF) / TC.FRAME))
 
 def io(sp, tick):
     moves, patches = kidsim.read_script(sp)
