@@ -2611,6 +2611,228 @@ potion_upside_down (the flip: composed as before), 28 scripts a size: 0 state di
 tests/m4_test.py: 0 differing. tools/movecheck.py caches: 0 differ. `make ci-build`, `make cheats`. The full
 regression on the runners: see the PR.
 
+## Speed roadmap (2026-11-08)
+
+Status: **measured; candidates 1 and 2 (L1, M1 + M2) since built** (see "M8a part 18: loose floors"). After the playtest remark "falling floors look quite slow": the loose floors, the
+room change, fights and walking measured by stage on main f004916 (M8a part 17), 1 MB unless noted, no waits; then one
+ranked list of what is left, with the busy-room steps of "Option E: measured" in it.
+
+**Tools** (committed): tools/loosescenes.py `find OUTDIR` (kidsim only, ~2 minutes for levels 1-14: per kind the best
+scene, `<kind>_a` as in the level and `<kind>_b` with the screen's loose floors patched to floor; kinds `shake`, `fall`
+(the kid sets a floor off and stops), `fallrun`, `multi` (two or more floors falling), `ride` (the kid stands on a floor
+and falls with it into the room below)), `label SCRIPT` (every tick's phase) and `measure OUTDIR [--csv]` (frames,
+work, a - b per phase). tools/roadmap.py `enter OUTDIR LV:ROOM ...` (a script that runs into a room), `stages SCRIPT
+TICK` (a room change by stage, with the tick's RAM-disk accesses) and `range SCRIPT T0 T1` (a stretch by stage). The
+phase of a tick: R (a room draw) > land (a floor landed: its tile became rubble) > rel (a floor came loose) > mob2+ /
+mob1 (falling floors drawn: sprite.asm mobs_visible's rule) > sh / sh- (a loose floor's loose_frame / only its
+modifier changed). Scenes measured: the best of levels 1-14 (levels 13, 10, 11) and the best of level 1 alone (rooms
+7, 8, 12): 10 scenes, ~1,050 ticks. The scenes are not committed (`find` regenerates them).
+
+### 1. Falling floors
+
+**Per phase** (frames a tick, median / p90 / worst over the 10 scenes; a - b = the work above the same tick with the
+floors patched away, on the ticks where the kid is in the same state in both; 512 KB: the level-1 scenes, within 0.3 of
+1 MB, the frame store plays no part):
+
+| phase | kid | ticks | frames | a - b median / mean | 512 KB (level 1) |
+|---|---|---:|---|---|---|
+| shake, the picture changes (sh) | moving | 138 | 8.32 / 14.66 / 33.95 | 4.24 / 6.51 | 9.21 / 12.97 |
+| | still | 25 | 4.76 / 7.12 / 7.54 | 1.47 (1 tick) | |
+| release (rel: the tile becomes empty, the floor starts falling) | moving | 27 | 13.96 / 19.89 / 23.17 | 10.42 / 10.08 | 14.97 / 18.50 |
+| | still | 8 | 7.84 / 16.48 / 18.64 | | |
+| one floor falling (mob1) | moving | 98 | 8.05 / 12.92 / 17.65 | 3.56 / 4.61 | 8.07 / 12.63 |
+| | still | 9 | 5.82 / 7.16 / 8.79 | (b diverges) | |
+| two to five falling (mob2+) | moving | 35 | 12.05 / 17.36 / 19.63 | 7.02 / 6.82 | |
+| | still | 24 | 10.37 / 14.93 / 15.54 | | |
+| landing (land: rubble; the knock shakes the row) | moving | 21 | 15.47 / 21.54 / 28.50 | 9.55 / 9.03 | 15.86 / 21.14 |
+| | still | 6 | 15.14 / 21.71 / 21.71 | | |
+| the kid falls with a floor into the room below (R) | | 7 | 97.9 / 105.1 / 106.1 | +1.67 (the floor in the room draw) | |
+| nothing (none) | moving | 305 | 4.05 / 4.99 / 9.55 | 0.00 / 0.09 | 4.57 / 5.53 |
+
+A floor that is stepped on shakes for 10 ticks (its modifier counts 1..10, loose_frame = the modifier), comes loose at
+11 and falls ~4-8 ticks (speed +3 a tick, up to 29 rows) before it lands: ~20 ticks at 8-14 frames instead of 4-5,
+i.e. the game runs at ~4-6 ticks a second while a floor goes, and at 10-15 frames a tick with several floors (level
+13). **The perfcheck normal tick holds it too**: walk_level1 30-60 has a landing knock at tick 54 that shakes a floor
+for 4 ticks (ticks 55-58: 8.5-9.0 frames; the rest of the stretch 3.3-6.7): those 4 ticks are 0.6 of its 5.12 frames
+a tick.
+
+**Where a step goes** (tools/optione.py diff, ride_a against ride_b of level 1 room 8, inclusive frames, a - b; the
+call profiler loses draw_objects' return on these ticks, so the routines are listed, not the stage totals):
+
+| | shake, picture change (tick 74: 8.27 / 4.65) | release (82: 11.20 / 4.30) | one floor falling (84: 7.97 / 4.30) | landing (95: 9.65 / 4.09) | five floors falling, kid still (level 13 fall_a 24: 10.21, absolute) |
+|---|---|---|---|---|---|
+| tile_redraw: regenerations | 1.19 (3 tiles) | 1.51 (3) | - | 1.71 (3) | - |
+| tile_redraw: run_rect (of it the room cache's replay rc_hook) + shadow write | 1.73 (1.35) + 0.25 | 1.49 (1.14) + 0.23 | - | 2.16 (1.80) + 0.21 | - |
+| lay_mob (the floor's pieces 70 / 74 / 72 from the RAM disk) | - | 2.11 (5 calls) | **1.67 (5 calls)** | - | **3.90 (10 calls)** |
+| the chunks' restore / people / fore | +0.00 / +0.42 / +0.18 | +0.23 / +0.26 / +0.11 | +0.45 / +0.26 / +0.16 | +0.24 / +0.67 / +0.64 | 1.12 / 0.77 / 0.44 |
+| the torch cache lost (flames_lay +, tc_try -) | +0.38 / -0.17 | +0.40 / -0.20 | +0.39 / -0.20 | 0 | (no torch) |
+| copy (pf_blit1) / beam wait (pf_seq) | +0.44 / -0.26 | +0.64 / +0.07 | +0.63 / +0.18 | +0.39 / -0.13 | 0.96 / 0.09 |
+
+**Work that repeats for nothing:**
+1. **lay_mob runs for every falling floor in every chunk of the tick**, whether the floor touches the chunk or not
+   (sprite.asm obj_chunk oc_mob has no overlap test; lay_piece16 clips the pieces away only after the directory lookup
+   and its setup): ~0.33-0.39 frames a floor and chunk. One floor in a 3-chunk tick: 5 calls where 1-2 draw; five
+   floors in 2 chunks: 10 calls, 3.9 frames.
+2. **Any falling floor on screen switches the torch cache off for the whole tick** (tcache.asm tc_try tests `MOBR_N`,
+   not the chunk): every torch chunk is composed again, ~+0.2 a torch a tick.
+3. **A shake redraws although the picture did not change.** A loose floor has three pictures (popdata
+   LOOSE_FRAM_LEFT / BOTTOM / RIGHT: frames 0, 2, 5-7 = 41 / 43 / 42; 1 = 69 / 73 / 71; 3, 4, 8-10 = 70 / 74 / 72), but
+   view.asm vrd_one sends every modifier change of a loose floor to tile_redraw. Of the 10 countdown ticks of a
+   stepped-on floor the picture changes on 5 (frames 1, 2, 3, 5, 8); the other 5 cost a full tile_redraw (~3.5
+   frames) for nothing. (A knock shake, 0x81..0x84, changes the picture every tick.)
+4. **A shake regenerates three tiles**: the floor's own (draw_loose, the base piece), its right neighbour's
+   (draw_tile_anim_right: piece 42 / 71 / 72) and the tile above-right, which draws nothing from a loose floor
+   (draw_tile_topright reads only the tile type): ~0.4 frames a visible step, as the spikes' fix 2 found.
+5. Every chunk of a floor looks up and reads its three pieces again (directory entry, seek, lay_piece16's setup): the
+   same three pieces in every tick of every floor.
+6. The release and the landing are a full tile_redraw each (3 regenerations, run_rect with 5-8 pieces): +5.5..+7
+   frames, twice a floor; the landing's knock also shakes every loose floor of its row (level 13: up to 8 at once, a
+   33-frame tick).
+
+The kid's own drawing does not change with the floors (people_place equal in a and b). A floor in the room below or
+above is drawn by the same path near the screen's edge (mobs_visible); crossing the boundary costs nothing extra
+besides the room change when the kid falls with it.
+
+### 2. The room change (tools/roadmap.py stages; one tick, inclusive frames)
+
+| room | tick | op lists (room_ops) + buckets | fill | laying (rec_lay) | of it masked rows | shadow write | copy to VRAM | kid, objects, hooks | RAM disk reads / writes / seeks |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---|
+| l01r01 (walkthrough 89, dungeon, 2 floors falling) | 106.05 | 11.79 + 2.44 | 2.75 | 57.63 | 17.28 | 11.67 | 11.36 | 7.4 | 53,500 / 30,720 / 5,254 |
+| l01r02 (dungeon, simple) | 103.12 | 11.78 + 2.44 | 2.75 | 57.35 | 16.66 | 11.66 | 11.23 | 3.4 | 51,594 / 30,720 / 5,217 |
+| l01r07 (dungeon, torches, a gate) | 98.08 | 9.79 + 2.15 | 2.75 | 54.44 | 18.67 | 11.67 | 11.20 | 4.1 | 48,225 / 30,720 / 5,081 |
+| l03r16 (dungeon, busy: 3 choppers) | 104.36 | 9.91 + 2.36 | 2.75 | 59.49 | 18.12 | 11.66 | 11.20 | 4.2 | 51,297 / 30,720 / 5,242 |
+| l04r04 (palace, simple) | 86.02 | 9.00 + 2.08 | 2.75 | 43.43 | 12.25 | 11.66 | 11.44 | 3.7 | 39,510 / 30,720 / 5,031 |
+| l06r03 (palace, simple) | 81.50 | 9.82 + 1.89 | 2.75 | 39.28 | 7.51 | 11.66 | 11.12 | 3.8 | 35,378 / 30,720 / 4,907 |
+| l05r24 (palace, busy) | 109.43 | 10.52 + 2.66 | 2.75 | 62.91 | 20.63 | 11.66 | 11.28 | ~1.7 | 53,550 / 30,720 / 5,332 |
+| l10r01 (palace, busy: pillars, 4 gates) | 116.01 | 10.15 + 2.88 | 2.75 | 70.76 | 26.47 | 11.66 | 11.27 | 3.8 | 59,946 / 30,720 / 5,419 |
+
+(Overlay loads 0-0.3, the hooks after the draw (room_drawn, flames_build) 0.1-0.6; the copy column holds the object
+pass's copies too, 0.14-0.39.) **82-116 frames, 1.6-2.3 seconds, the same on every RAM-disk size** (perfcheck: 512 KB
+and 16 MB within 1 frame). The fixed part is ~26 frames (fill 2.75, shadow write 11.66, copy 11.2), the op lists
+11-14, the piece laying 39-71. The laying follows the bytes read (35-60 K: ~1.1 frames a 1,000 bytes, ~80 T a byte of
+which 21 T is the INIR; the rest is the masked and copy-mode row work), not the piece count; a piece is laid once per
+cell it touches (rec_lay 238-467 calls for 151-221 lay_piece16 calls). In the walkthrough's first 318 ticks the 3 room
+changes are ~16 % of the time (318 of ~1,950 frames).
+
+What could cut it:
+
+| | gain a room change | sizes | notes |
+|---|---|---|---|
+| the visited-room cache (docs/ramdisk-tiers.md section 5: the renderer draws into the room's slot; a revisit copies the slot to VRAM, keeps the op lists, redraws the changed tiles) | revisit 106 -> **~15-20**; first visit 0 | 16 MB (158 + 15 pages); 1 MB: no (the user's decision of 2026-11-03); 512 KB: no | 1-2 weeks; resident ~20-40 (the shadow page patched), a second room overlay; exact (the snapshot compare redraws what changed) |
+| the op lists kept per visited room (2.9 KB of lists and tags + ~0.5 KB of slice tables, read back by INIR in ~1 frame) | revisit **-12..-13** | 16 MB (part of the room cache); 512 KB / 1 MB only after a RAM-disk reclaim (e.g. only the level's guard set: ~90 KB of pages 6-7) | 3-4 days alone; the room cache's invalidation |
+| a faster op-list build (room_ops / tile_gen; in the walkthrough's change draw_tile 7.2, draw_tile_bottom 2.8, wall patterns 1.9-3.1, prandom 1.1, mul8 1.2, get_tile 0.7) | **-3..-4** every change (estimate: a third of 9-12), and -0.1..-0.2 a tile regeneration in play | all | 3-5 days, medium (resident room.asm; tests/m3_test.py covers every room of every level) |
+| band cells (40 bytes x 48 rows instead of 8 x 64: shadow and VRAM rows contiguous, one seek a 40-byte plane row, a block copy) | **-6..-8** (estimate: shadow 11.7 -> ~7.5 at ~17 T a byte, copy 11.2 -> ~9, against more piece setups at the band edges) | all | needs the whole 8 KB compose area during the draw (the kid's image is fetched again) and its own lay / write / copy path (~300 bytes of overlay): 1-1.5 weeks, high; a prototype first |
+| the VRAM copy by POP / PUSH or the write modes (PLAN M8a list item 4) | -2..-4 (and ~-0.1 a tick in play) | all | 2-3 days, medium (pend_flush's copy-speed model changes) |
+| the black fill skipped where a back op covers the whole cell (run_rect's cover rule, checked per cell of the full draw) | -1..-1.5 | all | 1 day, low |
+
+Not levers: the RAM-disk reads as such (INIR and LDIR are both 21 T a byte: a main-RAM piece cache would save only the
+seeks, ~1.8 frames), the overlay loads (0-0.3), the hooks (0.4).
+
+### 3. Fights (tools/roadmap.py range fight1 60 160; frames a tick)
+
+| | 512 KB | 1 MB | 16 MB |
+|---|---:|---:|---:|
+| frames median / p90 / mean (ticks at the floor) | 5.48 / 11.80 / 7.08 (10 of 100) | 5.37 / 9.84 / 6.29 (21) | 4.52 / 9.84 / 5.96 (31) |
+| logic (kid_tick 1.25, the guard's tick_pre / tick_post 0.12, trobs 0.07) | 1.44 | 1.44 | 1.44 |
+| people_place (of it char_fetch: the frames) | 2.09 (1.54) | 1.26 (0.71) | 0.88 (0.33) |
+| object pass: restore / flames + torch cache / fore | 0.62 / 0.21 / 0.59 | 0.62 / 0.21 / 0.59 | 0.62 / 0.21 / 0.59 |
+| composing the people (spr_draw: kid, guard, swords) | ~1.1 | ~1.2 | ~1.2 |
+| copy (pf_blit1) / beam wait (pf_seq) | 0.59 / 0.29 | 0.59 / 0.29 | 0.59 / 0.29 |
+
+(The profiler loses some returns in fights: people_chunk's inclusive total comes out below spr_draw's; spr_draw's own
+figure is used.) The fight is ~2.3 frames a tick above the floor on 1 MB. What differs by size is the frames' fetch
+(char_fetch 1.54 / 0.71 / 0.33). The rest is spread: logic 1.4, composing two characters 1.2, restore + fore 1.2, copy
++ wait 0.9. No single item is worth more than ~0.3: the same-frame rule over both characters' chunks (pf_seq 0.29;
+tying only one character's chunks together ~-0.08, "M8a part 3", but it changes what shows between two frames), kid
+logic trims (collision rows, tile lookups: -0.2..-0.3, PLAN M8a list item 6), #8's scheduler (-0.06).
+
+### 4. Walking (tools/roadmap.py range walk_level1 30 60)
+
+1 MB: frames median 4.57, p90 8.47, mean 5.12; work mean 4.93; 12 of 30 ticks at the floor. 512 KB: 4.56 / 8.94 /
+5.47 (char_fetch 0.90 against 0.35: no frame store). Per tick on 1 MB: logic 1.20 (kid_tick 1.00: check_collisions
+0.48, get_row_collision_data 0.41), view_redraw 0.76 (of it **tile_redraw 0.60: the knock-shaken loose floor of ticks
+55-58**), people_place 0.67 (char_fetch 0.35), object pass 2.21 (restore 0.41, flames 0.16, torch cache 0.19, people
+0.42, fore 0.58), copy 0.44, beam wait 0.12. Of the ~1.1 frames a tick above the 4-frame pacing 0.6 is the loose floor
+(section 1); the rest is the kid's own drawing and logic. Harness note: trace_cksum (room_checksum, 0.08 frames a tick)
+runs only under script control (SCRIPT_PTR != 0), i.e. in every measurement but never in the played game, which is
+that much faster than measured.
+
+### 5. The parked beam-wait scheduler (#8)
+
+From "M8a part 3" and PR #8: -0.07..-0.09 frames a tick (normal 6.20 -> 6.13, fight 9.13 -> 9.07, walk 190-260 11.00 ->
+10.83) for ~476 resident bytes (main +658, low -181). Today the beam wait is pf_seq 0.10-0.12 a tick walking and 0.29
+fighting (0.22 / 0.48 then), so the variant would save ~0.05-0.06. Below the rule (>= 0.2 frames a tick at < 250
+bytes) and more than main's 311 free bytes: **not worth it now**; it stays parked.
+
+### 6. The ranked candidates
+
+Gain in frames where the situation hits (1 MB unless noted). Resident free today: main 311, low 9, block 2 19; overlays:
+the room overlay 86 free, the frames overlay 4. "Exact": the pixels stay identical by construction (and the per-tick
+pixel tests check it).
+
+| # | candidate | gain | how often the player sees it | resident (main / low / block 2), overlays | RAM disk | effort, risk, exact |
+|---|---|---|---|---|---|---|
+| 1 | **L1: loose floors draw only on a picture change, regenerating their own tile and the right neighbour only** (a loose case in spike.asm anim_redraw: the picture group of the old and the new modifier, as chomp_redraw) | the 5 countdown ticks without a change ~-3.5 each (8.5 -> ~5); a visible step -0.4; ~-18 frames over a floor's countdown | every floor stepped on (172 loose floors in levels 1-14; walk_level1: 15 of its 318 ticks shake) | main ~35 | none | 1 day, low, exact |
+| 2 | **M1 + M2: a falling floor is laid only in the chunks it touches, and the torch cache tests the chunk, not the tick** (one test of the floor's OMOBR rect against the chunk, used by oc_mob and tc_try) | one floor falling -1.0..-1.5 (a - b 3.6 -> ~2.2); five floors -2.5 (lay_mob 3.9 -> ~1.4); -0.2 a torch more | every falling-floor tick (~5-8 a floor; level 13's run constantly) | ~40: main (obj_chunk is in the low block, 9 free: a call into main) | none | 1-2 days, low, exact |
+| 3 | **L2: cached loose-floor pictures** (part 15's frame slots: the floor's rect, own tile + the right piece, its three background-only pictures through cs_put; knock shakes too) | a visible shake step 4.2 -> **~1**; the normal tick -0.4 (5.12 -> ~4.7); level 13's 8-floor knock ~33 -> ~12 | every visible shake step (5 of a countdown, 4 of a knock) | ~150-250 of overlay (the frames overlay has 4 free: a second overlay or a reclaim) + ~20 main | 3 small slots (648 B) a floor: 512 KB / 1 MB share part 15's 20 slots with choppers and spikes (a miss takes today's path); 16 MB: page 62 | 3-5 days, medium (invalidation as part 15), exact |
+| 4 | Option E step 3: the lazy shadow (choppers, spikes, cached buttons: no shadow write, the restore from the slot) | -0.7 a chopper / spike step, -0.4 a cached button press | the busy rooms | ~160 main + 4 low: **needs a reclaim** | none | 4-5 days, medium, exact |
+| 5 | Option E step 4: complete pictures with nobody in the rect, copied directly | -1.0..-1.5 a step on top of 4 (l08r23 stand 6.64 -> ~4.4) | the chopper rooms | ~80 main: **needs the reclaim** | 16 MB all; 512 KB / 1 MB choppers only (slots) | 3-4 days, medium, exact |
+| 6 | the visited-room cache (with the op lists) | revisit 106 -> ~15-20 (2 s -> 0.3-0.4 s) | most room changes after a room's first visit | ~20-40, a second room overlay | **16 MB only** | 1-2 weeks, medium, exact |
+| 7 | a faster op-list build | -3..-4 a room change; -0.1..-0.2 a tile regeneration in play (helps 1's remaining steps, gates' regenerating steps, chopper misses) | every room change | room.asm in main: likely +50..+100 | none | 3-5 days, medium, exact (m3 tests) |
+| 8 | band cells for the full room draw | -6..-8 a room change (estimate) | every room change | ~300 overlay (a second room overlay) | none | 1-1.5 weeks, high; a prototype first |
+| 9 | the VRAM copy by POP / PUSH or the write modes | -2..-4 a room change, ~-0.1 a tick | everywhere | ~50-100 main | none | 2-3 days, medium |
+| 10 | the fill skipped under a covering back op in the full draw | -1..-1.5 a room change | every room change | room overlay (86 free) | none | 1 day, low, exact |
+| 11 | M3: a falling floor's three pieces looked up once a tick (directory entries and seeks kept for its chunks) | ~-0.1 a floor and chunk after 2 | falling floors | ~30 main | none | 1 day, low, exact |
+| 12 | kid logic trims (collision rows, tile lookups) | -0.2..-0.3 a tick | every tick | main | none | 3-5 days, medium (tick-exact against kidsim) |
+| 13 | #8, the beam-wait scheduler | -0.05..-0.06 a tick | everywhere | +476 net: no | none | parked |
+
+Order by what the player gets: **1 and 2 first** (2-3 days, ~75 resident bytes, no reclaim: a falling floor's ticks go
+from ~8-14 to ~5-7 frames, the countdown's unchanged ticks to walking speed), then **3** (the visible shakes and the
+normal tick's 0.4), then the busy-room steps 4-5 after a reclaim, then the room change: 7 and 10 on every size, 6 on 16
+MB, 8 if a prototype confirms it. 9 and 12 are the small general ones; 13 stays parked.
+
+### 7. Memory: what needs a reclaim, and the reclaims found
+
+Need a reclaim first: 4 and 5 (~240 bytes of main together, against 311 free shared with everything else), 3 unless it
+gets its own overlay, 2 if it were put in the low block (9 free). 1, 2 (in main), 10 and 11 fit today.
+
+| reclaim | frees | cost | notes |
+|---|---|---|---|
+| **PR_TAB to the RAM disk** (the wall-pattern draws, 64 seeds x 10, low RAM 0x0500-0x077F): pr_start reads its 10-byte row by INIR into a 10-byte buffer | **640 bytes of low RAM**, outside 0x1000-0x1FFF (CG-ROM inside blit), so usable for code | ~+400 T a wall pattern: ~+0.3 frames a room change (~57 patterns), ~0 in play; ~+15 bytes of code | the largest reclaim found; built at the start (gstart.asm), written to a free spot (page 6 0x1440- is free since part 17) |
+| room_checksum out of the game: the harness computes the 'K' trace's checksum from memory at tick_done; trace_cksum and its call go | 53 + 6 + 3 bytes of main | none in play; the measurements lose the 0.08 frames a tick the player never pays | tests/m4_test.py and m4_game.py read RAM there anyway; m4test.asm keeps its own |
+| sprite_forget (24, low) and room_drawn's hooks (block 2) into the room overlay | 24 low + ~30 block 2 | none (once per room draw) | the room overlay has 86 free |
+| flames_build (175 bytes, low) into a second room overlay | 175 low | a W1 load (~0.3) whenever a regeneration near a flame re-checks the flames in play | measure that rate first |
+| tc_flush (28, block 2) into the room overlay; anim_redraw's dispatch into the frames overlay ("Option E: measured" section 4) | 28 block 2; ~35 main | a frames-overlay load for a non-cached object's step | |
+| only the level's guard set in the RAM disk (docs/memory.md "RAM disk") | ~90 KB of RAM disk (pages 6-7), every size | a per-level floppy load | room for the op lists of visited rooms on 512 KB / 1 MB |
+
+The op-list buffers stay (back 185 / 192, fore 126 / 128 used: M7 step 5), and no other table was found that shrinks
+without a speed cost.
+
+### 8. More candidates, not yet measured (added 2026-11-08; to rank with section 6 after part 18, the loose floors)
+
+The user asked for every remaining option in one list, to re-rank after candidates 1 and 2 are built. These are the
+gaps left in what parts 11-17 built, and new ideas; the figures are from parts 14-15's per-kind tables and the cost
+model where they exist, else marked "to measure".
+
+| candidate | today | possible | where the player sees it | approach, cost |
+|---|---|---|---|---|
+| G1: palace-pillar gates (9 % of gate steps, part 14) | ~6 a step (the old path) | ~2-3 | palace gate rooms (l10r01: 9.9 a tick) | a shift that keeps the pillar's mask (its base 147/149 laid over the bars); an overlay |
+| G2: dropping gates (3 %) | ~10 a step | ~2-3 | a gate dropping (4-5 ticks) | a k-row shift (the gate falls 4-5 rows a tick) |
+| G3: closed gate's contact band (17 % of gate steps) | ~3.4 a step (run_rect ~1.5) | ~2 | every closing gate | the floor strip in front of the bars from a cached picture (part 15's slots, cs_put) |
+| G4: steps to or from position 47 (2 %) | ~6 | ~2 | gates opening fully / starting to close | the record-count change handled in place |
+| B1: a button's first press in a room (a cache miss) | ~4.3 | ~0.6 | the first press of each button after a room draw (often the only one) | fill the button's slot at the room draw (+ a little a room change), or keep slots across room draws |
+| C1: a chopper with blood (bit 7: the old path) | ~6 a step | ~1.3 | after the kid dies on it, until the room is redrawn | the blood pictures as more slots |
+| C2: choppers and spikes of the neighbouring rooms (the above room's row 2, the left room's column 9) | the old path | as their own room's | some screens | part 15's rect rules for those cases |
+| T1: the unidentified "tile" kind of the cost model (other tile_redraw changes) | ~7.6 a change | to measure | rare in the busy scenes | identify first (pressure plates in other rooms? debris? the skeleton?) |
+| P1: potion bubbles cached (part 17's option C/D) | 0.45 a tick | ~0.15 | potion rooms | measured: -0.08 a tick on average for ~45-58 bytes: not worth it |
+| R1: op lists precomputed at build time per room (the static part) and read at the room draw | the build 11-14 a room change | to measure (the read cost against the build) | every room change, every size | size to measure: ~270 rooms of op lists; per level at the level start into free RAM-disk space? |
+| R2: a cache of drawn cells across rooms, keyed by the tile and its neighbours | piece laying 39-71 a room change | to measure | every room change | rooms share many identical cells; RAM-disk space (16 MB; 512 KB / 1 MB after the reclaims) |
+| R3: a level restart / death redraw | a full room draw | to measure | every death and Ctrl+A | whether the room in the shadow can be reused |
+| S1: per-tick fixed costs: the PSG player, the keyboard scan, the VBLN interrupt, the HP strip and the bottom text | to measure | ? | every tick | the stages tools/roadmap.py does not separate yet |
+| H1: real hardware | the emulator's numbers | to measure | everything | the MZPico's wait states (+1 per access: +0.035 a walking tick, +1.28 a room change) and the real machine's timing |
+
+Re-rank sections 6 and 8 together once part 18 is built, by the visible gain per byte (resident free then: main ~236
+if part 18 takes ~75).
 ## M8a part 18: loose floors (2026-11-08)
 
 Status: **built.** Candidates 1 and 2 of the speed roadmap ("Speed roadmap (2026-11-08)", PR #35, part 1 "Falling

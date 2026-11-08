@@ -989,6 +989,15 @@ piece used AND/XOR semantics.
    bubbles' own cache (the first draft, +58 bytes of main) was measured at -0.08 a tick and left out. Only-torch work
    -0.2..-0.4 a tick a room; perfcheck normal tick 5.72 -> 5.47 (512 KB), 5.20 -> 5.12 (1 MB), baselines lowered.
    Resident: main 15 bytes smaller (311 free), low 15 larger (9 free), block 2 5 smaller (19 free).
+61. Speed roadmap (2026-11-08, docs/perf.md "Speed roadmap (2026-11-08)"; measured, nothing built; tools/loosescenes.py,
+   tools/roadmap.py): falling floors cost 8-14 frames a tick (shake a - b 4.2, one floor falling 3.6, release / landing
+   ~10), because lay_mob runs in every chunk for every floor, any floor switches the torch cache off for the tick, and
+   a loose floor redraws (3 regenerations) on every modifier change although its picture changes on 5 of 10 countdown
+   ticks; the perfcheck normal tick's 5.12 holds 0.6 of a knock shake. Room change 82-116 frames on every size (op lists
+   11-14, laying 39-71, shadow write 11.7, copy 11.2). Next by gain: L1 (loose floors on picture change, own + right
+   regeneration) and M1 + M2 (a floor laid only in its chunks, the torch cache per chunk): 2-3 days, ~75 bytes of main;
+   then L2 (cached loose pictures), option E steps 3-4 after a reclaim (PR_TAB to the RAM disk frees 640 bytes of low
+   RAM), then the room change (faster op-list build, the fill, the 16 MB room cache). #8 stays parked.
 62. M8a part 18, loose floors (2026-11-08, docs/perf.md "M8a part 18: loose floors"; candidates 1 and 2 of the speed
    roadmap, #35): a loose floor redraws only when its picture (LOOSE_FRAM_BOTTOM[loose_frame], 3 pictures) changes,
    regenerating its own tile and its right neighbour only (spike.asm loose_redraw; tools/movecheck.py loose: every loose
