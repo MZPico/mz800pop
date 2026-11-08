@@ -3086,7 +3086,8 @@ inc e, no drop test):
 - precomputed plane offsets and one seek a plane: -2..-3;
 - a lighter piece setup: -3.
 
-Together **~-18..-20 of 57.6**, to ~50 T a byte.
+Together **~-18..-20 of 57.6**, to ~50 T a byte. **Built in M8a part 20** ("M8a part 20: faster piece laying"): rec_lay 57.6 -> 40.3
+(-17.3), the room change 106.6 -> 88.3 at 1 MB.
 
 **With a new mask format.** Of the masked pieces' bytes, 29.9 % are fully opaque, 27.7 % fully transparent and 42.4 %
 partial (reeval.py masks). Copying the opaque runs and skipping the transparent ones would cut the masked arithmetic
@@ -3236,3 +3237,125 @@ fight_killpush, fight_spikes, level12_exit_level13, level3_checkpoint: 0 differi
 PR_TAB rebuilt after PRES's sound bank) and tests/m8_pace.py: ok. `make ci-build`, `make cheats`. tests/m5_boot.py
 needs a newer emulator than the local trace build (its 16 MB probe: "lists 52 RAM-disk pages of 256"): on the runners.
 The full regression on the runners: see the PR.
+
+## M8a part 20: faster piece laying (2026-11-08)
+
+Status: **built.** Step 1 of the speed roadmap's order: the room draw's piece laying ("Speed roadmap: re-evaluation
+measurements", "The room change's laying": 57.6 of the 106-frame room change, ~77 T a byte read). The piece data
+format is unchanged (an RLE / opaque-run mask format stays a later candidate). The pixels are exact by construction and
+by the tests; the same code lays every piece in play (tile regenerations, falling floors, the fore pieces of the object
+pass), so play gets faster too.
+
+### What changed (src/m1/gfx.asm lay_piece16 and below; tools/gen_kernel.py)
+
+1. **Masked rows (mode 1): one unrolled chain for every width** (lmx_ent). The mask rows are read once a piece into
+   MASKBUF **at the compose rows' own offsets** (MASKBUF + (dst & 0x1FF): the mask byte of a compose byte has its low
+   address byte, so one `inc l` / `inc e` pair steps both and the row step sets E = L). A row is n bodies of
+   `ld a, (de); and (hl); ld c, a; in a, (RD_DATA); or c; ld (hl), a; inc l; inc e` (48 T; the last byte without the
+   increments, 40 T), then a patched `jp` into a 7-deep chain of `in a, (RD_DATA)` (the k = w - n bytes of a piece
+   clipped at the sides: the rest of the row and the next row's start), the row step (`ld a, l; add a, 9 - n; ld l, a;
+   ld e, a; jr c`, a page crossing every 32 rows) and `djnz` with a patched displacement back to the n-byte entry. A
+   row costs 48 n + 41 + 11 k T (the patched `jp` into the drop chain 10, the row step 26, `djnz` 13; a page
+   crossing, every 32 rows, +13), against 53 n + 128 + 25 k before (cmx_n by `call`, three strides, the drop loop's
+   test). `IN A,(n)` (11 T, no C) frees B for the row count; the port's high address byte is A, which the RAM disk
+   does not decode (boot.asm and kid.asm already read it so).
+2. **Copy rows and the mask rows: an INI chain** (lr_ent): n `ini` (16 T a byte instead of INIR's 21), the same drop
+   chain and row step (`dec d; jp nz` to the n-byte entry): 16 n + 46 + 11 k T a row (the `jp` 10, the step 36; a
+   page crossing +9) against 21 n + 65 (+ the drop loop). The mask read uses it into MASKBUF (one INIR of the whole block before; the strided block and its 513-byte
+   limit are gone). A piece whose last column is partial (the right edge, the extent mask V_RM) has its own chain
+   (lre_ent: n - 1 `ini`, the last byte merged); a partial first column (both edges, rare) a small loop (lle_ent).
+3. **The plane loops in registers** (lpx_plane, lcf_p): the plane's RAM-disk page and address in A:HL, one `out` pair a
+   plane (no far_seek_entry), the plane size, the compose row, the mask and the row count patched into the loop, the
+   plane counter in A'. ~450 -> ~250 T a plane.
+4. **The piece setup in registers** (lay_piece16 to the mode dispatch): the clip with the rect in registers, the two
+   products (the row offset, the plane size w x h) by repeated addition (w <= 8). 1,540 -> 1,110 T a piece. The chains'
+   patches (lr_patch: the n part and the k part each kept while unchanged) 490 T a piece.
+5. **Dead code removed:** the cmx_n chains (mode 1's row combine before), the cm1_n chains (unused since mode 1
+   streams), the inr_n INI chains and lp_ini, the general copy path lpc_gen / lp_merge (no jump led there), lp_block
+   (the mask block read), the INIR copy rows lpf_* and the variables V_EDGE, V_OLDL, V_OLDR, V_ROWS, DATABUF.
+
+Pieces stay at most 8 bytes wide (the drop chains hold 7: every directory the renderer lays from has w <= 7; the people
+are drawn by spr_draw, not here). MASKBUF must be 512-byte aligned (an `.error` guard).
+
+**Where the code lives: main**, in place of the old laying code (gfx.asm and kernel_gen.inc are main code). The room
+overlay (49 free), a second room overlay or the free low RAM 0x0500-0x077F were not needed: the new code is smaller than
+what it replaces, and it must stay resident because play lays pieces every tick (an overlay load costs ~0.3 frames).
+
+Resident (main b617782 -> this):
+
+| area | before | after | |
+|---|---|---|---:|
+| main code (end_of_code) | 0x7AD7, 297 free | 0x76DA, **1,318 free** | **-1,021** (gfx.asm lay_piece16 .. fill_black -223 incl. the new chains ~330; kernel_gen.inc -798: the cmx, cm1 and inr chains and their tables) |
+| low RAM data | MASKBUF 0x0C00-0x0DFF, DATABUF 0x0E00-0x0FFF | MASKBUF 0x0C00-0x0DFF (all of it: the rows at the compose offsets) | 0x0E00-0x0FFF **free** (512 B; DATABUF had no reader since mode 1 streams) |
+| low code block, block 2, overlays, RAM disk | | unchanged | 0 |
+
+### The room change (tools/roadmap.py stages, one tick, inclusive frames; main b617782 / this)
+
+| room | 512 KB tick | 1 MB tick | 16 MB tick | rec_lay (every size) | of it masked rows / copy and mask rows (this) |
+|---|---|---|---|---|---|
+| l01r01 (walk_level1 89, the perfcheck room change) | 106.17 / **88.31** (-17.9) | 106.58 / **88.31** (-18.3) | 105.56 / **87.48** (-18.1) | 57.61 / **40.29** (-17.3) | 18.55 / 11.32 (17.29 cmx rows before) |
+| l01r07 (dungeon, torches, a gate) | 98.15 / **82.20** (-16.0) | 98.15 / **82.20** (-16.0) | 98.23 / **82.36** (-15.9) | 54.43 / **38.56** (-15.9) | |
+| l03r16 (dungeon, 3 choppers) | 103.76 / **86.07** (-17.7) | 104.47 / **86.77** (-17.7) | 103.75 / **86.17** (-17.6) | 59.49 / **41.79** (-17.7) | |
+| l04r04 (palace, simple) | 87.24 / **73.95** (-13.3) | 86.05 / **72.89** (-13.2) | 86.05 / **72.89** (-13.2) | 43.43 / **30.28** (-13.2) | |
+| l05r24 (palace, busy) | 109.78 / **90.93** (-18.9) | 109.47 / **90.61** (-18.9) | 109.47 / **90.61** (-18.9) | 62.91 / **44.07** (-18.8) | |
+| l10r01 (palace, pillars, 4 gates) | 115.61 / **94.98** (-20.6) | 115.95 / **95.84** (-20.1) | 115.95 / **95.84** (-20.1) | 70.76 / **50.10** (-20.7) | |
+
+(The rooms of tools/roadmap.py `enter`: l01r07 tick 22, l03r16 19, l04r04 23, l05r24 3, l10r01 3.) The RAM-disk
+reads, writes and seeks of the tick are the same (the seeks: one `out` pair a plane as before, now without
+far_seek_entry). The rest of the tick is unchanged but for the object pass (its fore pieces: walk_level1 89 5.75 ->
+4.77 at 1 MB); the op lists (11.97), the shadow write (11.66) and the copy (11.36) are now the larger part.
+
+**The prototype** (change 1 alone, the masked rows, measured before building the rest; 1 MB): walk_level1 89 106.58 ->
+94.60 (-12.0; rec_lay 57.61 -> 46.25), l04r04 86.05 -> 77.42 (-8.6; rec_lay 43.43 -> 34.82). Then change 2's plain copy
+rows -3.0, change 3 -1.5, change 4 -0.9, the edge chains -0.5 (walk_level1 89 at 1 MB).
+
+**Where the laying goes now** (tools/reeval.py lay walk_level1 89, 1 MB; its marks extended to the new phases):
+masked rows (lmx) 17.9 frames (3,054 T a plane), copy and mask rows (lr) 9.6, the right-edge rows 1.6, the piece setup
+2.9 + the record and directory entry 2.0 + the chain patches 1.2, the plane loops 2.5, the scan 2.5, mono / black rows
+0.5. The rows are now ~73 % of the laying: what is left is per byte (the masked byte's 48 T, INI's 16), i.e. the data
+format (the opaque / transparent runs of the masks: "Speed roadmap: re-evaluation measurements", ~-6).
+
+### perfcheck (one run per size; main = b617782's own runs; baselines lowered where beaten, in this commit)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.19 / **4.93** | 4.89 / **4.69** | 4.81 / **4.61** |
+| level door step (walkthrough 203-207) | 9.23 / **9.15** | 8.51 / **8.47** | 8.51 / **8.47** |
+| room change (walkthrough 89) | 106.17 / **88.31** | 106.58 / **88.31** | 105.56 / **87.48** |
+| walkthrough 190-260 | 6.27 / **6.21** | 6.08 / **6.00** | 5.71 / **5.66** |
+| gate (gate_push 200-260) | 4.09 / 4.10 | 4.09 / 4.10 | 4.09 / 4.10 |
+| traps (traps_b1 0-300) | 5.41 / **5.18** | 5.11 / **4.90** | 5.07 / **4.86** |
+| fight (fight1 60-160, guard on) | 7.00 / **6.75** | 6.21 / **5.92** | 5.86 / **5.66** |
+
+In play every tick that lays pieces gains: the object pass's fore pieces (the normal tick -0.20..-0.26, the fight
+-0.20..-0.29), the loose floors' regenerations and falling floors (traps -0.21..-0.23). The gate stretch is +0.01 (its
+ticks sit at the 4-frame floor; the chain patch costs a little on its small pieces).
+
+### In play: the busy rooms (tools/roadmap.py range over busyrooms.py `find --worst` scenes, ticks 1-99, 1 MB; main / this)
+
+| scene | frames median | p90 | mean | object pass (obj_chunk, mean) |
+|---|---|---|---|---|
+| l03r16 walk (3 choppers) | 8.96 / **7.97** | 14.55 / **12.99** | 9.48 / **8.75** | 6.52 / 5.81 |
+| l03r16 stand | 7.64 / **7.19** | 12.01 / **11.60** | 8.65 / **8.07** | 6.20 / 5.80 |
+| l05r24 walk (palace, busy) | 7.35 / **6.63** | 12.91 / **11.94** | 8.13 / **7.61** | |
+| l08r23 walk | 6.70 / **6.34** | 10.94 / **9.98** | 6.94 / **6.53** | 5.91 / 5.24 |
+| l08r23 stand | 6.54 / **6.09** | 10.96 / **9.89** | 6.47 / **6.06** | 4.82 / 4.46 |
+| l10r01 walk (pillars, 4 gates) | 9.59 / **8.87** | 16.33 / **14.67** | 9.20 / **8.49** | 4.06 / 3.75 |
+| l10r10 walk | 7.30 / **6.46** | 14.48 / **13.38** | 8.58 / **7.89** | 4.76 / 4.24 |
+| l02r18 walk (loose floors, a gate) | 7.16 / **6.64** | 13.82 / **12.36** | 7.63 / **7.17** | 3.64 / 3.32 |
+
+-0.4..-0.8 frames a tick on average in the busy rooms, -1..-1.7 at p90: the object pass's fore pieces and falling
+floors, the regenerations (tile_redraw, run_rect) and the moving parts' pieces (gates, chopper and spike misses) all
+lay through the same code. (The profiler lost l05r24's object-pass return before.)
+
+### Same pixels, same logic
+
+tests/m3_test.py every room of levels 1-14 (the full room draw against the Python reference): 0 differing pixels,
+also after each step above. tests/m3_anim_test.py level 1 (every animated tile's redraw): 0 differing. tests/m4_game.py
+--every 1 (the state and VRAM every tick) on seven busy-room scenes of busyrooms.py `find --worst` (l03r16, l05r24,
+l10r01, l10r10, l08r23, l02r18, l04r18 walk_a) at 512 KB, 1 MB and 16 MB: 2,490 ticks, 0 state diffs, 0 differing
+pixels; walk_level1 at 1 MB: 0. `make ci-build`, `make cheats`, `make pace`. Also m3_anim_test levels 4, 7, 10 and 13: 0. The full
+regression on the runners (regress/laying at 550a205, run 42506358462: the m4 / m5 / m6 pixel sets at --every 1, the
+story, PRES, launch / keys and sound parts at 512 KB, 1 MB and 16 MB, launch / keys at 1 MB + 1 wait; m3_test and
+m3_anim_test of every level, the logic oracles at 1 MB): all 28 jobs passed. The commit after it changes only the
+docs.

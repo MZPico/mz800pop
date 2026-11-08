@@ -66,38 +66,17 @@ for n in range(1, 9):
 out.append('blq_table:')
 out.append('                dw      0')
 for n in range(1, 9): out.append('                dw      blq_%d' % n)
-# ---- masked rows straight from the RAM disk: HL = dst, DE = inverted mask row, C = data port; n bytes:
-#   dst = (dst & ~m) | data (53 T a byte); HL, DE advance by n
+# ---- masked combine rows: HL = dst, BC = inverted mask rows; n bytes, both advance (mode 1, the masked copy, has its
+#   own row chain in gfx.asm, lmx_ent: M8a part 20)
+#   cm2: dst &= ~m     cm3: dst |= m
 for n in range(1, 9):
-    out.append('cmx_%d:' % n)
-    for k in range(n): out += ['                ld      a, (de)', '                and     (hl)', '                ld      b, a',
-                               '                in      a, (c)', '                or      b', '                ld      (hl), a',
-                               '                inc     hl', '                inc     de']
-    out.append('                ret')
-out.append('cmx_table:')
-out.append('                dw      0')
-for n in range(1, 9): out.append('                dw      cmx_%d' % n)
-# ---- far rows: HL = dst, C = data port; n bytes via INI (16 T/byte)
-for n in range(1, 9):
-    out.append('inr_%d:' % n)
-    for k in range(n): out.append('                ini')
-    out.append('                ret')
-out.append('inr_table:')
-out.append('                dw      0')
-for n in range(1, 9): out.append('                dw      inr_%d' % n)
-# ---- masked combine rows: HL = dst, BC = inverted mask block, DE = data block; n bytes, all three advance
-#   cm1: dst = (dst & ~m) | data     cm2: dst &= ~m     cm3: dst |= m
-for n in range(1, 9):
-    out.append('cm1_%d:' % n)
-    for k in range(n): out += ['                ld      a, (bc)', '                and     (hl)', '                ex      de, hl', '                or      (hl)', '                ex      de, hl', '                ld      (hl), a', '                inc     hl', '                inc     de', '                inc     bc']
-    out.append('                ret')
     out.append('cm2_%d:' % n)
     for k in range(n): out += ['                ld      a, (bc)', '                and     (hl)', '                ld      (hl), a', '                inc     hl', '                inc     bc']
     out.append('                ret')
     out.append('cm3_%d:' % n)
     for k in range(n): out += ['                ld      a, (bc)', '                cpl', '                or      (hl)', '                ld      (hl), a', '                inc     hl', '                inc     bc']
     out.append('                ret')
-for m in (1, 2, 3):
+for m in (2, 3):
     out.append('cm%d_table:' % m)
     out.append('                dw      0')
     for n in range(1, 9): out.append('                dw      cm%d_%d' % (m, n))

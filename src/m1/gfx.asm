@@ -13,8 +13,11 @@ SPRBUF_B        equ     0xb800
 TABBASE         equ     0x8000          ; page 0 = bit reverse, pages 2s/2s+1 = lo/hi shift tables (behind the VRAM window)
 ROWTMP          equ     0x9f70          ; sprite fetch row temp (16 bytes), behind the VRAM window
 ROWTMP2         equ     0x9f80
-MASKBUF         equ     0x0c00          ; lay_piece masked modes: inverted mask block (rows x n, <= 512)
-DATABUF         equ     0x0e00          ; plane block
+MASKBUF         equ     0x0c00          ; lay_piece masked modes: the inverted mask rows at the compose rows' offsets
+                                        ; (MASKBUF + (dst & 0x1FF), 512 bytes; 512-byte aligned)
+                if MASKBUF and 0x1ff
+                .error MASKBUF must be 512-byte aligned (lmx_ent: the mask's low address byte is the compose row's)
+                endif
 V_COMPOSE       equ     0x0832          ; 16-bit: current compose buffer
 VRAM            equ     0x8000          ; the VRAM window is mapped (IN E0) only inside blit and the test programs'
                                         ; video_init; otherwise 0x8000-0x9FFF is RAM holding the renderer's tables and lists
@@ -47,16 +50,12 @@ V_ROWOFF        equ     0x0830          ; 16-bit
 V_MONO          equ     0x0834          ; mono blit colour (lay_piece mode 3)
 V_SKIP          equ     0x0835          ; lay_piece16: piece rows hidden above the screen
 V_CSKIP         equ     0x0836          ; lay_piece: piece byte columns hidden left of the screen
-V_EDGE          equ     0x0837          ; copy mode: 1 = merge the edge columns through V_LM/V_RM
 V_LM            equ     0x0838          ; bits of the first visible column taken from the piece
 V_RM            equ     0x0839          ; same for the last visible column
-V_OLDL          equ     0x083a          ; compose bytes saved before the row copy
-V_OLDR          equ     0x083b
 V_DST           equ     0x083c          ; 16-bit: compose dst of the current plane's first row
 V_POFF          equ     0x083e          ; 16-bit: far offset of the current plane's first (visible) row
 V_NB            equ     0x0840          ; bytes per row laid
 V_PART          equ     0x0841          ; 0 = rows contiguous in far memory (n == w), else re-seek every row
-V_ROWS          equ     0x0842          ; row counter
 V_FBSP          equ     0x0844          ; fill_black: saved SP
 DIR             equ     0x7800          ; directory, 8 bytes per image id: page, addr hi, addr lo, width bytes,
                                         ; height, flags (bit0 mask plane first, bit1 partial edge column),
@@ -430,181 +429,148 @@ mul8n:          ret     z
 ; In: IX = directory entry, A = mode (0 copy, 1 masked, 2 black, 3 mono), B = px (byte column), C = py (top row)
 ; Clips to the compose rect. Copy mode streams rows straight from the RAM disk into the buffer.
 ; lay_piece16: same but DE = signed 16-bit top row (pieces may start above the screen); rows above 0 are skipped.
-lay_piece16:    bit     7, d
+; (M8a part 20: the clip in registers, the products by repeated addition: w <= 8)
+lay_piece16:    ld      (V_MODE), a
+                bit     7, d
                 jr      z, lp16pos
-                ; negative top: clip the first -DE rows away, piece starts at row 0
-                ld      (V_MODE), a
-                ld      a, b
-                ld      (V_PX), a
-                xor     a
-                ld      (V_PY), a
-                ld      a, e
-                neg
-                ld      (V_SKIP), a     ; rows skipped at the top of the piece
+                xor     a               ; negative top: the first -DE rows clipped away, the piece starts at row 0
+                sub     e
+                ld      (V_SKIP), a
+                ld      c, 0
                 jr      lp_common
 lp16pos:        ld      c, e
 lay_piece:      ld      (V_MODE), a
+                xor     a
+                ld      (V_SKIP), a
+lp_common:      xor     a               ; a negative byte column: the left columns clipped away
+                bit     7, b
+                jr      z, lp_cs0
+                sub     b
+                ld      b, 0
+lp_cs0:         ld      (V_CSKIP), a
                 ld      a, b
                 ld      (V_PX), a
                 ld      a, c
                 ld      (V_PY), a
-                xor     a
-                ld      (V_SKIP), a
-lp_common:      ld      a, (V_PX)       ; negative byte column: clip the left columns away
-                bit     7, a
-                jr      z, lp_cs0
-                neg
-                ld      (V_CSKIP), a
-                xor     a
-                ld      (V_PX), a
-                jr      lp_cs1
-lp_cs0:         xor     a
-                ld      (V_CSKIP), a
-lp_cs1:
-                ; plane size = w*h
-                ld      a, (ix+4)
-                ld      e, (ix+3)
-                call    mul8
-                ld      (V_PSIZE), hl
-                ; rows
-                ld      a, (V_PY)
-                ld      hl, CRY
-                cp      (hl)
-                jr      nc, lpr0
-                ld      a, (hl)
-lpr0:           ld      (V_R0), a
-                ld      a, (V_PY)
-                ld      l, a
-                ld      h, 0
-                ld      a, (ix+4)
-                ld      e, a
+                ; rows: R0 = max(py, CRY), R1 = min(py + h - skip, CRY + CRH)
                 ld      a, (V_SKIP)
                 ld      d, a
-                ld      a, e
+                ld      a, (ix+4)
                 sub     d
                 ret     c               ; entirely above the screen
                 ret     z
-                ld      e, a
-                ld      d, 0
-                add     hl, de          ; py + visible height
-                ld      a, (CRY)
-                ld      e, a
+                ld      e, a            ; the visible height
+                ld      hl, (CRY)       ; L = CRY
                 ld      a, (CRH)
+                add     a, l
+                ld      h, a            ; H = CRY + CRH
+                ld      a, c
                 add     a, e
-                ld      e, a
-                ld      d, 0
-                or      a
-                sbc     hl, de
-                jr      c, lpr1a
-                ld      a, e
-                jr      lpr1
-lpr1a:          add     hl, de
+                jr      c, lpr1a        ; (past row 255: below the rect)
+                cp      h
+                jr      c, lpr1
+lpr1a:          ld      a, h
+lpr1:           ld      h, a            ; H = R1
+                ld      a, c
+                cp      l
+                jr      nc, lpr0
                 ld      a, l
-lpr1:           ld      (V_R1), a
-                ld      hl, V_R0
-                sub     (hl)
+lpr0:           ld      (V_R0), a
+                ld      l, a            ; L = R0
+                ld      a, h
+                sub     l
                 ret     z
                 ret     c
                 ld      (V_N), a        ; rows to do
-                ; cols
-                ld      a, (V_PX)
-                ld      hl, CRX
-                cp      (hl)
-                jr      nc, lpc0
-                ld      a, (hl)
-lpc0:           ld      (V_C0), a
+                ; columns: C0 = max(px, CRX), C1 = min(px + w - cskip, CRX + CRW)
+                ld      a, (V_CSKIP)
+                ld      d, a
                 ld      a, (ix+3)
-                ld      hl, V_CSKIP
-                sub     (hl)
+                sub     d
                 ret     c
                 ret     z
-                ld      hl, V_PX
-                add     a, (hl)
-                ld      c, a
+                add     a, b
+                ld      e, a            ; px + the visible width
                 ld      a, (CRX)
-                ld      hl, CRW
-                add     a, (hl)
-                cp      c
+                ld      h, a
+                ld      a, (CRW)
+                add     a, h
+                cp      e
                 jr      c, lpc1
-                ld      a, c
+                ld      a, e
 lpc1:           ld      (V_C1), a
-                ld      hl, V_C0
-                sub     (hl)
+                ld      e, a
+                ld      a, b
+                cp      h
+                jr      nc, lpc0
+                ld      a, h
+lpc0:           ld      (V_C0), a
+                ld      d, a            ; D = C0
+                ld      a, e
+                sub     d
                 ret     z
                 ret     c
                 ld      c, a            ; n bytes per row
-                ; far offset of the first row's first byte within plane 0 data: (r0-py+skip)*w + (c0-px) [+ psize if mask plane first]
+                ld      (V_NB), a
+                ; dst = V_COMPOSE + (R0 - CRY) * 8 + (C0 - CRX)
+                ld      a, d
+                sub     h
+                ld      e, a            ; C0 - CRX
+                ld      a, (CRY)
+                ld      h, a
+                ld      a, l
+                sub     h               ; R0 - CRY (0..63)
+                ld      l, a
+                ld      h, 0
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                ld      a, e
+                or      l               ; (the low 3 bits are free)
+                ld      l, a
+                ld      de, (V_COMPOSE)
+                add     hl, de
+                ld      (V_DST), hl
+                ; the far offset of the first visible row's first byte (of the mask, or of plane 0):
+                ; (R0 - py + skip) * w + (C0 - px + cskip); the plane size w * h
+                ld      a, (V_C0)
+                sub     b
+                ld      hl, V_CSKIP
+                add     a, (hl)
+                ld      (lp_col+1), a
                 ld      a, (V_R0)
                 ld      hl, V_PY
                 sub     (hl)
                 ld      hl, V_SKIP
                 add     a, (hl)
-                ld      e, (ix+3)
-                push    bc
-                call    mul8
-                pop     bc
-                ld      a, (V_C0)
-                ld      de, V_PX
-                ex      de, hl
-                sub     (hl)
-                ex      de, hl
-                ld      e, a
-                ld      a, (V_CSKIP)
-                add     a, e
                 ld      e, a
                 ld      d, 0
-                add     hl, de
-                ld      (V_ROWOFF), hl  ; offset of mask row (if mask) / plane 0 row
-                ; dst = COMPOSE + (r0-CRY)*8 + (c0-CRX)
-                ld      a, (V_R0)
-                ld      hl, CRY
-                sub     (hl)
-                ld      l, a
-                ld      h, 0
-                add     hl, hl
-                add     hl, hl
-                add     hl, hl          ; (r0-CRY)*8, 16-bit
-                ld      a, (V_C0)
-                push    hl
-                ld      hl, CRX
-                sub     (hl)
-                pop     hl
-                ld      e, a
-                ld      d, 0
-                add     hl, de
-                ld      de, (V_COMPOSE)
-                add     hl, de
-                ex      de, hl          ; DE = dst row (plane 0)
-                ld      (V_DST), de
-                ld      a, c
-                ld      (V_NB), a
-                add     a, a
-                ld      e, a
-                ld      d, 0
-                ld      hl, inr_table   ; INI chain for n bytes
-                add     hl, de
-                ld      a, (hl)
-                ld      (lp_ini+1), a
-                inc     hl
-                ld      a, (hl)
-                ld      (lp_ini+2), a
+                ld      b, (ix+3)
+                ld      a, b
+                sub     c
+                ld      (V_PART), a     ; w - n: bytes dropped after each row
                 ld      a, CW
                 sub     c
-                ld      (lpc_stride+1), a
                 ld      (lpm_stride+1), a
-                ld      a, (ix+3)
-                sub     c
-                ld      (V_PART), a     ; 0: every row fully visible -> rows are contiguous in far memory
+                ld      a, b            ; w
+lp_col:         ld      hl, 0           ; patched: the column offset (H = 0)
+lp_mr:          add     hl, de
+                djnz    lp_mr
+                ld      (V_ROWOFF), hl
+                ld      e, (ix+4)       ; d = 0
+                ld      b, a
+                ld      hl, 0
+lp_mh:          add     hl, de
+                djnz    lp_mh
+                ld      (V_PSIZE), hl
                 ld      a, (V_MODE)
                 or      a
                 jp      nz, lpmasked
                 ; copy mode: pixels outside the image extent (partial first/last byte column) keep the
                 ; compose contents. V_LM/V_RM = bits taken from the piece in the first/last visible column.
-                xor     a
-                ld      (V_EDGE), a
                 ld      a, (ix+5)
                 and     2
-                jr      z, lpc_planes
+                jr      z, lpc_fast
                 ld      a, 0xff
                 ld      (V_LM), a
                 ld      (V_RM), a
@@ -630,340 +596,153 @@ lpe2:           ld      a, (V_LM)
                 ld      hl, V_RM
                 and     (hl)
                 inc     a
-                jr      z, lpc_planes   ; both 0xff: plain copy
-                ld      a, 1
-                ld      (V_EDGE), a
+                jr      z, lpc_fast   ; both 0xff: plain copy
                 ld      a, (V_LM)
                 inc     a
-                jr      nz, lpc_planes  ; left edge partial too: general (slow) merge
-                ld      a, 2            ; right edge only: fast path
-                ld      (V_EDGE), a
-                ld      a, (V_RM)
-                ld      (lpc_rm+1), a
-                cpl
-                ld      (lpc_nrm+1), a
-; fast copy (no edge or a right edge only): per row INIR the visible bytes (the last one merged through
-; V_RM), drop the rest of the piece's row (V_PART bytes, cheaper than a seek), row counter in A'
-lpc_planes:     ld      a, (V_PART)              ; bytes of a row past the visible ones: read and dropped
-                ld      (lpf_dk+1), a
-                ld      (lpf_dk2+1), a
-                ld      a, (V_NB)
-                ld      (lpf_n+1), a
-                dec     a
-                ld      (lpf_n1+1), a
-                ld      b, a
-                ld      a, CW
-                sub     b
-                dec     a
-                ld      (lpf_st+1), a           ; CW - n
-                ld      a, (V_RM)
-                ld      (lpf_rm+1), a
-                ld      (lpf_lrm+1), a
-                cpl
-                ld      (lpf_nrm+1), a
-                ld      (lpf_lnrm+1), a
-                ld      a, (V_LM)               ; left edge (V_EDGE 1): the first byte through LM, or LM & RM
-                ld      b, a                    ; when the row is one byte
-                ld      a, (V_NB)
-                dec     a
-                ld      a, b
-                jr      nz, lpf_lm1
-                ld      hl, V_RM
-                and     (hl)
-lpf_lm1:        ld      (lpf_llm+1), a
-                cpl
-                ld      (lpf_lnlm+1), a
-                ld      a, (V_NB)
-                sub     2
-                jr      nc, lpf_lm2
-                xor     a
-lpf_lm2:        ld      (lpf_lmid+1), a          ; middle bytes
-                xor     a
-                ld      (V_PLANE), a
-                ld      hl, (V_ROWOFF)
-                ld      a, (ix+5)
-                and     1
-                jr      z, lpf_p
-                ld      de, (V_PSIZE)
-                add     hl, de
-lpf_p:          ld      (V_POFF), hl
-                call    far_seek_entry
+                jr      nz, lpc_ledge   ; left edge partial too: the lle loop
+                call    lre_patch       ; right edge only: the lre chain (the last byte through V_RM)
+                ld      hl, lre_ent
+                jr      lpc_go
+; plain copy (M8a part 20): each plane's rows by the INI row chain (lr_ent), V_PART bytes dropped after each row
+lpc_fast:       call    lr_patch
+                ld      hl, lr_ent
+lpc_go:         ld      (lcf_call+1), hl
                 ld      hl, (V_DST)
-                ld      c, RD_DATA
-                ld      d, 0
-lpf_st:         ld      e, 0                    ; patched: CW - n
+                ld      (lcf_dst+1), hl
+                ld      hl, (V_PSIZE)
+                ld      (lcf_ps+1), hl
                 ld      a, (V_N)
+                ld      (lcf_n+1), a
+                ld      a, 4
                 ex      af, af'
-                ld      a, (V_EDGE)
-                or      a
-                jr      z, lpf_row
-                cp      1
-                jp      z, lpf_lrow
-                jp      lpf_rrow
-lpf_row:
-lpf_n:          ld      b, 0                    ; patched: n
-                inir
-                add     hl, de
-lpf_dk:         ld      a, 0                    ; patched: V_PART
-                or      a
-                jr      z, lpf_d1
-                ld      b, a
-lpf_d0:         in      a, (c)
-                djnz    lpf_d0
-lpf_d1:         ex      af, af'
-                dec     a
-                jr      z, lpf_pe
-                ex      af, af'
-                jp      lpf_row
-lpf_rrow:
-lpf_n1:         ld      b, 0                    ; patched: n - 1
-                ld      a, b
-                or      a
-                jr      z, lpf_r1
-                inir
-lpf_r1:         in      a, (c)
-lpf_rm:         and     0                       ; patched: RM (bits from the piece)
-                ld      b, a
-                ld      a, (hl)
-lpf_nrm:        and     0                       ; patched: ~RM
-                or      b
-                ld      (hl), a
-                inc     hl
-                add     hl, de
-lpf_dk2:        ld      a, 0                    ; patched: V_PART
-                or      a
-                jr      z, lpf_d3
-                ld      b, a
-lpf_d2:         in      a, (c)
-                djnz    lpf_d2
-lpf_d3:         ex      af, af'
-                dec     a
-                jr      z, lpf_pe
-                ex      af, af'
-                jp      lpf_rrow
-lpf_lrow:       in      a, (c)                  ; first byte
-lpf_llm:        and     0                       ; patched: LM (or LM & RM)
-                ld      b, a
-                ld      a, (hl)
-lpf_lnlm:       and     0                       ; patched: ~that
-                or      b
-                ld      (hl), a
-                inc     hl
-                ld      a, (V_NB)
-                dec     a
-                jr      z, lpf_l3
-lpf_lmid:       ld      b, 0                    ; patched: n - 2
-                ld      a, b
-                or      a
-                jr      z, lpf_l2
-                inir
-lpf_l2:         in      a, (c)                  ; last byte
-lpf_lrm:        and     0                       ; patched: RM
-                ld      b, a
-                ld      a, (hl)
-lpf_lnrm:       and     0                       ; patched: ~RM
-                or      b
-                ld      (hl), a
-                inc     hl
-lpf_l3:         add     hl, de
-                ld      a, (lpf_dk+1)
-                or      a
-                jr      z, lpf_l5
-                ld      b, a
-lpf_l4:         in      a, (c)
-                djnz    lpf_l4
-lpf_l5:         ex      af, af'
-                dec     a
-                jr      z, lpf_pe
-                ex      af, af'
-                jp      lpf_lrow
-lpf_pe:         ld      hl, (V_DST)
-                ld      de, COMPOSE_PLANE
-                add     hl, de
-                ld      (V_DST), hl
-                ld      a, (V_PLANE)
-                inc     a
-                ld      (V_PLANE), a
-                cp      4
-                ret     z
-                ld      hl, (V_POFF)
-                ld      de, (V_PSIZE)
-                add     hl, de
-                jp      lpf_p
-lpc_gen:        xor     a
-                ld      (V_PLANE), a
                 ld      hl, (V_ROWOFF)
                 ld      a, (ix+5)       ; flags bit0: skip the mask plane
                 and     1
-                jr      z, lpc_plane
+                jr      z, lcf_0
                 ld      de, (V_PSIZE)
                 add     hl, de
-lpc_plane:      ld      (V_POFF), hl
-                call    far_seek_entry
-                ld      a, (V_N)
-                ld      (V_ROWS), a
-                ld      hl, (V_DST)
-lpc_row:        ld      a, (V_EDGE)
-                or      a
-                jr      z, lpc_r1
-                cp      2
-                jr      nz, lpc_slow
-                ; right edge only: DE -> last byte of the row
-                ld      a, (V_NB)
-                dec     a
-                add     a, l
-                ld      e, a
-                ld      d, h
-                jr      nc, lpc_f1
-                inc     d
-lpc_f1:         ld      a, (de)
-lpc_nrm:        and     0               ; patched: ~RM  (old bits outside the extent)
-                ex      af, af'
-                ld      c, RD_DATA
-                call    lp_ini
-                ex      af, af'
-                ld      b, a
-                ld      a, (de)
-lpc_rm:         and     0               ; patched: RM
-                or      b
-                ld      (de), a
-                jr      lpc_r2
-lpc_slow:       ld      a, (hl)
-                ld      (V_OLDL), a
-                push    hl
-                ld      a, (V_NB)
-                dec     a
-                add     a, l
-                ld      l, a
-                jr      nc, lpc_r0
-                inc     h
-lpc_r0:         ld      a, (hl)
-                ld      (V_OLDR), a
-                pop     hl
-                push    hl
-                ld      c, RD_DATA
-                call    lp_ini
-                pop     de              ; DE = row start
-                call    lp_merge
-                jr      lpc_r2
-lpc_r1:         ld      c, RD_DATA
-                call    lp_ini          ; HL = row start + n
-lpc_r2:
-lpc_stride:     ld      c, 0            ; patched: CW - n
-                ld      b, 0
-                add     hl, bc
-                ld      a, (V_PART)
-                or      a
-                jr      z, lpc_r3
-                push    hl              ; partial rows: seek the next row (stride w)
-                ld      hl, (V_POFF)
-                ld      e, (ix+3)
-                ld      d, 0
+lcf_0:          ld      e, (ix+2)
+                ld      d, (ix+1)
                 add     hl, de
-                ld      (V_POFF), hl
-                call    far_seek_entry
+                ld      a, (ix+0)
+                adc     a, 0            ; A:HL = the plane's first row in the RAM disk
+lcf_p:          out     (RD_PAGE), a
+                ld      b, h
+                ld      c, RD_ADDR
+                out     (c), l
+                push    af
+                push    hl
+lcf_dst:        ld      hl, 0           ; patched: the plane's first compose row
+lcf_n:          ld      d, 0            ; patched: rows
+                dec     c               ; RD_DATA
+lcf_call:       call    lr_ent          ; patched: lr_ent, or lre_ent (a right edge)
+lcf_pe:         ld      hl, lcf_dst+2
+                inc     (hl)
+                inc     (hl)            ; the next plane (+ COMPOSE_PLANE)
                 pop     hl
-lpc_r3:         ld      a, (V_ROWS)
-                dec     a
-                ld      (V_ROWS), a
-                jr      nz, lpc_row
-                ; next plane
-                ld      hl, (V_DST)
-                ld      de, COMPOSE_PLANE
+                pop     af
+lcf_ps:         ld      de, 0           ; patched: the plane size
                 add     hl, de
-                ld      (V_DST), hl
-                ld      a, (V_PLANE)
-                inc     a
-                ld      (V_PLANE), a
-                cp      4
+                adc     a, 0
+                ex      af, af'
+                dec     a
                 ret     z
-                ld      hl, (V_ROWOFF)  ; plane base = rowoff [+ psize if mask first] + plane*psize
-                ld      de, (V_PSIZE)
-                ld      c, a
-                ld      a, (ix+5)
-                and     1
-                add     a, c
-                ld      b, a
-lpc_pb:         add     hl, de
-                djnz    lpc_pb
-                jp      lpc_plane
-lp_ini:         jp      0               ; patched: inr_n
-; lp_merge: DE = row start; restore the bits outside the extent from V_OLDL/V_OLDR through V_LM/V_RM
-lp_merge:       ld      a, (V_OLDL)     ; dst = old ^ ((old ^ dst) & LM)
-                ex      de, hl
-                xor     (hl)
-                ld      b, a
-                ld      a, (V_LM)
-                and     b
-                ld      b, a
-                ld      a, (V_OLDL)
-                xor     b
-                ld      (hl), a
+                ex      af, af'
+                jp      lcf_p
+; a left edge (rare): the lle loop, through the same plane loop
+lpc_ledge:      ld      a, (V_RM)
+                ld      (lle_lrm+1), a
+                cpl
+                ld      (lle_lnrm+1), a
                 ld      a, (V_NB)
+                ld      b, a
+                ld      a, CW
+                sub     b
+                ld      (lle_st+1), a   ; 8 - n
+                ld      a, (V_PART)
+                ld      (lle_k+1), a
+                dec     b               ; the first byte through LM, or LM & RM when the row is one byte
+                ld      a, (V_LM)
+                jr      nz, lle_p1
+                ld      hl, V_RM
+                and     (hl)
+lle_p1:         ld      (lle_llm+1), a
+                cpl
+                ld      (lle_lnlm+1), a
+                ld      a, b
+                ld      (lle_n1+1), a   ; n - 1
+                ld      hl, lle_ent
+                jp      lpc_go
+; lle_ent: D rows into HL (8-byte rows), C = RD_DATA: the first byte through LM, the middle ones as read, the last
+; through RM; k = V_PART bytes dropped after each row
+lle_ent:        in      a, (c)
+lle_llm:        and     0               ; patched: LM (or LM & RM)
+                ld      b, a
+                ld      a, (hl)
+lle_lnlm:       and     0               ; patched: ~that
+                or      b
+                ld      (hl), a
+                inc     hl
+lle_n1:         ld      a, 0            ; patched: n - 1
+                or      a
+                jr      z, lle_l3
                 dec     a
+                jr      z, lle_l2
+                ld      b, a
+                inir
+lle_l2:         in      a, (c)          ; the last byte
+lle_lrm:        and     0               ; patched: RM
+                ld      b, a
+                ld      a, (hl)
+lle_lnrm:       and     0               ; patched: ~RM
+                or      b
+                ld      (hl), a
+                inc     hl
+lle_l3:
+lle_k:          ld      a, 0            ; patched: k
+                or      a
+                jr      z, lle_l5
+                ld      b, a
+lle_l4:         in      a, (c)
+                djnz    lle_l4
+lle_l5:
+lle_st:         ld      a, 0            ; patched: 8 - n
                 add     a, l
                 ld      l, a
-                jr      nc, lp_mg1
+                jr      nc, lle_l6
                 inc     h
-lp_mg1:         ld      a, (V_OLDR)
-                xor     (hl)
-                ld      b, a
-                ld      a, (V_RM)
-                and     b
-                ld      b, a
-                ld      a, (V_OLDR)
-                xor     b
-                ld      (hl), a
-                ex      de, hl
+lle_l6:         dec     d
+                jr      nz, lle_ent
                 ret
 
-; masked modes: the mask block (rows x n) is read once into MASKBUF and inverted; for mode 1 each plane
-; block is read into DATABUF; rows are combined with the cm1/cm2/cm3 chains:
+; masked modes (M8a part 20): the mask rows are read once into MASKBUF at the compose rows' own offsets (MASKBUF +
+; (dst & 0x1FF): an 8-byte row stride, a compose byte's mask byte has the same low address byte), inverted as stored;
+; mode 1 then combines each plane's rows straight from the RAM-disk stream (the lmx chain), modes 2 / 3 from MASKBUF
+; (the cm2 / cm3 chains):
 ;   1 masked: dst = (dst & ~m) | data     2 black: dst &= ~m     3 mono: dst |= m where the colour bit is set, else &= ~m
-lpmasked:       ld      a, (V_NB)       ; block size: rows * n, or (rows - 1) * w + n read in one go when the
-                ld      e, a            ; rows are partial (one RAM-disk seek instead of one per row) and it fits
-                ld      a, (V_N)
-                call    mul8            ; HL = rows * n  (mul8: HL = A*E)
-                xor     a
-                ld      (lpm_skip+1), a
-                ld      (lpm_skip2+1), a
-                ld      a, (V_PART)
-                or      a
-                jr      z, lpm_sz
-                ld      a, (V_N)
-                dec     a
-                ld      e, (ix+3)
-                call    mul8
-                ld      a, (V_NB)
-                ld      e, a
-                ld      d, 0
-                add     hl, de          ; (rows - 1) * w + n
-                ld      de, 513
-                or      a
-                sbc     hl, de
-                add     hl, de
-                jr      nc, lpm_rn      ; too big for the buffers: row by row, compacted
-                ld      (lpb_len), hl
-                ld      a, (V_PART)
-                ld      (lpm_skip+1), a
-                ld      (lpm_skip2+1), a
-                jr      lpm_sz
-lpm_rn:         ld      a, (V_NB)
-                ld      e, a
-                ld      a, (V_N)
-                call    mul8
-lpm_sz:         push    hl
+lpmasked:       call    lr_patch        ; the row chains for n = V_NB bytes a row, V_PART bytes dropped after each
+                ld      hl, (V_DST)
+                ld      a, h
+                and     1
+                or      high MASKBUF
+                ld      h, a
+                ld      (lpm_mask), hl  ; the first row's mask
                 ld      hl, (V_ROWOFF)
-                ld      de, MASKBUF
-                call    lp_block
-                pop     hl              ; (the mask plane is stored inverted: used as read)
-                ; chain for this mode / n
-                ld      a, (V_MODE)
-                ld      hl, cm1_table
+                call    far_seek_entry
+                ld      hl, (lpm_mask)
+                ld      a, (V_N)
+                ld      d, a
+                ld      c, RD_DATA
+                call    lr_ent          ; the mask rows into MASKBUF
+lpm_mend:       ld      a, (V_MODE)
                 cp      1
-                jr      z, lpm_t
-                ld      hl, cm2_table
-lpm_t:          ld      a, (V_NB)
+                jr      z, lpx_set
+                xor     a
+                ld      (V_PLANE), a
+                ld      a, (lpm_stride+1)
+                ld      (lpm_skip+1), a ; the mask rows' stride is the compose rows' (8)
+                ld      hl, cm2_table   ; mode 2 (mode 3 picks its chain per plane)
+                ld      a, (V_NB)
                 add     a, a
                 ld      e, a
                 ld      d, 0
@@ -973,65 +752,52 @@ lpm_t:          ld      a, (V_NB)
                 inc     hl
                 ld      a, (hl)
                 ld      (lpm_call+2), a
-                xor     a
-                ld      (V_PLANE), a
+                jr      lpm_plane
+                ; mode 1: combine straight from the RAM-disk stream; the plane loop in registers (A' planes left,
+                ; A:HL the plane's RAM-disk page and address; dst, mask, rows and the plane size patched in)
+lpx_set:        ld      hl, (V_DST)
+                ld      (lpx_dst+1), hl
+                ld      hl, (lpm_mask)
+                ld      (lpx_msk+1), hl
+                ld      hl, (V_PSIZE)
+                ld      (lpx_ps+1), hl
+                ld      a, (V_N)
+                ld      (lpx_n+1), a
+                ld      a, 4
+                ex      af, af'
                 ld      hl, (V_ROWOFF)
                 ld      de, (V_PSIZE)
+                add     hl, de          ; plane 0
+                ld      e, (ix+2)
+                ld      d, (ix+1)
                 add     hl, de
-                ld      (V_POFF), hl    ; plane 0 block
-lpm_plane:      ld      a, (V_MODE)
-                cp      1
-                jr      nz, lpm_nodata
-                ; mode 1: combine straight from the RAM-disk stream (no plane block); a row's unused bytes
-                ; (a piece clipped at the sides) are read and dropped
-                ld      a, (V_NB)
-                add     a, a
-                ld      e, a
-                ld      d, 0
-                ld      hl, cmx_table
+                ld      a, (ix+0)
+                adc     a, 0
+lpx_plane:      out     (RD_PAGE), a
+                ld      b, h
+                ld      c, RD_ADDR
+                out     (c), l
+                push    af
+                push    hl
+lpx_dst:        ld      hl, 0           ; patched: the plane's first compose row
+lpx_msk:        ld      de, 0           ; patched: its mask
+lpx_n:          ld      b, 0            ; patched: rows
+                call    lmx_ent
+lpx_pe:         ld      hl, lpx_dst+2
+                inc     (hl)
+                inc     (hl)            ; the next plane (+ COMPOSE_PLANE)
+                pop     hl
+                pop     af
+lpx_ps:         ld      de, 0           ; patched: the plane size
                 add     hl, de
-                ld      a, (hl)
-                ld      (lpx_call+1), a
-                inc     hl
-                ld      a, (hl)
-                ld      (lpx_call+2), a
-                ld      a, (lpm_stride+1)
-                ld      (lpx_st+1), a
-                ld      a, (lpm_skip+1)
-                ld      (lpx_sk+1), a
-                ld      a, (V_PART)
-                ld      (lpx_dk+1), a
-                ld      hl, (V_POFF)
-                call    far_seek_entry
-                ld      hl, (V_DST)
-                ld      de, MASKBUF
-                ld      c, RD_DATA
-                ld      a, (V_N)
-lpx_row:        ex      af, af'
-lpx_call:       call    0               ; patched: cmx_n
-lpx_st:         ld      a, 0            ; patched: CW - n
-                add     a, l
-                ld      l, a
-                jr      nc, lpx_1
-                inc     h
-lpx_1:
-lpx_sk:         ld      a, 0            ; patched: mask row skip
-                add     a, e
-                ld      e, a
-                jr      nc, lpx_2
-                inc     d
-lpx_2:
-lpx_dk:         ld      b, 0            ; patched: data bytes to drop (w - n)
-                ld      a, b
-                or      a
-                jr      z, lpx_3
-lpx_d:          in      a, (c)
-                djnz    lpx_d
-lpx_3:          ex      af, af'
+                adc     a, 0
+                ex      af, af'
                 dec     a
-                jr      nz, lpx_row
-                jp      lpm_pnext
-lpm_nodata:     cp      3
+                ret     z
+                ex      af, af'
+                jp      lpx_plane
+lpm_plane:      ld      a, (V_MODE)
+                cp      3
                 jr      nz, lpm_rows
                 ; mono: chain = cm3 (set) if the colour has this plane's bit, else cm2 (clear)
                 ld      a, (V_MONO)
@@ -1055,99 +821,204 @@ lpm_t2:         ld      a, (V_NB)
                 ld      a, (hl)
                 ld      (lpm_call+2), a
 lpm_rows:       ld      hl, (V_DST)
-                ld      bc, MASKBUF
-                ld      de, DATABUF
+                ld      bc, (lpm_mask)
                 ld      a, (V_N)
 lpm_row:        ex      af, af'
-lpm_call:       call    0               ; patched: cm?_n  (HL, DE, BC advance by n)
+lpm_call:       call    0               ; patched: cm?_n  (HL, BC advance by n)
                 push    bc
 lpm_stride:     ld      c, 0            ; patched: CW - n
                 ld      b, 0
                 add     hl, bc
                 pop     bc
-lpm_skip:       ld      a, 0            ; patched: source row skip (w - n for strided blocks, else 0)
+lpm_skip:       ld      a, 0            ; patched: CW - n (the mask rows' stride)
                 add     a, c
                 ld      c, a
                 jr      nc, lpm_k1
                 inc     b
-lpm_k1:         ld      a, e
-lpm_skip2:      add     a, 0            ; patched: the same
-                ld      e, a
-                jr      nc, lpm_k2
-                inc     d
-lpm_k2:         ex      af, af'
+lpm_k1:         ex      af, af'
                 dec     a
                 jr      nz, lpm_row
-lpm_pnext:      ; next plane
+                ; next plane
                 ld      hl, (V_DST)
                 ld      de, COMPOSE_PLANE
                 add     hl, de
                 ld      (V_DST), hl
-                ld      hl, (V_POFF)
-                ld      de, (V_PSIZE)
-                add     hl, de
-                ld      (V_POFF), hl
                 ld      hl, V_PLANE
                 inc     (hl)
                 ld      a, (hl)
                 cp      4
                 jp      nz, lpm_plane
                 ret
+lpm_mask:       dw      0               ; MASKBUF + (V_DST & 0x1FF): the mask of the first row
 
-; lp_block: read V_N rows of V_NB bytes from far offset HL (entry IX) into DE; rows are contiguous in far
-; memory when V_PART = 0, else spaced (ix+3) apart.
-lp_block:       ld      (lpb_dst), de
-                ld      a, (lpm_skip+1)
-                or      a
-                jr      nz, lpb_strided
-                ld      a, (V_PART)
-                or      a
-                jr      nz, lpb_part
-                call    far_seek_entry
-                ld      a, (V_NB)
-                ld      e, a
-                ld      a, (V_N)
-                call    mul8            ; HL = rows * n (<= 512)
-lpb_read:       ex      de, hl
-                ld      hl, (lpb_dst)
-                ld      c, RD_DATA
-                ld      a, d
-                or      a
-                jr      z, lpb_rem
-lpb_full:       ld      b, 0
-                inir                    ; 256 bytes
-                dec     a
-                jr      nz, lpb_full
-lpb_rem:        ld      a, e
-                or      a
-                ret     z
+; ---------------------------------------------------------------- row chains (M8a part 20)
+; lr_patch: set the chains below for rows of n = V_NB bytes (1..8) with k = V_PART bytes (0..7: pieces up to 8 bytes
+; wide) read and dropped after each row (a piece clipped at the sides); kept while n and k stay the same
+lr_patch:       ld      a, (V_NB)
+                ld      hl, lr_kn
+                cp      (hl)
+                jr      z, lrp_k
+                ld      (hl), a
                 ld      b, a
-                inir
-                ret
-lpb_part:       ld      (lpb_off), hl
-                ld      a, (V_N)
-lpb_prow:       ex      af, af'
-                ld      hl, (lpb_off)
-                call    far_seek_entry
-                ld      hl, (lpb_off)
-                ld      e, (ix+3)
+                ld      a, CW
+                sub     b               ; 8 - n
+                ld      (lr_k+1), a
+                ld      c, a
+                inc     a
+                ld      (lmx_k+1), a    ; 9 - n
+                ld      a, c
+                add     a, a
+                ld      e, a
                 ld      d, 0
+                ld      hl, lr_8
                 add     hl, de
-                ld      (lpb_off), hl
-                ld      hl, (lpb_dst)
-                ld      c, RD_DATA
-                call    lp_ini
-                ld      (lpb_dst), hl
-                ex      af, af'
-                dec     a
-                jr      nz, lpb_prow
+                ld      (lr_ent+1), hl  ; lr_n = lr_8 + 2 (8 - n): every row
+                ld      (lr_lp+1), hl
+                ld      (lr_lp2+1), hl
+                ld      a, c
+                add     a, a
+                add     a, a
+                add     a, a
+                add     a, c            ; 9 (8 - n)
+                ld      e, a
+                ld      hl, lmx_8
+                add     hl, de
+                ld      (lmx_ent+1), hl ; lmx_n = lmx_8 + 9 (8 - n)
+                ld      a, 256 + lmx_8 - lmx_lp - 2
+                add     a, e
+                ld      (lmx_lp+1), a   ; (djnz lmx_n)
+                ld      a, 256 + lmx_8 - lmx_lp2 - 2
+                add     a, e
+                ld      (lmx_lp2+1), a
+lrp_k:          ld      a, (V_PART)
+                ld      hl, lr_kk
+                cp      (hl)
+                ret     z
+                ld      (hl), a
+                add     a, a
+                ld      e, a            ; 2 k
+                ld      d, 0
+                ld      hl, lr_k
+                or      a
+                sbc     hl, de
+                ld      (lr_dj+1), hl   ; k drops before the next row
+                ld      hl, lmx_step
+                sbc     hl, de
+                ld      (lmx_dj+1), hl
                 ret
-lpb_strided:    call    far_seek_entry  ; partial rows read whole: rows lie w apart in the buffer too
-                ld      hl, (lpb_len)
-                jr      lpb_read
-lpb_dst:        dw      0
-lpb_off:        dw      0
-lpb_len:        dw      0               ; bytes of a strided block: (rows - 1) * w + n
+lr_kn:          db      0xff            ; the n of the chains' patch
+lr_kk:          db      0xff            ; the k
+
+; lr_ent: D rows of n bytes into HL (8-byte rows in a 512-byte aligned buffer), C = RD_DATA; k bytes dropped after
+; each row (the rest of a clipped row and the next one's start)
+lr_ent:         jp      0               ; patched: lr_n
+lr_8:           rept    8
+                ini
+                endm
+lr_dj:          jp      0               ; patched: lr_k - 2 k
+                rept    7
+                in      a, (RD_DATA)
+                endm
+lr_k:           ld      a, 0            ; (patched: 8 - n) the next row
+                add     a, l
+                ld      l, a
+                jr      c, lr_pg
+                dec     d
+lr_lp:          jp      nz, 0           ; patched: lr_n
+                ret
+lr_pg:          inc     h
+                dec     d
+lr_lp2:         jp      nz, 0           ; patched: lr_n
+                ret
+; lre_patch: the lre chain for rows of n = V_NB bytes whose last one keeps the compose bits outside V_RM, k = V_PART
+; dropped after each row (copy mode, a piece's partial last column visible; patched at every use)
+lre_patch:      ld      a, (V_RM)
+                ld      (lre_rm+1), a
+                cpl
+                ld      (lre_nrm+1), a
+                ld      a, (V_NB)
+                ld      b, a
+                ld      a, CW
+                sub     b               ; 8 - n
+                ld      (lre_k+1), a
+                add     a, a
+                ld      e, a
+                ld      d, 0
+                ld      hl, lre_8
+                add     hl, de
+                ld      (lre_ent+1), hl ; lre_8 + 2 (8 - n): n - 1 INIs
+                ld      (lre_lp+1), hl
+                ld      (lre_lp2+1), hl
+                ld      a, (V_PART)
+                add     a, a
+                ld      e, a
+                ld      hl, lre_k
+                or      a
+                sbc     hl, de
+                ld      (lre_dj+1), hl
+                ret
+; lre_ent: as lr_ent, the row's last byte merged: dst = (dst & ~RM) | (data & RM)
+lre_ent:        jp      0               ; patched: lre_n
+lre_8:          rept    7
+                ini
+                endm
+                in      a, (RD_DATA)
+lre_rm:         and     0               ; patched: RM
+                ld      b, a
+                ld      a, (hl)
+lre_nrm:        and     0               ; patched: ~RM
+                or      b
+                ld      (hl), a
+                inc     hl
+lre_dj:         jp      0               ; patched: lre_k - 2 k
+                rept    7
+                in      a, (RD_DATA)
+                endm
+lre_k:          ld      a, 0            ; (patched: 8 - n) the next row
+                add     a, l
+                ld      l, a
+                jr      c, lre_pg
+                dec     d
+lre_lp:         jp      nz, 0           ; patched: lre_n
+                ret
+lre_pg:         inc     h
+                dec     d
+lre_lp2:        jp      nz, 0           ; patched: lre_n
+                ret
+; lmx_ent: B rows of n bytes: HL = compose row, DE = its mask (E = L), dst = (dst & ~m) | data from the RAM disk;
+; k bytes dropped after each row
+lmx_ent:        jp      0               ; patched: lmx_n
+lmx_8:          rept    7
+                ld      a, (de)
+                and     (hl)
+                ld      c, a
+                in      a, (RD_DATA)
+                or      c
+                ld      (hl), a
+                inc     l
+                inc     e
+                endm
+                ld      a, (de)         ; the row's last byte
+                and     (hl)
+                ld      c, a
+                in      a, (RD_DATA)
+                or      c
+                ld      (hl), a
+lmx_dj:         jp      0               ; patched: lmx_step - 2 k
+                rept    7
+                in      a, (RD_DATA)
+                endm
+lmx_step:       ld      a, l
+lmx_k:          add     a, 0            ; patched: 9 - n (the next row)
+                ld      l, a
+                ld      e, a
+                jr      c, lmx_pg
+lmx_lp:         djnz    lmx_lp          ; patched: lmx_n
+                ret
+lmx_pg:         inc     h
+                inc     d
+lmx_lp2:        djnz    lmx_lp2         ; patched: lmx_n
+                ret
 
 ; ---------------------------------------------------------------- black fill of a sub-rect of the compose buffer
 ; In: B = px, C = py, D = w (bytes), E = h  (screen coordinates); clipped to the compose rect

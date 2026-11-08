@@ -1020,3 +1020,14 @@ piece used AND/XOR semantics.
    pattern, a room change +0.18 of work (42 patterns in perfcheck's), -0.08 of harness-only work a tick; perfcheck
    room change 106.06 -> 106.17 (512 KB), 106.07 -> 106.58 (1 MB, beam), 105.57 -> 105.56 (16 MB); the other stretches
    equal or up to 0.09 faster (the harness's trace_cksum gone), baselines lowered there.
+64. M8a part 20, faster piece laying (2026-11-08, docs/perf.md "M8a part 20: faster piece laying"; step 1 of the speed
+   roadmap, the piece data format unchanged): lay_piece16's rows by unrolled chains with patched entries (gfx.asm):
+   masked rows lmx_ent (the mask rows read once into MASKBUF at the compose rows' offsets, so E = L; `IN A,(n)`, `inc l` /
+   `inc e`, a drop chain for clipped pieces, `djnz`: 48 T a byte + ~41 a row, was 53 + 128), copy and mask rows by an
+   INI chain lr_ent (16 T a byte + ~46 a row, was INIR 21 + 65), right-edge rows lre_ent, the plane loops and the
+   piece setup in registers; the cmx / cm1 / inr chains, lpc_gen / lp_merge, lp_block and the INIR copy rows removed.
+   The prototype (masked rows alone, 1 MB): walk_level1 89 -12.0, l04r04 -8.6. Built: the room change -13..-21 frames
+   on every size (perfcheck's 106.6 -> 88.3 at 1 MB, 106.2 -> 88.3 at 512 KB, 105.6 -> 87.5 at 16 MB; l10r01 116 ->
+   96); in play the normal tick -0.20..-0.26, the fight -0.20..-0.29, traps -0.21..-0.23 (baselines lowered).
+   Resident: main -1,021 bytes (1,318 free), low RAM 0x0E00-0x0FFF (DATABUF) freed; nothing in overlays or the
+   0x0500 low RAM. Pixel-exact: m3_test every room of levels 1-14, m3_anim_test, m4_game --every 1 (see the PR).
