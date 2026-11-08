@@ -108,11 +108,31 @@ def composite(rr, room, spr, kidset):
     return rr.paint()
 
 GUARDS_OFF = dict(guards=False, place=[], sword=False)
+def remove_copy(p):
+    if os.path.exists(p):
+        os.remove(p)
+def mount_disk(e):
+    """a copy of the game disk in drive 0 (M8a part 22: the game reads a level's precomputed room lists, POP800.RLS, at
+    the level's first room draw; mz800emu writes a mounted image back, so each run gets its own copy).
+    POP800_RL_DISK=0: no disk (the game draws every room with room_ops, the path before part 22)."""
+    if os.environ.get('POP800_RL_DISK', '1') == '0':
+        return
+    import atexit, shutil
+    src = os.path.join(ROOT, 'build', 'pop800.dsk')
+    if not os.path.exists(src):
+        raise SystemExit('tests/m4_game.py: build/pop800.dsk is missing (make build/pop800.dsk, or POP800_RL_DISK=0)')
+    d = os.path.join(ROOT, 'build', 'testdisk')
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, 'pop800_%d_%d.dsk' % (os.getpid(), id(e)))
+    shutil.copy(src, p)
+    atexit.register(remove_copy, p)     # (only this copy; the emulator has closed it by then)
+    e.call('media_insert', slot='fdc0_fd0', path=p, ro=True)
 def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     """RAM disk in game.asm's layout, the RAM directories, the level number, the guard options (guard.asm guard_opts;
     default: guards off, as the m4 scripts and tools/perfcheck.py are recorded) and the level-event options (guard.asm
     ev_opts: '# start', '# time'). Returns the symbols."""
     e.run_mzf(os.path.join(ROOT, 'build', 'm4game.mzf'))
+    mount_disk(e)
     rd = lambda n: open(os.path.join(A, n), 'rb').read()
     write_pack(e, rd('dungeon.pack'), 0, 0)
     write_pack(e, rd('dungeon_wall.pack'), 1, 0x8000)
@@ -149,6 +169,7 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_btn.bin'), 'rb').read(), S['OVL_BTN_PAGE'], S['OVL_BTN_RD'])  # the button overlay
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_door.bin'), 'rb').read(), S['OVL_DOOR_PAGE'], S['OVL_DOOR_RD'])  # the door overlay
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_frm.bin'), 'rb').read(), S['OVL_FRM_PAGE'], S['OVL_FRM_RD'])  # the frames overlay
+    write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_gleave.bin'), 'rb').read(), S['OVL_GLEAVE_PAGE'], S['OVL_GLEAVE_RD'])  # the guard-leave overlay
     e.call('mem_write', addr=S['level_number'], data_hex='%02x' % lv)
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(opts).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(opts).hex())

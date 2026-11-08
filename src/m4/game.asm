@@ -432,6 +432,14 @@ beam_lines:     di
                 include "../m4/sndobj.asm"
                 include "../m4/fslook.asm"
                 include "../m4/spike.asm"
+RL_ON           equ     1               ; M8a part 22: precomputed room lists (src/m3/rlists.asm; roomfull.asm draw_room_full)
+RL_LEVEL        equ     level_number
+RL_BP_PAGE      equ     RD_LV_PAGE
+RL_BP_ADDR      equ     RD_LV_ADDR
+RL_LOWCODE      equ     0x0500          ; rl_cmp in low RAM (src/m4/rllow.asm; 0x0500-0x077F, M8a part 19's free place)
+RL_LOWN         equ     0x280           ; its size at most
+RL_LOWBLK       equ     3               ; POP800.RLS's first blocks hold its image (tools/roomlists.py, mkgamedisk.py)
+                include "../m3/rlists.asm"
                 include "../m4/ovl.asm"
 end_of_code:
                 if end_of_code > OVL_W1

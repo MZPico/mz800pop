@@ -455,7 +455,18 @@ ro_b2:          add     a, a
                 ld      (bkt_on), a
                 ret
 
-; draw room A completely
-draw_room_full: call    room_ops
+; draw room A completely (RL_ON, M8a part 22: the room's precomputed lists read back and patched, src/m3/rlists.asm;
+; room_ops when the level has none)
+draw_room_full:
+                if defined RL_ON
+                push    af
+                call    rl_load
+                jr      c, drf_ops
+                pop     af
+                call    rl_regen                ; (rl_load built the slice tables)
+                jp      run_ops
+drf_ops:        pop     af
+                endif
+                call    room_ops
                 jp      run_ops
 

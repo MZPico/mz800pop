@@ -800,3 +800,15 @@ compared: tests/m5_boot.py RUNTIME_SCRATCH). By size: 16 MB page 62 0x0000-0x5FF
 pages 0-7 (15 x 960 + 5 x 648 bytes: page 4 0xE000-0xFDFF, page 0 0xE868 and 0xFC00, page 6 0x2880, 0xF964 and
 0xFD24, page 1 0xDA58, 0xFC5C and 0x7D00, page 5 0x3AD0); the overlay's own image is in page 0 0xA400. Every chopper
 room has all its pictures on every size; the rooms with 3-4 spikes get 20 of their 23-24 on 512 KB and 1 MB.
+
+## 15. M8a part 22: the precomputed room lists (2026-11-08)
+
+The level's room-list blob (tools/roomlists.py; docs/perf.md "M8a part 22: precomputed room lists") lives in page 6
+0x16C0-0x287F (4,544 bytes; the blobs are 1.9-4.3 KB) on **every size**: the same place on 512 KB, 1 MB and 16 MB, in
+pages 0-7, so nothing of the frame store (pages 8+), part 15's picture slots or the 1 MB guard region is taken. The
+place is runtime data and PRES's scratch (its sound bank overwrites 0x0000-0x287F), so the game fetches the blob from
+the floppy (POP800.RLS) at the first room draw of a level and after every game start (rl_lv in the program image is 0);
+a restart of the same level (death, Ctrl+A) keeps it. The canonical tiles the stored lists were built for are not
+stored: the compare reads the level's blueprint (page 5 0x4000, as load_level does) and applies alter_mods' rule. 16 MB
+could keep every level's blob (14 x 4.3 KB, page 62 0x6000 on) and fetch each once a session; not built (only a level's first room draw pays the fetch: 18.6 frames in the emulator, 22 sectors with the
+directory; on a drive the motor's start and three seeks, an estimated ~1 s).

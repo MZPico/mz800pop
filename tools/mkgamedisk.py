@@ -46,6 +46,7 @@ BAR = 32                    # progress bar width in bytes
 NPAGES = 8
 SAVE_NAME = 'POP800.SAV'  # the saved game (src/m4/save.asm)
 PRS_NAME = 'POP800.PRS'   # the presentation program and its scenes (M7)
+RLS_NAME = 'POP800.RLS'   # (M8a part 22) the levels' precomputed room lists
 PR2_NAME = 'POP800.PR2'   # (M7 step 7) POP800.PRS's continuation: the next blocks on the disk (see prs_file)
 # the GAME image's pieces in the RAM disk: (page, start, end); the first must be launch.inc's GAME_RD_PAGE:GAME_RD_ADDR.
 # Pages 3 and 4 hold only fixed art packs (the kid, the palace environment) whatever M8a does with the guard sets.
@@ -106,6 +107,7 @@ def ramdisk_writes():
     w.append((S['OVL_BTN_PAGE'], S['OVL_BTN_RD'], open(os.path.join(B, 'ovl_btn.bin'), 'rb').read()))  # the button overlay
     w.append((S['OVL_DOOR_PAGE'], S['OVL_DOOR_RD'], open(os.path.join(B, 'ovl_door.bin'), 'rb').read()))  # the door overlay
     w.append((S['OVL_FRM_PAGE'], S['OVL_FRM_RD'], open(os.path.join(B, 'ovl_frm.bin'), 'rb').read()))  # the frames overlay
+    w.append((S['OVL_GLEAVE_PAGE'], S['OVL_GLEAVE_RD'], open(os.path.join(B, 'ovl_gleave.bin'), 'rb').read()))  # the guard-leave overlay
     return w
 
 def launcher_syms():
@@ -360,6 +362,13 @@ def main():
         p = os.path.join(B, 'pop800_%s.mzf' % name[-3:].lower())
         open(p, 'wb').write(mzf(name, part, ftype=0x04))
         run('mzdsk-fsmz', out, 'put', p)
+    names.append(RLS_NAME)              # M8a part 22: the levels' room lists (tools/roomlists.py; src/m4/save.asm rl_fetch_h)
+    p = os.path.join(B, 'pop800_rls.mzf')
+    low = open(os.path.join(B, 'rllow.bin'), 'rb').read(); S = syms(os.path.join(B, 'm4game.sym'))
+    assert len(low) <= 256 * S['RL_LOWBLK'] and len(low) <= S['RL_LOWN'], 'the room lists\' low code: %d bytes' % len(low)
+    rls = low.ljust(256 * S['RL_LOWBLK'], b'\0') + open(os.path.join(B, 'assets', 'rlists_rls.bin'), 'rb').read()
+    open(p, 'wb').write(mzf(RLS_NAME, rls, ftype=0x04))
+    run('mzdsk-fsmz', out, 'put', p)
     d = json.loads(run('mzdsk-fsmz', '-o', 'json', out, 'dir'))
     fb = {f['name']: f for f in d['files']}
     if PR2_NAME in fb:                  # the launcher reads POP800.PRS's entries as blocks counted from its first one

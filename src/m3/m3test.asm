@@ -7,6 +7,8 @@ ROOM_REQ        equ     VARS + 8        ; room to draw (set by the harness)
 OPS_ONLY        equ     VARS + 9        ; 1 = only build the op list, 2 = tile_redraw(TILE_REQ) from `again`
 TILE_REQ        equ     VARS + 10
 TILE_FRAME      equ     VARS + 11
+RL_TLEVEL       equ     VARS + 12       ; 4 = the precomputed lists (src/m3/rlists.asm) of level RL_TLEVEL, room ROOM_REQ
+RL_FAIL         equ     VARS + 13       ; (rl_load said none: 1)
 VECTAB          equ     0xfe00
 STACK           equ     0xfe00
 PORT_DMD        equ     0xce
@@ -25,6 +27,8 @@ start:          di
                 call    tables_init
                 call    alter_mods
 again:          ld      a, (OPS_ONLY)
+                cp      4
+                jr      z, rl_req
                 cp      2
                 jr      nc, tile_req
                 ld      a, (ROOM_REQ)
@@ -34,6 +38,16 @@ ops_done:       ld      a, (OPS_ONLY)
                 jr      nz, draw_done
                 call    run_ops
 draw_done:      nop                     ; harness breakpoint; it sets ROOM_REQ and PC = again for the next room
+                jr      draw_done
+rl_req:         xor     a               ; 4: the room's lists read back and patched (roomfull.asm draw_room_full's RL_ON
+                ld      (RL_FAIL), a    ; path without run_ops); the harness put the blob and the blueprint in the RAM disk
+                ld      a, (ROOM_REQ)
+                call    rl_load
+                jr      c, rl_none
+                call    rl_regen
+                jr      draw_done
+rl_none:        ld      a, 1
+                ld      (RL_FAIL), a
                 jr      draw_done
 tile_req:       ld      a, (OPS_ONLY)
                 cp      3
@@ -83,6 +97,12 @@ video_init:     ld      a, 0x02
                 include "../m3/room.asm"
                 include "../m3/roomfull.asm"
                 include "../m3/altmods.asm"
+RL_LEVEL        equ     RL_TLEVEL
+RL_BP_PAGE      equ     5               ; (the harness writes the level's blueprint there, as the game has it)
+RL_BP_ADDR      equ     0x4000
+rl_fetch:       or      1               ; (the harness writes the blob and sets rl_lv)
+                ret
+                include "../m3/rlists.asm"
 rr_bkt_ent      equ     rr_bkt          ; (the M4 game: the room overlay's entry)
 end_of_code:
                 if end_of_code > 0x8000

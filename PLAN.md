@@ -1041,3 +1041,35 @@ piece used AND/XOR semantics.
    (1,335 free). Tick-exact: m4_test all 74 scripts, m4_game --every 1 (see the PR). Also measured and dropped by the
    user: step 3, the VRAM copy (docs/perf.md "Step 3 (the VRAM copy): measured and dropped"; PUSH waits on the GDG,
    the banded LDI copy -2.5 frames a room change for ~680 bytes and a 16-row mixed-plane strip).
+66. M8a part 22, precomputed room lists (2026-11-09, docs/perf.md "M8a part 22: precomputed room lists"; step 2 of the
+   speed roadmap, option A of R1). How it works:
+   - tools/roomlists.py builds every room's op lists at build time, with popdata.py's renderer plus the tile tags, for
+     the level's canonical state (load_level's tiles, potions at bubble frame 1). A level is one 1.9-4.3 KB blob:
+     records relative to their tile, a group dictionary, and per room 40 + 40 group ids plus the mid list's pairs.
+   - On the floppy the blobs are POP800.RLS: 144 blocks, PZ chunks, with the compare's low code in the first 3 blocks.
+   - The save overlay's new rl_fetch_h loads the level's blob into RAM-disk page 6 0x16C0-0x287F at the level's first
+     room draw. The place is the same on every size; a restart of the same level keeps the blob.
+   - At a room draw, draw_room_full runs:
+     - rl_cmp (low RAM 0x0500): compares the 64 tiles the lists read with the blueprint after alter_mods' rule;
+     - rl_dec: decodes the lists, tags, counts and slice tables, and patches flame and bubble ids in place;
+     - rl_regen: tile_regen for each other changed tile.
+   - Without the floppy the game falls back to room_ops.
+
+   Results:
+   - The room change is 2.5-8.6 frames faster on every size. perfcheck's room change goes 88.3 -> 81.3 at 1 MB,
+     88.3 -> 81.3 at 512 KB and 87.3 -> 80.3 at 16 MB.
+   - R1 estimated -8.4..-13.2. The difference is the read-back's 3.0-3.7 frames, of which the decode with the slice
+     tables is 1.9-2.4, plus the patch's ~0.5 a changed tile.
+   - The level's first room pays the fetch: 18.6 frames in the emulator, an estimated ~1 s on a drive.
+
+   Costs:
+   - main -772 B (563 free);
+   - low RAM 0x0500-0x077F 604 of 640 B, plus runtime data at 0x0E00-0x0F23;
+   - room overlay +22 B, save overlay +398 B;
+   - the guard-leave overlay's image moved to page 6 0xE280;
+   - floppy 68 blocks left free.
+
+   Exactness:
+   - the new tests/m3_lists.py: all 316 rooms in canonical, load and random states, 2,528 states, 0 differing;
+   - m4_game --every 1 on 30 scripts at 3 sizes: 0 differences;
+   - m5_boot, m7_launch: see the PR.

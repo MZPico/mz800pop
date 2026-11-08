@@ -110,7 +110,8 @@ FULL = {
         ('m3 build', ['make', '-s', 'build/m3test.mzf', 'build/m3demo.mzf']),
     ] + [('m3_test %d' % lv, [PY, 'tests/m3_test.py', str(lv)]) for lv in range(1, 15)]
       + [('m3_anim %d' % lv, [PY, 'tests/m3_anim_test.py', str(lv)]) for lv in range(1, 7)]
-      + [('m3_demo', [PY, 'tests/m3_demo.py'])],
+      + [('m3_demo', [PY, 'tests/m3_demo.py'])]
+      + [('m3_lists %d' % lv, [PY, 'tests/m3_lists.py', str(lv)]) for lv in range(1, 15)],
     'early-anim': [('m3 build', ['make', '-s', 'build/m3test.mzf'])]
       + [('m3_anim %d' % lv, [PY, 'tests/m3_anim_test.py', str(lv)]) for lv in range(7, 15)],
 }
@@ -192,17 +193,18 @@ PROGRAMS = {
     'tests/m1_test.py': dict(build=[M1], expect=20),
     'tests/m3_test.py': dict(build=[M3, ASSETS_ALL], isolation='scratch', expect=40),
     'tests/m3_anim_test.py': dict(build=[M3, ASSETS_ALL], isolation='scratch', expect=90),
+    'tests/m3_lists.py': dict(build=[M3, ASSETS_ALL], isolation='scratch', expect=60),
     'tests/m3_demo.py': dict(build=[M3DEMO, ASSETS_ALL], expect=30),
     'tests/m4_test.py': dict(build=[M4TEST, ASSETS_GAME], by_script=True, expect=20),
     'build/cheat/tests/m4_test.py': dict(build=[M4TEST, ASSETS_GAME], by_script=True, expect=20),
     'tools/oracle_suite.py': dict(build=[ASSETS_GAME], uses={'sdlpop'}, by_script=True, expect=30),
-    'tests/m4_game.py': dict(build=[M4GAME, ASSETS_GAME], by_script=True, expect=60),
+    'tests/m4_game.py': dict(build=[DISK, M4GAME, ASSETS_ALL], by_script=True, expect=60),
     'tools/cut_suite.py': dict(build=[ASSETS_ALL], uses={'sdlpop'}, expect=10),
-    'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
-    'tests/m8_pace.py': dict(build=[M4GAME, ASSETS_GAME],
+    'tools/perfcheck.py': dict(build=[DISK, M4GAME, ASSETS_ALL], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
+    'tests/m8_pace.py': dict(build=[DISK, M4GAME, ASSETS_ALL],
                              split=lambda: [([s], {}) for s in sorted(literal('tests/m8_pace.py', 'STRETCHES'))], expect=120),
-    'tests/m8_fstore.py': dict(build=[M4GAME, ASSETS_GAME], expect=30),
-    'tests/m7_sound.py': dict(build=[M4GAME, ASSETS_ALL], uses={'emu', 'pasmo'}, expect=400),
+    'tests/m8_fstore.py': dict(build=[DISK, M4GAME, ASSETS_ALL], expect=30),
+    'tests/m7_sound.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'pasmo'}, expect=400),
     'tests/m5_boot.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=90),
     'tests/m5_save.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=40),
     'tests/m7_launch.py': dict(build=[DISK, M4GAME, ASSETS_ALL],
@@ -213,5 +215,5 @@ PROGRAMS = {
                               split=[([p], {}) for p in ('title', 'expired', 'ending', 'keys', 'late', 'flow')], expect=300),
     'tests/m7_keys.py': dict(build=[DISK, M4GAME, ASSETS_ALL, CHEAT_KEYS], uses={'emu', 'mzdisk'},
                              split=[([p], {}) for p in ('texts', 'sound', 'pause', 'levels', 'launched', 'release')], expect=90),
-    'build/cheat/tests/m7_keys.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/m7_scripts/death_music.txt'], expect=60),
+    'build/cheat/tests/m7_keys.py': dict(build=[DISK, M4GAME, ASSETS_ALL], data=['tests/m7_scripts/death_music.txt'], expect=60),
 }

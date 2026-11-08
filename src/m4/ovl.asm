@@ -58,6 +58,9 @@ OVL_BTN_PAGE    equ     6               ; the button overlay's image: its own pl
 OVL_BTN_RD      equ     0xf200          ; cheat build's keys overlay), after the fill overlay's (written by the same writers)
 OVL_DOOR_PAGE   equ     6               ; the door overlay's image: its own place too
 OVL_DOOR_RD     equ     0xf600
+OVL_GLEAVE_PAGE equ     6               ; the guard-leave overlay's image: its own place too (M8a part 22: page 7's area
+OVL_GLEAVE_RD   equ     0xe280          ; holds the save overlay's room-list fetch), page 6 0xE280-0xE3FF
+OVL_GLEAVE_LAST equ     0xe3ff
 OVL_FRM_PAGE    equ     0               ; the frames overlay's image: its own place too (page 0 0xA400-0xA7FF)
 OVL_FRM_RD      equ     0xa400
 
@@ -73,6 +76,9 @@ set_flip:       push    af              ; A = UPSIDE: blit and the copy schedule
                 call    ovl_w1
                 pop     af
                 jp      OVL_W1 + 6
+rl_fetch:       ld      a, OVL_SAVE     ; the level's precomputed room lists from the floppy (src/m4/save.asm rl_fetch_h;
+                call    ovl_w2          ; from the room draw: rlists.asm rl_load). Z = loaded
+                jp      OVL_W2 + 6
 text_draw:      ld      a, OVL_TEXT     ; the bottom text as the state says (src/m4/text.asm)
                 call    ovl_w2
                 jp      OVL_W2 + 0

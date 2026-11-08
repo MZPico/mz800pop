@@ -193,8 +193,11 @@ sv_ts:          ld      hl, (sv_blk)
                 rra
                 ret
 
-; sv_find: drive 0 on (wait for READY), the directory read, sv_blk = POP800.SAV's start block. Z = found.
-sv_find:        ld      a, 0x84                 ; drive 0, motor on (the loader's fd_init)
+; sv_find: drive 0 on (wait for READY), the directory read, sv_blk = POP800.SAV's start block (sv_findn: HL = the
+; name, 11 bytes). Z = found.
+sv_find:        ld      hl, sv_name
+sv_findn:       ld      (sv_np), hl
+                ld      a, 0x84                 ; drive 0, motor on (the loader's fd_init)
                 out     (FD_MOTOR), a
                 ld      hl, 0
 sf_rdy:         in      a, (FD_CMD)             ; READY: status bit 7 low (inverted bus)
@@ -224,7 +227,7 @@ sf_ent:         push    bc
                 or      a
                 jr      z, sf_next
                 inc     hl
-                ld      de, sv_name
+                ld      de, (sv_np)
                 ld      b, 11
 sf_cmp:         ld      a, (de)
                 cp      (hl)
@@ -263,10 +266,13 @@ sio_1:          push    bc
                 or      a
                 ld      a, c
                 jr      z, sio_r
+                di
                 call    fd_write
                 jr      sio_2
-sio_r:          call    fd_read
-sio_2:          jr      z, sio_ok
+sio_r:          di                      ; (sv_ei: interrupts on again after each transfer, the room-list fetch)
+                call    fd_read
+sio_2:          call    sio_ei
+                jr      z, sio_ok
                 ld      a, 0x0b                 ; restore, then seek again
                 call    fd_type1
                 ld      a, 0xff
@@ -284,6 +290,157 @@ sio_ok:         pop     af
                 pop     bc
                 xor     a
                 ret
+sio_ei:         push    af                      ; keeps the flags
+                ld      a, (sv_ei)
+                or      a
+                jr      z, sie_1
+                ei
+sie_1:          pop     af
+                ret
+
+; ---------------------------------------------------------------- the level's room lists (M8a part 22)
+                if defined RL_ON                ; (the game's save overlay; PRES includes this file for load_saved)
+; rl_fetch_h: the blob of the level (level_number) from POP800.RLS into the RAM disk (src/m3/rlists.asm RL_PAGE:RL_BASE).
+; Called from the room draw (rlists.asm rl_load) at the first room of a level. The file holds per level its PZ chunks
+; (tools/roomlists.py: each unpacks to at most 2 KB of the blob), the block table is build/assets/rlists.inc. The
+; interrupts stay on but for the sector transfers (the music plays on). Z = the blob is in the RAM disk.
+RL_PZBUF        equ     OVL_W2 + 0x500          ; the level's packed blocks (11 at most: to the window's end)
+RL_UNBUF        equ     0x9000                  ; a chunk unpacked (the op lists' place: the room draw rebuilds them)
+rl_fetch_h:     ld      a, (level_number)
+                dec     a
+                cp      14
+                jp      nc, rfe_no
+                add     a, a
+                add     a, a
+                ld      e, a
+                ld      d, 0
+                ld      ix, rl_disk
+                add     ix, de
+                ld      a, 1
+                ld      (sv_ei), a
+                ld      hl, rl_name
+                call    sv_findn
+                jp      nz, rfe_err
+                ld      hl, (sv_blk)            ; the file's first blocks: the compare's low code (src/m4/rllow.asm)
+                push    hl
+                ld      b, RL_LOWBLK
+                ld      hl, RL_UNBUF
+                call    rfe_read
+                pop     de
+                jp      nz, rfe_err
+                ld      l, (ix + 0)             ; the level's first block
+                ld      h, (ix + 1)
+                add     hl, de
+                ld      (sv_blk), hl
+                ld      b, (ix + 2)             ; blocks
+                ld      hl, RL_PZBUF
+                call    rfe_read
+                jp      nz, rfe_err
+                ld      hl, RL_UNBUF            ; the low code to its place
+                ld      de, RL_LOWCODE
+                ld      bc, RL_LOWN
+                ldir
+                xor     a
+                ld      (sv_ei), a
+                call    sv_off
+                ld      hl, RL_PZBUF            ; the chunks: unpacked, written to the RAM disk
+                ld      de, RL_BASE
+                ld      b, (ix + 3)
+rfe_ch:         push    bc
+                push    de
+                ld      de, RL_UNBUF
+                call    unpz                    ; DE = the chunk's end, HL = the next packed chunk
+                pop     bc                      ; BC = the chunk's RAM-disk address
+                push    hl
+                push    bc
+                ex      de, hl
+                ld      de, RL_UNBUF
+                or      a
+                sbc     hl, de
+                push    hl                      ; its length
+                ld      e, c
+                ld      d, b
+                ld      a, RL_PAGE
+                call    far_seek
+                pop     de
+                ld      hl, RL_UNBUF
+                ld      c, RD_DATA
+rfe_o1:         ld      a, d
+                or      a
+                jr      z, rfe_o2
+                ld      b, 0
+                otir
+                dec     d
+                jr      rfe_o1
+rfe_o2:         ld      a, e
+                or      a
+                jr      z, rfe_o3
+                ld      b, a
+                otir
+rfe_o3:         pop     de                      ; the next chunk's RAM-disk address: + 2 KB
+                ld      hl, 0x800
+                add     hl, de
+                ex      de, hl
+                pop     hl                      ; the next packed chunk
+                pop     bc
+                djnz    rfe_ch
+                xor     a
+                ret
+; rfe_read: sv_blk = the first block, B = blocks, HL = the buffer: read a track's run at a time. Z = ok
+rfe_read:
+rfe_run:        push    hl
+                push    bc
+                call    sv_ts                   ; A = track, E = sector
+                pop     bc
+                ld      c, a
+                ld      a, 17
+                sub     e                       ; the sectors left on the track
+                cp      b
+                jr      c, rfe_r1
+                ld      a, b
+rfe_r1:         ld      d, a                    ; D = this run's sectors
+                pop     hl
+                push    bc
+                push    de
+                push    hl
+                ld      a, c
+                call    sv_io
+                pop     hl
+                pop     de
+                pop     bc
+                ret     nz
+                ld      a, b                    ; blocks left
+                sub     d
+                ld      b, a
+                ld      e, d
+                ld      d, 0
+                push    hl
+                ld      hl, (sv_blk)
+                add     hl, de
+                ld      (sv_blk), hl
+                pop     hl
+                ld      a, h                    ; the buffer: + the run's 256-byte sectors
+                add     a, e
+                ld      h, a
+                ld      a, b
+                or      a
+                jr      nz, rfe_run
+                ret
+rfe_err:        xor     a
+                ld      (sv_ei), a
+                call    sv_off
+rfe_no:         or      1
+                ret
+                include "../boot/unpz.asm"
+                include "../../build/assets/rlists.inc"
+                if RL_DISK_LOW - RL_LOWBLK
+                .error tools/roomlists.py's LOW_BLOCKS and game.asm's RL_LOWBLK differ
+                endif
+rl_name:        db      "POP800.RLS", 0x0d
+up_neg:         dw      0
+                endif
+sv_ei:          db      0
+sv_np:          dw      0
 
                 include "../boot/fdc.asm"
 sv_magic:       db      "POP8", 1

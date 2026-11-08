@@ -4,6 +4,10 @@ PASMO ?= pasmo$(if $(CHEATS), --equ CHEATS=1)$(if $(PACE), --equ PACE=$(PACE))
 PY    ?= python3
 MZD   ?= external/mzdisk/build
 BUILD  = build
+# M8a part 22: the game harness (tests/m4_game.py setup, so the m4, perf and m7sound targets) mounts a copy of the game
+# disk for the room lists' fetch; the disk is rebuilt with the game (its POP800.RLS carries the compare's low code,
+# assembled against the game's symbols). POP800_RL_DISK=0: the harness mounts none, and the disk is not needed
+RL_DISK = $(if $(filter 0,$(POP800_RL_DISK)),,$(BUILD)/pop800.dsk)
 
 all: $(BUILD)/colorbars.mzf $(BUILD)/m0.dsk $(BUILD)/pop800.dsk $(BUILD)/m1test.mzf $(BUILD)/m1.pack
 
@@ -61,6 +65,7 @@ $(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/b
 	$(PY) tools/cutart.py
 $(BUILD)/pres.bin: src/pres/pres.asm src/boot/launch.inc src/boot/unpz.asm src/boot/fdc.asm src/m1/far.asm src/m4/psg.asm src/m4/save.asm $(BUILD)/assets/title.inc src/pres/cut.asm $(BUILD)/assets/cut.inc | $(BUILD)
 	cd src/pres && $(PASMO) --bin pres.asm ../../$(BUILD)/pres.bin ../../$(BUILD)/pres.sym
+$(BUILD)/pop800.dsk: $(BUILD)/assets/rlists_rls.bin $(BUILD)/rllow.bin
 $(BUILD)/pop800.dsk: $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin tools/mkgamedisk.py tools/pzpack.py tools/cutart.py tools/cutsim.py
 	$(PY) tools/mkgamedisk.py $@ $(BUILD)/boot.mzf
 m5boot: $(BUILD)/pop800.dsk
@@ -102,7 +107,7 @@ pace:
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/pace/build/assets
 	$(MAKE) -C $(BUILD)/pace PACE=1 build/m4game.mzf build/pop800.dsk
 .PHONY: m7keys cheats pace
-m7sound: $(BUILD)/m4game.mzf
+m7sound: $(BUILD)/m4game.mzf $(RL_DISK)
 	$(PY) tests/m7_sound.py
 sound-wav: $(BUILD)/assets/sound.bin
 	$(PY) tools/sndsim.py --wav
@@ -154,6 +159,7 @@ m2: assets
 
 # M3 room renderer test (needs `make assets`); M3LEVELS = levels to check (all rooms of each)
 M3LEVELS ?= 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+$(BUILD)/m3test.bin: src/m3/rlists.asm src/m3/rlcmp.asm src/m3/rlruns.inc
 $(BUILD)/m3test.bin: src/m3/m3test.asm src/m3/room.asm src/m3/prbuild.asm src/m3/roomfull.asm src/m3/altmods.asm src/m1/gfx.asm src/m1/tables.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc | $(BUILD)
 	cd src/m1 && $(PASMO) --bin ../m3/m3test.asm ../../$(BUILD)/m3test.bin ../../$(BUILD)/m3test.sym
 $(BUILD)/m3test.mzf: $(BUILD)/m3test.bin
@@ -176,6 +182,12 @@ m3demo: $(BUILD)/m3demo.mzf
 # M4: the prince. m4test = logic versus tools/kidsim.py, m4game = the playable program and its screen test
 $(BUILD)/m4test.bin: src/m4/m4test.asm src/m4/kid.asm src/m4/kid2.asm src/m4/objects.asm src/m4/buttons.asm src/m4/rare.asm src/m4/guard.asm src/m4/levelstart.asm src/m4/evres.asm src/m4/events.asm src/m4/gleave.asm src/m4/genter.asm src/m4/shadinit.asm src/m4/sound.asm src/m4/keys.asm src/m4/sndobj.asm src/m3/room.asm src/m3/roomfull.asm src/m3/altmods.asm src/m3/prbuild.asm src/m1/gfx.asm src/m1/tables.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc | $(BUILD)
 	cd src/m1 && $(PASMO) --bin ../m4/m4test.asm ../../$(BUILD)/m4test.bin ../../$(BUILD)/m4test.sym
+# M8a part 22: every room's op lists precomputed (tools/roomlists.py: rlists.bin for the tests, POP800.RLS's content
+# rlists_rls.bin and its block table rlists.inc for the save overlay's fetch)
+RL_OUT = $(BUILD)/assets/rlists.bin $(BUILD)/assets/rlists_rls.bin $(BUILD)/assets/rlists.inc
+$(RL_OUT) &: tools/roomlists.py tools/popdata.py tools/pzpack.py $(ASSET_OUT)
+	$(PY) tools/roomlists.py
+$(BUILD)/m4game.bin: src/m3/rlists.asm src/m3/rlcmp.asm src/m3/rlruns.inc
 $(BUILD)/m4game.bin: src/m4/game.asm src/m4/ovl.asm src/m4/kid.asm src/m4/objects.asm src/m4/evres.asm src/m4/fx.asm src/m4/sprite.asm src/m4/overlay.asm src/m4/people2.asm src/m4/kid2.asm src/m4/view.asm src/m4/tcache.asm src/m4/rcache.asm src/m4/guard.asm src/m4/sound.asm src/m4/psg.asm src/m4/keyres.asm src/m4/gate.asm src/m4/anires.asm src/m4/sndobj.asm src/m4/fslook.asm src/m4/spike.asm src/m3/room.asm src/m1/gfx.asm src/m1/far.asm src/m1/kernel_gen.inc $(BUILD)/assets/tables.inc $(BUILD)/assets/fstore_equ.inc | $(BUILD)
 	cd src/m1 && $(PASMO) --bin ../m4/game.asm ../../$(BUILD)/m4game.bin ../../$(BUILD)/m4game.sym
 # the frame store's fixed layout (docs/ramdisk-tiers.md "As built: step 1"): the keys from assets/fstore_uses.txt, the
@@ -186,6 +198,11 @@ $(BUILD)/assets/fstore_equ.inc $(BUILD)/assets/fstore_masks.bin $(BUILD)/assets/
 # with the .bin), packed into build/m4ovl.bin for the RAM disk (tests/m4_game.py setup writes it)
 $(BUILD)/ovl_%.inc: src/m4/ovl_%.asm $(BUILD)/m4game.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym $< src/m1 $@
+# M8a part 22: the room lists' compare in low RAM (its image: POP800.RLS's first blocks)
+$(BUILD)/rllow.inc: src/m4/rllow.asm src/m3/rlcmp.asm $(BUILD)/m4game.bin tools/ovltool.py
+	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym $< src/m1 $@
+$(BUILD)/rllow.bin: src/m4/rllow.asm src/m3/rlcmp.asm $(BUILD)/rllow.inc
+	cd src/m1 && $(PASMO) --bin ../m4/rllow.asm ../../$(BUILD)/rllow.bin ../../$(BUILD)/rllow.sym
 $(BUILD)/ovl_room.bin: src/m4/ovl_room.asm src/m4/sprforget.inc src/m3/roomfull.asm $(BUILD)/ovl_room.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_room.asm ../../$(BUILD)/ovl_room.bin ../../$(BUILD)/ovl_room.sym
 $(BUILD)/ovl_level.bin: src/m4/ovl_level.asm src/m4/sprforget.inc src/m3/altmods.asm src/m4/levelstart.asm src/m4/gstart.asm src/m4/fsvars.inc src/m1/tables.asm src/m3/prbuild.asm src/boot/launch.inc $(BUILD)/ovl_level.inc
@@ -198,7 +215,7 @@ $(BUILD)/ovl_gleave.bin: src/m4/ovl_gleave.asm src/m4/gleave.asm $(BUILD)/ovl_gl
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_gleave.asm ../../$(BUILD)/ovl_gleave.bin ../../$(BUILD)/ovl_gleave.sym
 $(BUILD)/ovl_genter.bin: src/m4/ovl_genter.asm src/m4/genter.asm src/m4/shadinit.asm $(BUILD)/ovl_genter.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_genter.asm ../../$(BUILD)/ovl_genter.bin ../../$(BUILD)/ovl_genter.sym
-$(BUILD)/ovl_save.bin: src/m4/ovl_save.asm src/m4/save.asm src/boot/fdc.asm $(BUILD)/ovl_save.inc
+$(BUILD)/ovl_save.bin: src/m4/ovl_save.asm src/m4/save.asm src/boot/fdc.asm src/boot/unpz.asm $(BUILD)/assets/rlists.inc $(BUILD)/ovl_save.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_save.asm ../../$(BUILD)/ovl_save.bin ../../$(BUILD)/ovl_save.sym
 $(BUILD)/ovl_text.bin: src/m4/ovl_text.asm src/m4/text.asm $(BUILD)/assets/font_text.inc $(BUILD)/ovl_text.inc
 	cd src/m1 && $(PASMO) --bin ../m4/ovl_text.asm ../../$(BUILD)/ovl_text.bin ../../$(BUILD)/ovl_text.sym
@@ -238,12 +255,13 @@ $(BUILD)/m4game.mzf: $(BUILD)/m4game.bin $(BUILD)/m4ovl.bin $(BUILD)/assets/soun
 	$(PY) tools/mkmzf.py $< $@ POP800 1200 2000
 m4game: $(BUILD)/m4game.mzf
 m4test: $(BUILD)/m4test.mzf
-m4: $(BUILD)/m4test.mzf $(BUILD)/m4game.mzf
+m4: $(BUILD)/m4test.mzf $(BUILD)/m4game.mzf $(RL_DISK)
 	$(PY) tests/m4_test.py
 	$(PY) tests/m4_game.py
 	$(PY) tools/perfcheck.py
-# speed regression check alone (tools/perfcheck.py --update after an intended change)
-perf: $(BUILD)/m4game.mzf
+# speed regression check alone (tools/perfcheck.py --update after an intended change); m4, perf, m7sound: the harness
+# mounts a copy of the game disk (RL_DISK, above)
+perf: $(BUILD)/m4game.mzf $(RL_DISK)
 	$(PY) tools/perfcheck.py
 .PHONY: m4 perf m4game m4test
 

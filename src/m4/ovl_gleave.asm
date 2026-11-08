@@ -5,6 +5,9 @@
                 include "../../build/ovl_gleave.inc"
                 org     OVL_W1
 ovl_id          equ     OVL_GLEAVE
+ovl_rd_page     equ     OVL_GLEAVE_PAGE         ; (M8a part 22: its own place, page 6 0xE280-0xE3FF, out of page 7's full
+ovl_rd_addr     equ     OVL_GLEAVE_RD           ; overlay area; tests/m4_game.py and tools/mkgamedisk.py write it)
+ovl_rd_last     equ     OVL_GLEAVE_LAST
 ovl_entry:      jp      guard_leaves            ; entry 0 (stub guard_leaves: exit_room)
                 jp      guard_fallout           ; entry 1 (stub guard_fallout: check_guard_fallout)
 

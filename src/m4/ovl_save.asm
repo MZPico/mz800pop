@@ -8,6 +8,7 @@ ovl_entry:      jr      sv_mute_s               ; entry 0 (stub save_key)
                 nop
                 jr      sv_mute_l               ; entry 1 (stub load_saved)
                 nop
+                jp      rl_fetch_h              ; entry 2 (stub rl_fetch: the level's room lists, M8a part 22)
 ; the floppy code runs with interrupts off: the sound stops first (psg.asm snd_halt: no hanging tone)
 sv_mute_s:      call    snd_halt
                 jp      save_game
@@ -18,4 +19,7 @@ sv_mute_l:      call    snd_halt
 ovl_end:
                 if ovl_end > SV_SEC
                 .error the save overlay runs into its sector buffer
+                endif
+                if ovl_end > RL_PZBUF
+                .error the save overlay runs into the room lists' packed blocks
                 endif
