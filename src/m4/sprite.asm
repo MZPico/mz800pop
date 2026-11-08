@@ -331,7 +331,8 @@ mv_add:         ld      a, (MOBR_N)
                 add     a, 17
                 jp      m, mv_next_pop          ; entirely above
                 ld      b, a
-                ld      e, 0
+                ld      de, 0                   ; (M8a part 18: D too; a floor coming in from the room above was
+                                                ; taken for one below the screen and never drawn)
 mv_t1:          ld      a, d
                 or      a
                 jp      nz, mv_next_pop         ; below the screen
@@ -410,24 +411,7 @@ oc_free:        ld      (V_COMPOSE), de
                 call    flames_cover            ; a chunk inside a torch flame needs no background
                 call    nc, restore_shadow
 oc_base:        call    flames_lay              ; the flames' current frames (the shadow may hold old ones)
-                ld      a, (MOBR_N)
-                or      a
-                jp      z, oc_kid
-                ld      b, a
-                ld      hl, MOBR
-oc_mob:         push    bc
-                push    hl
-                ld      b, (hl)                 ; xb
-                inc     hl
-                ld      e, (hl)
-                inc     hl
-                ld      d, (hl)                 ; ybottom
-                call    lay_mob
-                pop     hl
-                ld      de, 4
-                add     hl, de
-                pop     bc
-                djnz    oc_mob
+                call    mob_lay                 ; the falling floors in this chunk (people2.asm)
 oc_kid:         call    people_chunk            ; the people and the overlays in their drawing order
 oc_fore:        call    lay_fore_rect
                 ld      hl, OV_FORE

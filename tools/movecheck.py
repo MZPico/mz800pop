@@ -33,7 +33,9 @@ extent reaches past the reference's image (a door piece's last pixel), the emula
   caches   (M8a part 17, tcache.asm) every screen of levels 1-14 (our room), every potion at each bubble frame 1..7: at
            most 4 torch flames (view.asm FLM_MAX) on a screen, and no potion bubble's rect touches a flame's (room.asm
            op_patch bumps no fore_gen for a bubble: the flames' cached pictures never hold a bubble)
-usage: movecheck.py [gates|doors|buttons|chompers|spikes|torches|caches ...]   (default all; ~15 minutes)"""
+  loose    (M8a part 18) every loose floor of levels 1-14 on every screen that shows it, every pair of modifiers 0..11,
+           0x80..0x8B: which tiles' ops change (spike.asm loose_redraw regenerates those only)
+usage: movecheck.py [gates|doors|buttons|chompers|spikes|torches|caches|loose ...]   (default all; ~15 minutes)"""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -353,6 +355,62 @@ def caches():
     print('caches: %d screens x bubble frames, at most %d flames a screen, %d differ' % (n, mf, bad), flush=True)
     return bad
 
+class TaggedRenderer(RoomRenderer):
+    """RoomRenderer whose ops are kept per tile: {(above, row, col): (back, mid, fore, wipe0, wipe1) of its draw}"""
+    def _tagged(self, f, key):
+        n0 = {k: len(v) for k, v in self.ops.items()}
+        f()
+        self.by_tile[key] = tuple(tuple(self.ops[k][n0[k]:]) for k in ('back', 'mid', 'fore', 'wipe0', 'wipe1'))
+    def draw_tile(self):
+        self._tagged(super().draw_tile, (0, self.drawn_row, self.drawn_col))
+    def draw_tile_aboveroom(self):
+        self._tagged(super().draw_tile_aboveroom, (1, self.drawn_row, self.drawn_col))
+    def draw_room(self, room):
+        self.by_tile = {}
+        return super().draw_room(room)
+
+def loose():
+    """M8a part 18 (spike.asm loose_redraw): a loose floor's picture is LOOSE_FRAM_BOTTOM[loose_frame(modifier)] (the
+    left and right pieces follow it); for every loose floor of levels 1-14, every screen that shows it and every
+    modifier 0..11, 0x80..0x8B: the same picture gives identical op lists; a different one changes only the ops of its
+    own tile and its right neighbour (our room), our column 0 (the left room's column 9), its own tile (the above room's
+    row 2), nothing (the below room's row 0)"""
+    from popdata import LOOSE_FRAM_BOTTOM
+    mods = list(range(12)) + list(range(0x80, 0x8C))
+    rr0 = RoomRenderer(Level(1))
+    pic = lambda m: LOOSE_FRAM_BOTTOM[rr0.loose_frame(m)]
+    n = bad = 0; seen = Counter()
+    for lv in range(1, 15):
+        L = Level(lv)
+        for i in range(len(L.fg)):
+            if L.fg[i] & 0x1F != T.loose: continue
+            room, p = i // 30 + 1, i % 30; r, c = p // 10, p % 10
+            screens = [(room, 'own', {(0, r, c)} | ({(0, r, c + 1)} if c < 9 else set()))]
+            for s in range(1, 25):
+                lk = L.links(s)
+                if c == 9 and lk[0] == room: screens.append((s, 'left', {(0, r, 0)}))
+                if r == 2 and lk[2] == room: screens.append((s, 'above', {(1, 2, c)}))
+                if r == 0 and lk[3] == room: screens.append((s, 'below', set()))
+            m0 = L.bg[i]
+            for s, kind, expect in screens:
+                ops = {}
+                for m in mods:
+                    L.bg[i] = m; rr = TaggedRenderer(L); rr.draw_room(s); ops[m] = rr.by_tile
+                L.bg[i] = m0
+                seen[kind] += 1
+                for a in mods:
+                    for b in mods:
+                        if a >= b: continue
+                        n += 1
+                        diff_t = {k for k in ops[a] if ops[a][k] != ops[b].get(k)}
+                        ok = not diff_t if pic(a) == pic(b) else diff_t <= expect
+                        if not ok:
+                            bad += 1
+                            print('loose: level %d tile %d on screen %d (%s) %#x -> %#x: tiles %s differ' % (
+                                lv, i, s, kind, a, b, sorted(diff_t)))
+    print('loose: %s screens, %d modifier pairs, %d differ' % (dict(seen), n, bad), flush=True)
+    return bad
+
 if __name__ == '__main__':
-    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes', 'torches', 'caches']
+    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes', 'torches', 'caches', 'loose']
     sys.exit(1 if sum(globals()[w]() for w in what) else 0)

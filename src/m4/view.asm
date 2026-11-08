@@ -398,6 +398,10 @@ vrd_tile:       ld      a, (VS_TAG)
                 ld      a, 30                   ; row 0: the row above
 vrd_up:         jp      tile_redraw
 vrd_next:       ret
+; loose_pic: A = a loose floor's modifier -> A = its picture (the bottom piece; spike.asm loose_redraw)
+loose_pic:      call    loose_frame
+                ld      hl, loose_fram_bottom
+                jp      tab_get
 ; a gate's modifier changed (M8a part 2): its bars are drawn by its right neighbour (draw_gate_back) and their top by
 ; the tile above that (draw_tile_anim_topright), both from min(modifier, 188) / 4; the gate's own tile draws nothing
 ; of them. So nothing changes on screen for a gate in the above room's row 2 (draw_tile_above has no anim_right) or in

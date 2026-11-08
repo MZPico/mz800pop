@@ -21,8 +21,8 @@ tc_try:         xor     a
 tc_t1:          ld      a, (OV_NM)              ; nothing else in the chunk
                 ld      hl, OV_NF
                 or      (hl)
-                ld      hl, MOBR_N
-                or      (hl)
+                ret     nz
+                call    mob_meet                ; a falling floor in this chunk (M8a part 18; people2.asm)
                 ret     nz
                 call    oc_kidtouch
                 or      a

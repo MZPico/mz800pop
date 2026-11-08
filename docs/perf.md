@@ -2610,3 +2610,114 @@ l08r23, l10r10, l10r01, plus walk_level1, potion_heal, potion_hurt, potion_life,
 potion_upside_down (the flip: composed as before), 28 scripts a size: 0 state diffs, 0 differing pixels.
 tests/m4_test.py: 0 differing. tools/movecheck.py caches: 0 differ. `make ci-build`, `make cheats`. The full
 regression on the runners: see the PR.
+
+## M8a part 18: loose floors (2026-11-08)
+
+Status: **built.** Candidates 1 and 2 of the speed roadmap ("Speed roadmap (2026-11-08)", PR #35, part 1 "Falling
+floors"; its tools tools/loosescenes.py and tools/roadmap.py), measured before and after on main f004916.
+
+### What changed
+
+1. **A loose floor redraws only when its picture changes, and regenerates only the tiles that draw it** (spike.asm
+   loose_redraw, a case of anim_redraw; view.asm loose_pic). Its picture is LOOSE_FRAM_BOTTOM[loose_frame(modifier)]:
+   three pictures (43 / 73 / 74; the left piece 41 / 69 / 70 and the right one 42 / 71 / 72 follow the bottom), so of
+   the 10 countdown ticks of a floor stepped on (frames 1..10) those into 4, 6, 7, 9 and 10 draw nothing; before,
+   every modifier change was a full tile_redraw (3 regenerations, ~3.5 frames). A picture change regenerates what
+   spike_redraw regenerates (sr_1: no pre-drawn pictures): our room's floor its own tile and, for columns 0-8, its
+   right neighbour (draw_tile_anim_right, dtar_loose); the left room's column 9 our column 0; the above room's row 2
+   its own tile (draw_tile_above: draw_loose, no anim_right); the below room's row 0 nothing. The tile above-right
+   (draw_tile_topright reads only the type) and, for a left-room floor, the row above our column 0 are no longer
+   regenerated. A knock shake (0x81..0x84) changes the picture every tick: it keeps its redraws, one regeneration
+   fewer each.
+2. **A falling floor is laid only in the compose chunks it touches, and the torch cache tests the chunk** (people2.asm
+   mob_lay / mob_meet, main block). obj_chunk's loop over MOBR (low block) is now a call to mob_lay, which lays a floor
+   only when its rect (OMOBR, same index: its three pieces 70, 74, 72 lie inside x .. x + 8, ybottom - 16 .. ybottom)
+   meets the chunk. tc_try asked MOBR_N, so any falling floor on screen switched the torch cache off for the whole
+   tick; it now asks mob_meet (the same loop, A = 1 on the first floor that meets the chunk).
+3. **A pixel bug found on the way: a falling floor whose top is above the screen was never drawn** (sprite.asm
+   mobs_visible). Clipping the rect's top at row 0 cleared E but left D = 0xFF, and the next test took the floor for
+   one below the screen: a floor falling in from the room above (and its first rows on our screen, ybottom < 16) was
+   left out of MOBR, so for its first ~2-4 ticks the top rows showed black where the reference draws it (ld de, 0: +1
+   byte of low). main showed it in four of loosescenes.py's ten scenes (level 13's falling ceilings: fall_a 1,880
+   pixels, ride_a 1,192, shake_a 295, multi_a), with the same VRAM and state as this change's first draft every tick;
+   the committed tests have no such floor on screen. These ticks now draw the floor (a little more work than before).
+
+**Which tiles draw it** was checked against the Python reference for every loose floor of levels 1-14 on every screen
+that shows it (tools/movecheck.py loose: RoomRenderer's op lists tagged with the tile whose draw emitted them, every
+pair of modifiers 0..11, 0x80..0x8B): the same picture gives identical lists, a different one changes only the tiles
+above (own 172, above 76, below 45, left 13 screens, 84,456 pairs, 0 differ).
+
+Resident: **main +72** (end_of_code 0x7AC9 -> 0x7B11, 239 free: mob_meet / mob_lay 48, loose_redraw 19, its case in
+anim_redraw 5), **low -16** (end_of_low 0x1FF7 -> 0x1FE7, 25 free: obj_chunk's loop -26, loose_pic +9, the top
+clip +1), block 2 0
+(tc_try's test is as long as before). Nothing on the RAM disk.
+
+### Per phase (loosescenes.py measure, 1 MB, frames a tick: median / p90 / worst over the 10 scenes, levels 1-14's
+best (levels 13, 10, 11) and level 1's; the phases as the roadmap's, but "sh" split: sh the picture changes, shf only
+loose_frame changes (the countdown ticks this skips), sh- the modifier only; mean is the mean change a tick)
+
+| phase | kid | ticks | before | after | mean |
+|---|---|---:|---|---|---:|
+| shake, the picture changes (sh) | moving | 91 | 10.14 / 17.05 / 33.95 | **8.78** / 14.93 / 30.89 | -1.52 |
+| | still | 15 | 4.75 / 7.12 / 7.41 | 4.98 / 7.10 / 7.21 | -0.23 |
+| shake, frame only (shf: 4, 6, 7, 9, 10) | moving | 43 | 5.33 / 7.71 / 8.11 | **3.94** / 5.15 / 6.13 | -1.59 |
+| | still | 10 | 5.17 / 7.08 / 7.54 | **3.93** / 5.52 / 5.76 | -1.22 |
+| release (rel) | moving | 27 | 13.96 / 19.89 / 23.17 | 13.38 / 18.09 / 22.09 | -0.51 |
+| | still | 8 | 7.84 / 16.48 / 18.64 | 9.61 / 17.31 / 17.42 | +0.83 |
+| one floor falling (mob1) | moving | 98 | 8.03 / 12.92 / 17.65 | 7.97 / 11.11 / 17.87 | -0.44 |
+| | still | 9 | 5.82 / 7.16 / 8.79 | 5.99 / 6.54 / 7.01 | -0.33 |
+| two to five falling (mob2+) | moving | 35 | 12.05 / 17.36 / 19.61 | 12.01 / 17.48 / 18.73 | -0.30 |
+| | still | 24 | 10.37 / 14.93 / 15.54 | 10.06 / 13.84 / 16.28 | +0.04 |
+| landing (land) | moving | 21 | 15.47 / 21.54 / 28.50 | 13.58 / 20.56 / 27.50 | -1.60 |
+| | still | 6 | 15.14 / 21.71 / 21.71 | 15.15 / 22.61 / 22.61 | -0.16 |
+| nothing (none) | moving / still | 241 / 231 | 4.03 / 3.99 | 4.04 / 3.99 | 0.00 / -0.05 |
+| a room draw (R) | moving | 7 | 97.87 / 105.10 / 106.07 | 98.03 / 105.95 / 106.09 | +0.39 |
+
+**The 8-floor knock** (shake_a, level 11 room 8, ticks 16-20): the landing tick 17.05 -> **4.35** (it sets the
+modifiers of the row's 8 floors without a picture change: sh-), the four knock ticks 33.9 -> 30.9 each (8 floors
+change the picture every tick; one regeneration fewer each, -0.37 a floor).
+
+The countdown ticks without a picture change now cost what walking costs (3.94 against none's 4.04). Falling floors
+gain less than the roadmap's estimate (one floor -1.0..-1.5): the clipped lay_mob calls were cheap. In level 1's ride
+(room 8, ticks 14-20, one floor, tools/roadmap.py range) lay_mob runs 2 times a tick instead of 5, but its frames go
+only 1.52 -> 1.32: a floor's rect, old and new, is in 2 chunks anyway, and the 3 calls that clipped everything away
+cost ~0.07 each (the roadmap's ~0.35 a floor and chunk was the mean over all calls, the drawing ones included). In level 13's multi stretch
+(ticks 10-34, 2-5 floors) lay_mob 2.86 -> 2.76 and the mean tick 14.21 -> 13.80 (the draft without fix 3: lay_mob 2.28,
+12.89; the ceilings falling in from above are drawn now). The torch cache now runs while a floor falls, but right after a
+release it is cold (the release's tile_redraw moves the op records: flames_sync renews the registry and tc_try flushes
+the cache), so in the ride the 6 falling ticks save 4 pictures a tick (tc_save +0.18) and hit none before the kid falls
+into the next room; the cache pays when a floor falls in a room the kid stays in. The level-1 release still
+(1 tick) is +1.77: beam phase on +0.38 of work (those saves). The several-floors and room-draw rows hold fix 3: level
+13's ceilings falling in from above are now drawn in their first ticks (multi's room draw +0.85, shake's tick 71
++1.96: work the reference always did); with the draft that left them out, mob2+ was 11.42 / 15.80 / 18.55 (-0.82).
+
+### perfcheck (one run per size; main f004916's own runs; baselines lowered where beaten, in this commit)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 5.47 / **5.27** | 5.12 / **4.89** | 5.00 / **4.81** |
+| level door step (walkthrough 203-207) | 9.23 / 9.23 | 8.56 / **8.51** | 8.56 / **8.51** |
+| room change (walkthrough 89) | 106.05 / 106.06 | 106.05 / 106.07 | 105.22 / 105.57 |
+| walkthrough 190-260 | 6.35 / 6.35 | 6.14 / **6.11** | 5.78 / 5.78 |
+| gate (gate_push 200-260) | 4.09 / 4.09 | 4.09 / 4.09 | 4.09 / 4.09 |
+| traps (traps_b1 0-300) | 5.55 / **5.46** | 5.24 / **5.15** | 5.18 / **5.10** |
+| fight (fight1 60-160, guard on) | 7.09 / 7.09 | 6.28 / 6.30 | 5.96 / **5.94** |
+
+The normal tick's knock-shaken floor (ticks 55-58) was 0.6 of it: -0.19..-0.23. The 16 MB room change +0.35 is the
+beam: the tick's stages are equal within 0.01 (tools/roadmap.py stages) but the object pass's last copy waits 0.36
+instead of 0.04 frames (pf_seq). The other increases (+0.01, +0.02) are beam phase too (fight1: the stages within 0.03,
+which way differs by size).
+
+### Same pixels, same logic
+
+tests/m4_game.py --every 1 (state and VRAM every tick) at 512 KB, 1 MB and 16 MB on 57 scripts a size: the ten
+loose-floor scenes of loosescenes.py find (levels 1-14 and level 1 alone, the a scripts), the walk_a and stand_a scenes
+of busyrooms.py find --worst (20 rooms), traps_b1, b9, b39, b40, walk_level1, level13_exit and level12_exit_level13:
+0 state diffs, 0 differing pixels, except multi_a (level 13): from tick 47 on (3 state diffs, the screen). There the
+kid dies at tick 40 (a floor lands on him) and the game program restarts the level at tick 47 (its state cleared, a
+full redraw), which kidsim's death does not follow; the scene has no '# draw after death' line, and adding one does
+not help (the restart is not the death text). It is the scene, not this change: main gives the same VRAM and state
+every tick (a per-tick CRC comparison of the two builds), and m4_test (logic only) passes it. Before fix 3, fall_a,
+ride_a and shake_a differed too, on main as well (the floor falling in from above, see "What changed" 3).
+tests/m4_test.py on the ten scenes, traps_b1, b9, b39, b40 and walk_level1: 0 differing. tools/movecheck.py loose: 0
+differ. `make ci-build`, `make cheats`. The full regression on the runners: see the PR.

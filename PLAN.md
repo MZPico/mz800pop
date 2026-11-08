@@ -989,3 +989,13 @@ piece used AND/XOR semantics.
    bubbles' own cache (the first draft, +58 bytes of main) was measured at -0.08 a tick and left out. Only-torch work
    -0.2..-0.4 a tick a room; perfcheck normal tick 5.72 -> 5.47 (512 KB), 5.20 -> 5.12 (1 MB), baselines lowered.
    Resident: main 15 bytes smaller (311 free), low 15 larger (9 free), block 2 5 smaller (19 free).
+62. M8a part 18, loose floors (2026-11-08, docs/perf.md "M8a part 18: loose floors"; candidates 1 and 2 of the speed
+   roadmap, #35): a loose floor redraws only when its picture (LOOSE_FRAM_BOTTOM[loose_frame], 3 pictures) changes,
+   regenerating its own tile and its right neighbour only (spike.asm loose_redraw; tools/movecheck.py loose: every loose
+   floor of levels 1-14 on every screen, 0 differ); a falling floor is laid only in the compose chunks its rect meets,
+   and the torch cache asks whether a floor meets the chunk, not the tick (people2.asm mob_lay / mob_meet). 1 MB,
+   moving, median: countdown ticks without a picture change 5.33 -> 3.94, picture changes 10.14 -> 8.78, one floor
+   falling 8.03 -> 7.97 (mean -0.48), several 12.05 -> 11.42, landing 15.47 -> 13.58; the 8-floor knock's landing tick
+   17.05 -> 4.35. perfcheck normal tick 5.47 -> 5.27 (512 KB), 5.12 -> 4.89 (1 MB), 5.00 -> 4.81 (16 MB), traps
+   -0.08..-0.09; baselines lowered. Resident: main +72 (239 free), low -16 (25 free), block 2 0 (19 free). Also fixed: a falling floor whose top is
+   above the screen (one falling in from the room above) was never drawn (mobs_visible's top clip left D = 0xFF).

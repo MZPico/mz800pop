@@ -12,6 +12,8 @@ anim_redraw:    cp      T_LEVELDOOR_L
                 jr      z, spike_redraw
                 cp      T_CHOMPER
                 jr      z, chomp_redraw
+                cp      T_LOOSE
+                jp      z, loose_redraw
                 cp      T_SWORD
                 jp      nz, vrd_tile
 ; the sword: its picture is image 10, or 11 (the glint) at modifier 1 (dta_sword, a mid op of its own tile); seen only
@@ -113,6 +115,23 @@ sr_1:           call    own_regen
                 inc     a
                 call    tile_regen      ; right neighbour
                 jp      dr_run
+; loose_redraw (M8a part 18): a loose floor's picture is LOOSE_FRAM_BOTTOM[loose_frame(modifier)] (the left and the
+; right piece follow it: three pictures, room.asm draw_loose and draw_tile_base of its own tile, dtar_loose of its right
+; neighbour), so 5 of the 10 countdown ticks of a floor stepped on (frames 4, 6, 7, 9, 10) draw nothing. A picture change
+; regenerates the tiles that draw it as spike_redraw does (no pre-drawn pictures): its own tile and its right
+; neighbour, our column 0 for the left room's column 9, its tile for the above room's row 2, nothing for the below
+; room's row 0 (tools/movecheck.py loose: every loose floor of levels 1-14 on every screen that shows it)
+loose_redraw:   ld      a, c
+                call    loose_pic
+                ld      b, a
+                ld      a, e
+                call    loose_pic
+                cp      b
+                ret     z
+                ld      a, (VS_KIND)
+                cp      3
+                ret     z
+                jr      sr_1
 
 ; ---------------------------------------------------------------- pre-drawn pictures: the resident part (M8a part 15)
 ; FRM_TAB (low RAM 0x09DB, runtime only): FRM_N objects (choppers, spikes of our room: src/m4/frames.asm), each its
