@@ -812,17 +812,7 @@ lm_y:           dw      0
 lm_img:         db      0
 lm_mode:        db      0
 
-; sprite_forget: after a room change the old rects belong to another room
-sprite_forget:  ld      hl, 0
-                ld      (SPR_A + SD_OXB), hl
-                ld      (SPR_A + SD_OW2), hl
-                ld      (SPR_G + SD_OXB), hl
-                ld      (SPR_G + SD_OW2), hl
-                ld      a, l
-                ld      (OMOBR_N), a
-                inc     a                       ; (st_look: no character as last tick)
-                ld      (ST_OK), a
-                ret
+; sprite_forget: src/m4/sprforget.inc (M8a part 19: in the room and the level-start overlays)
 
 ; fetch the frame of the character at IY (shifted/mirrored) into its buffer, unless cached
 char_fetch:     ld      a, (iy+SD_X)

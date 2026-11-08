@@ -2624,7 +2624,9 @@ kt3:            call    savekid
                 ld      (TR_SNAP+2), a
                 ld      a, (MOBS_N)
                 ld      (TR_SNAP+3), a
-                call    trace_cksum             ; (the harness trace only: the program decides)
+                if not defined GAME_OVL         ; the room checksum (the trace's last field): m4test only; the game's
+                call    room_checksum           ; harness computes it from memory (tests/m4_test.py level_cksum)
                 ld      (TR_SNAP+4), hl
+                endif
                 jp      tick_post       ; (guard.asm: the guard's frame, sword hits, room change)
 level_number:   db      1

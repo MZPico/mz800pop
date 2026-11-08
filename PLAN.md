@@ -1008,3 +1008,15 @@ piece used AND/XOR semantics.
    17.05 -> 4.35. perfcheck normal tick 5.47 -> 5.27 (512 KB), 5.12 -> 4.89 (1 MB), 5.00 -> 4.81 (16 MB), traps
    -0.08..-0.09; baselines lowered. Resident: main +72 (239 free), low -16 (25 free), block 2 0 (19 free). Also fixed: a falling floor whose top is
    above the screen (one falling in from the room above) was never drawn (mobs_visible's top clip left D = 0xFF).
+63. M8a part 19, reclaim (2026-11-08, docs/perf.md "M8a part 19: reclaim"; step 0 of the speed roadmap, section 7's
+   reclaims): PR_TAB (the wall pattern's draws, 640 bytes) moved from low RAM 0x0500 to RAM-disk page 6 0x1440-0x16BF
+   (every size), built by game_start at every program start; pr_start reads the seed's 10-byte row by INIR into PR_BUF
+   (0x012C). The kid trace's room checksum (room_checksum, trace_cksum) is m4test-only: the game's harness computes it
+   from the level at tick_done (tests/m4_test.py level_cksum; m4_game compares it with kidsim's level after the step).
+   sprite_forget and room_drawn moved into the room overlay (rf_game; the level-start overlay keeps its own
+   sprite_forget). Freed: low RAM 0x0500-0x077F (640 contiguous; usable for code that game_start copies in, also code
+   running with VRAM mapped: docs/memory.md "The free low RAM 0x0500-0x077F"), main 58 (297 free), low block 24 (49
+   free), block 2 7 (26 free); the room overlay 49 free, the level-start overlay 261 below WF. Cost: +305 T a wall
+   pattern, a room change +0.18 of work (42 patterns in perfcheck's), -0.08 of harness-only work a tick; perfcheck
+   room change 106.06 -> 106.17 (512 KB), 106.07 -> 106.58 (1 MB, beam), 105.57 -> 105.56 (16 MB); the other stretches
+   equal or up to 0.09 faster (the harness's trace_cksum gone), baselines lowered there.

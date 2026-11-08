@@ -54,7 +54,7 @@ def run(sp, mode, nticks):
             r = e.run(400); assert r['stopped_by'] == 'breakpoint', (sp, t, r)       # tick_done
             c1 = cyc()
             skipped = e.mem(S['SKIPPED'], 1)[0]
-            kid = z80_state(e, t) + ' ' + z80_guard(e, S['G_SNAP'])
+            kid = z80_state(e, t, G.LEVEL_ADDR) + ' ' + z80_guard(e, S['G_SNAP'])
             h = hashlib.md5()
             for a, n, _ in LOGIC: h.update(e.mem(a, n))
             vram = hashlib.md5(b''.join(e.vram_planes())).hexdigest()

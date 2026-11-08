@@ -4,10 +4,21 @@
                 include "../../build/ovl_room.inc"
                 org     OVL_W1
 ovl_id          equ     OVL_ROOM
-ovl_entry:      jp      draw_room_full          ; entry 0 (stub draw_room_full)
+ovl_entry:      jp      rf_game                 ; entry 0 (stub draw_room_full)
                 jp      rr_bkt                  ; entry 1 (rr_bkt_ent: room.asm rr_table while bkt_on)
                 jp      set_flip                ; entry 2 (stub set_flip: a full room draw follows)
 
+; rf_game: the full room draw (A = room), then what follows every room draw in the game (game.asm called room_drawn and
+; sprite_forget after it until M8a part 19): the characters' old rects forgotten, every cached button picture dropped
+; (anires.asm bc_v), the pre-drawn pictures reset and the torch registry rebuilt (spike.asm frm_reset, which ends in
+; flames_rebuild: a tail jump, nothing returns into this overlay after it)
+rf_game:        call    draw_room_full
+                call    rf_forget
+                xor     a
+                ld      (bc_v), a
+                jp      frm_reset
+rf_forget:
+                include "../m4/sprforget.inc"
                 include "../m3/roomfull.asm"
 
 ; set_flip: A = UPSIDE (0xff: upside down): patch blit's first instruction (in a, (0xe0) / jp blit_flip) and the chunk
