@@ -80,6 +80,14 @@ LAY_MARKS = [
     ('lpm_plane', 'masked: per-plane setup + seek'), ('lpx_row', 'masked: rows (cmx_n + row step)'),
     ('lpm_rows', 'masked: mono / black rows setup'), ('lpm_row', 'masked: mono / black rows (cm2 / cm3)'),
     ('lpm_pnext', 'masked: plane end'),
+    # M8a part 20: the row chains
+    ('lr_patch', 'piece: the row chains patched (n, k)'),
+    ('lpc_fast', 'copy: setup of the plane loop'), ('lcf_p', 'copy: per-plane setup + seek'),
+    ('lr_ent', 'rows: INI row chain (copy rows, the mask rows)'), ('lcf_pe', 'copy: plane end'),
+    ('lpm_mend', 'masked: setup after the mask rows'), ('lpx_plane', 'masked: per-plane setup + seek'),
+    ('lmx_ent', 'masked: rows (the lmx chain)'), ('lpx_pe', 'masked: plane end'),
+    ('lpc_ledge', 'copy: a left edge, setup'), ('lle_ent', 'copy: rows, a left edge (lle)'),
+    ('lre_patch', 'copy: a right edge, setup'), ('lre_ent', 'copy: rows, a right edge (the lre chain)'),
 ]
 
 def lay(sp, tick):

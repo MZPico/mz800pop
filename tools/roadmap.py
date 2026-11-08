@@ -6,7 +6,8 @@
   stages SCRIPT TICK          profile that tick alone (mz800emu's call profiler) and print the room change by stage
                               (inclusive frames): the op-list build (room_ops with slices_build), the cell buckets
                               (bkt_build), the 15 cells (run_rect: the black fill, laying the pieces (rec_lay, of it
-                              lay_piece16 and the masked cmx_* rows), the shadow write, the copy to VRAM (blq_*
+                              lay_piece16 and the masked cmx_* rows; since M8a part 20 the masked rows' lmx_ent and
+                              the copy rows' lr_ent / lre_ent / lle_ent, a call a plane), the shadow write, the copy to VRAM (blq_*
                               inside the cells), the scan), the wall pattern table rows (pr_start), the overlay loads,
                               the hooks after the draw (flames_build; and by tracepoints the whole interval from the
                               draw's return to gmt4: the caches, frm_reset, sprite_forget), the kid's logic, the object pass; and the tick's RAM-disk
@@ -74,7 +75,8 @@ STAGES = [
     ('    black fill', 'fill_black'),
     ('    laying the ops (rec_lay)', 'rec_lay'),
     ('      lay_piece16', 'lay_piece16'),
-    ('      masked rows cmx_1/2/4', ('cmx_1', 'cmx_2', 'cmx_4')),
+    ('      masked rows (lmx_ent planes; cmx_1/2/4 rows before M8a part 20)', ('lmx_ent', 'cmx_1', 'cmx_2', 'cmx_4')),
+    ('      copy and mask rows (lr_ent, lre_ent, lle_ent; part 20)', ('lr_ent', 'lre_ent', 'lle_ent')),
     ('      seeks (far_seek_entry, RD_LV_ADDR)', ('far_seek_entry', 'RD_LV_ADDR')),
     ('      wall patterns (wp_*)', ('wp_botdiv', 'wp_middiv')),
     ('  wall pattern table rows (pr_start)', 'pr_start'),
@@ -96,8 +98,9 @@ def stages(sp, tick):
         n = names[n] if n in names else 'draw_room_full stub' if n == 'draw_room_full' else n
         inc[n] = inc.get(n, 0) + i; calls[n] = calls.get(n, 0) + c
     if 'draw_room_full' not in inc: inc['draw_room_full'] = inc.get('draw_room_full stub', 0)     # (before: one jp)
-    print('%s tick %d: %.2f frames (lay_piece16 %d calls, rec_lay %d, cmx rows %d)' % (os.path.basename(sp), tick, fr,
-          calls.get('lay_piece16', 0), calls.get('rec_lay', 0), sum(calls.get(x, 0) for x in ('cmx_1', 'cmx_2', 'cmx_4'))))
+    print('%s tick %d: %.2f frames (lay_piece16 %d calls, rec_lay %d, cmx rows %d, lmx planes %d)' % (os.path.basename(sp),
+          tick, fr, calls.get('lay_piece16', 0), calls.get('rec_lay', 0), sum(calls.get(x, 0) for x in ('cmx_1', 'cmx_2', 'cmx_4')),
+          calls.get('lmx_ent', 0)))
     for lab, s in STAGES:
         v = fr if s is None else sum(inc.get(x, 0) for x in s) if isinstance(s, tuple) else inc.get(s, 0)
         print('  %-44s %7.2f' % (lab, v))
