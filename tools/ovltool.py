@@ -49,6 +49,7 @@ def cmd_pack(mainsym, out, bins):
     M = syms(mainsym)
     page, tab, n, end = M['OVL_RD_PAGE'], M['OVL_RD_TAB'], M['OVL_MAX'], M['OVL_RD_LAST'] + 1
     windows = [(M['OVL_W1'], M['OVL_W1_END'], 'W1'), (M['OVL_W2'], M['OVL_W2_END'], 'W2'), (M['OVL_WF'], M['OVL_W2_END'], 'WF')]
+    if 'OVL_WL' in M: windows += [(M['OVL_WL'], M['OVL_WL_END'], 'WL'), (M['OVL_WL2'], M['OVL_WL2_END'], 'WL2')]
     table = bytearray(8 * n); images = b''; addr = tab + 8 * n
     for b in bins:
         S = syms(os.path.splitext(b)[0] + '.sym'); img = open(b, 'rb').read()

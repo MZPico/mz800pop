@@ -13,9 +13,10 @@
 ;   part 128-132 and fore 139-143, the right neighbour's 134-138) get their new image in place (id, size, top row; the
 ;   bottom row stays, a chopper's top piece is CHOMPER_FRAM_Y[n] above its bottom piece's), unless a piece comes or
 ;   goes (a chopper's top piece at n 0, 1; a spike's picture 0): then the tile(s) are regenerated as before;
-;   pixels: the picture valid: the slot read into SPRBUF_B and put (anires.asm cs_put: the shadow, the dirty list, the
-;   object pass's kept background); else the rect laid by dr_run (one chunk: its picture stays in SPRBUF_B), then
-;   saved in the slot.
+;   pixels: the picture valid: nothing read or written (M8a part 25, src/m4/frmlow2.asm lc_step): the shadow's rect
+;   goes stale with the slot holding it (the lazy shadow), the rect goes on the dirty list, and the object pass takes
+;   it from the slot or copies the complete picture straight into VRAM (frmlow.asm, frmlow2.asm); else the rect laid by
+;   dr_run (one chunk: its picture stays in SPRBUF_B), then saved in the slot (and lc_step keeps the slot's place).
 ; Chopper pictures: n = CHOMPER_FRAM1[min(mod & 0x7F, 6)] (0..4); with blood (bit 7) not this way. Spike pictures:
 ; spike_frame 0..9; frames with the same images share one (fs_canon: 0 = 9, 1 = 8, 2 = 7, 4 = 6: 6 pictures).
 ; The objects (FRM_N, the first ones stepping after a room draw) and their pictures' validity are in FRM_TAB (low RAM;
@@ -163,16 +164,12 @@ fs_e3:          ; the records: patched in place, else the tile(s) regenerated
                 add     a, a
                 ld      e, a
                 ld      d, 0
-                ld      hl, fs_ich
-                add     hl, de
-                ld      (fs_ij + 1), hl
                 ld      hl, fs_och
                 add     hl, de
                 ld      (fs_oj + 1), hl
                 ld      a, (fs_w)
                 neg
                 add     a, CW
-                ld      (fs_ia + 1), a
                 ld      (fs_oa + 1), a
                 ; the picture's bit
                 ld      a, (fs_k)
@@ -182,40 +179,17 @@ fs_e3:          ; the records: patched in place, else the tile(s) regenerated
 fs_b1:          rlca
                 djnz    fs_b1
                 ld      (fs_bit), a
+                ld      a, (ix + FE_CMASK)
+                ld      (lc_cm), a
                 ld      a, (ix + FE_MASK)
                 ld      (fs_mask), a
                 ld      hl, fs_bit
                 and     (hl)
                 jr      z, fs_miss
-                ; the picture valid: from its slot into SPRBUF_B, then put
-                call    fs_seek
-                ld      hl, SPRBUF_B
-                ld      a, 4
-fs_i1:          push    hl
-                ex      af, af'
-                ld      a, (fs_h)
-fs_i2:          ex      af, af'
-fs_ij:          jp      0                       ; (patched: fs_ich + 2 (6 - W))
-fs_ich:         ini
-                ini
-                ini
-                ini
-                ini
-                ini
-fs_ia:          ld      de, 0                   ; (patched: CW - W)
-                add     hl, de
-                ex      af, af'
-                dec     a
-                jr      nz, fs_i2
-                ex      af, af'
-                pop     hl
-                inc     h
-                inc     h                       ; (+ COMPOSE_PLANE)
-                dec     a
-                jr      nz, fs_i1
-                push    ix
-                call    cs_put                  ; (dirty_hook: frm_drop drops this object's pictures too: kept below)
-                pop     ix
+                ; the picture valid: its slot holds the rect (M8a part 25: no shadow write, no read; frmlow.asm lc_step:
+                call    fs_seek                 ; the shadow's rect stale, the object pass's chunk from the slot or the
+                ld      a, 1                    ; complete picture)
+                call    LC_STEP
                 jr      fs_keep
 fs_miss:        push    ix
                 call    dr_run                  ; (one chunk: x1 - x0 <= CW, y1 - y0 <= CH; its picture stays in SPRBUF_B)
@@ -246,6 +220,8 @@ fs_oa:          ld      de, 0
                 inc     h
                 dec     a
                 jr      nz, fs_o1
+                xor     a                       ; (the slot's address and the complete picture's: frmlow.asm)
+                call    LC_STEP
 fs_keep:        ld      a, (fs_mask)            ; the object's pictures as before this redraw, and this one
                 ld      hl, fs_bit
                 or      (hl)
@@ -258,7 +234,8 @@ fs_fg:          ld      a, (fs_fore)            ; a fore record patched where a 
                 inc     (hl)
                 or      a
                 ret
-fs_keep0:       ld      a, (fs_mask)
+fs_keep0:       ld      (ix + FE_CP), 0         ; (no complete picture without a slot)
+                ld      a, (fs_mask)
                 ld      (ix + FE_MASK), a
                 jr      fs_fg
 
@@ -529,7 +506,9 @@ fk_1:           ld      a, b
                 ld      e, (hl)
                 inc     hl
                 ld      d, (hl)
-fk_go:          call    far_seek
+fk_go:          ld      (lc_sp), a              ; (kept for frmlow.asm lc_step)
+                ld      (lc_sa), de
+                call    far_seek
                 ld      c, RD_DATA
                 or      a
                 ret
@@ -590,15 +569,4 @@ fs_sdir:
 FRM_NS          equ     ($ - fs_sdir) / 3
 fs_yb:          dw      0                       ; a piece's bottom row
 fs_my:          dw      0                       ; the chopper's main row
-; the step's variables: low RAM 0x09A6-0x09B3 (runtime only, docs/memory.md; RV ends at 0x09A5)
-fs_kind         equ     0x09a6                  ; 0 chopper, 1 spike
-fs_k            equ     0x09a7                  ; the new picture
-fs_ko           equ     0x09a8                  ; the old one
-fs_col          equ     0x09a9
-fs_rect         equ     0x09aa                  ; x0, x1, y0, y1
-fs_w            equ     0x09ae
-fs_h            equ     0x09af
-fs_bit          equ     0x09b0
-fs_mask         equ     0x09b1
-fs_fore         equ     0x09b2                  ; a fore record was patched
-fs_id           equ     0x09b3
+; the step's variables (fs_kind .. fs_id, low RAM 0x09A6-0x09B3): spike.asm (src/m4/frmlow.asm reads them too)

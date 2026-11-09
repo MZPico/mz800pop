@@ -12,7 +12,10 @@ ovl_entry:      jp      rf_game                 ; entry 0 (stub draw_room_full)
 ; sprite_forget after it until M8a part 19): the characters' old rects forgotten, every cached button picture dropped
 ; (anires.asm bc_v), the pre-drawn pictures reset and the torch registry rebuilt (spike.asm frm_reset, which ends in
 ; flames_rebuild: a tail jump, nothing returns into this overlay after it)
-rf_game:        call    draw_room_full
+rf_game:        push    af                      ; (no stale shadow rect of the room before: M8a part 25)
+                call    frm_clr
+                pop     af
+                call    draw_room_full
                 call    rf_forget
                 xor     a
                 ld      (bc_v), a

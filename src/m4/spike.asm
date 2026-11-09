@@ -134,28 +134,75 @@ loose_redraw:   ld      a, c
                 jr      sr_1
 
 ; ---------------------------------------------------------------- pre-drawn pictures: the resident part (M8a part 15)
-; FRM_TAB (low RAM 0x09DB, runtime only): FRM_N objects (choppers, spikes of our room: src/m4/frames.asm), each its
-; rect (x0, x1, y0, y1; x1, y1 exclusive), the valid pictures (bit k: picture k), tag + 1 (0: a free entry), the first
-; slot and the slot count; then the pools' next free slots (FRM_NEXT: the 960-byte pool, the 648-byte pool)
-FRM_TAB         equ     0x09db
+; FRM_TAB (low RAM 0x0700, runtime only; 0x09DB until M8a part 25): FRM_N objects (choppers, spikes of our room:
+; src/m4/frames.asm), each its rect (x0, x1, y0, y1; x1, y1 exclusive), the valid pictures (bit k: picture k), the valid
+; complete pictures (M8a part 25: the rect as the screen shows it with nobody in it, src/m4/frmlow.asm), tag + 1 (0: a
+; free entry), the first slot and the slot count; the lazy shadow (part 25): FE_ST != 0 when the shadow's rect is stale
+; and the current picture's slot (FE_SP page, FE_SA address) holds it; the current picture's bit (FE_KB) and its
+; complete picture's slot (FE_CP page, 0: none; FE_CA); the complete pictures' first slot and count (512 KB, 1 MB:
+; the pool FRM_CPOOL). Then the pools' next free slots (FRM_NEXT: the 960-byte pool, the 648-byte pool; FRM_CNEXT: the
+; complete pool)
+FRM_TAB         equ     0x0700
 FRM_N           equ     4
 FE_X0           equ     0
 FE_X1           equ     1
 FE_Y0           equ     2
 FE_Y1           equ     3
 FE_MASK         equ     4
-FE_TAG          equ     5
-FE_FIRST        equ     6
-FE_CNT          equ     7
-FE_SIZE         equ     8
+FE_CMASK        equ     5
+FE_TAG          equ     6
+FE_FIRST        equ     7
+FE_CNT          equ     8
+FE_ST           equ     9
+FE_SP           equ     10
+FE_SA           equ     11
+FE_KB           equ     13
+FE_CP           equ     14
+FE_CA           equ     15
+FE_CFIRST       equ     17
+FE_CCNT         equ     18
+FE_SIZE         equ     20
 FRM_NEXT        equ     FRM_TAB + FRM_N * FE_SIZE
-FRM_END         equ     FRM_NEXT + 2
-FRM_P16         equ     62                      ; 16 MB: the slots' page (docs/memory.md)
+FRM_CNEXT       equ     FRM_NEXT + 2
+FRM_END         equ     FRM_CNEXT + 1
+LC_VARS         equ     FRM_END                 ; src/m4/frmlow.asm's variables (to 0x076D)
+FRM_P16         equ     62                      ; 16 MB: the slots' page (docs/memory.md); the complete pictures at
+FRM_C16         equ     0x60                    ; + 0x6000 (part 25)
 FRM_P4          equ     0xe000                  ; 512 KB, 1 MB: the slots in page 4 from here (the game image's second
                                                 ; piece ends below: tools/mkgamedisk.py checks it)
-                if FRM_END > 0x0a00
-                .error FRM_TAB: 0x09DB-0x09FF
+FRM_CPOOL       equ     0x16c0                  ; 512 KB, 1 MB: the complete pictures' pool, page 6 0x16C0-0x25BF
+FRM_CPAGE       equ     6                       ; (FRM_NC x 960, runtime only; part 25)
+FRM_NC          equ     4
+; frmlow.asm's variables (runtime only)
+lc_cm           equ     LC_VARS + 0             ; the object's complete pictures before its step's redraw
+lc_sp           equ     LC_VARS + 1             ; the new picture's slot (frames.asm fs_seek): page, address
+lc_sa           equ     LC_VARS + 2
+lc_sv           equ     LC_VARS + 4             ; the chunk's object whose complete picture to save (0: none)
+lc_x0           equ     LC_VARS + 6             ; an object's rect met with the compose rect: x0, x1, y0, y1
+lc_x1           equ     LC_VARS + 7
+lc_y0           equ     LC_VARS + 8
+lc_y1           equ     LC_VARS + 9
+lc_c            equ     LC_VARS + 10            ; the compose rect: x0, x1, y0, y1
+lc_dst          equ     LC_VARS + 14
+lc_need         equ     LC_VARS + 16
+lc_buf          equ     LC_VARS + 18            ; 8: a row written back
+LC_END          equ     LC_VARS + 26
+                if LC_END > 0x0780
+                .error frmlow.asm's variables run into SPR_GS (0x0780)
                 endif
+; the step's variables: low RAM 0x09A6-0x09B3 (runtime only, docs/memory.md; RV ends at 0x09A5)
+fs_kind         equ     0x09a6                  ; 0 chopper, 1 spike
+fs_k            equ     0x09a7                  ; the new picture
+fs_ko           equ     0x09a8                  ; the old one
+fs_col          equ     0x09a9
+fs_rect         equ     0x09aa                  ; x0, x1, y0, y1
+fs_w            equ     0x09ae
+fs_h            equ     0x09af
+fs_bit          equ     0x09b0
+fs_mask         equ     0x09b1
+fs_fore         equ     0x09b2                  ; a fore record was patched
+fs_id           equ     0x09b3
+
 ; frm_drop: dirty_hook (anires.asm): the shadow's rect DR_* was redrawn: the pictures of the objects it touches go
 frm_drop:       ld      a, (FRM_TAB + FE_TAG)  ; (no object yet: the entries are taken in order)
                 or      a
@@ -182,19 +229,24 @@ fd_l:           push    hl
                 jr      nc, fd_n
                 inc     hl
                 ld      (hl), 0
+                inc     hl
+                ld      (hl), 0                 ; (FE_CMASK)
 fd_n:           pop     hl
                 ld      de, FE_SIZE
                 add     hl, de
                 djnz    fd_l
                 ret
 ; frm_reset: anires.asm room_drawn: every object and slot goes; then the torch registry (tcache.asm)
-frm_reset:      ld      hl, FRM_TAB
-                ld      b, FRM_END - FRM_TAB
+frm_reset:      call    frm_clr
+                jp      flames_rebuild
+; frm_clr: every object and slot goes (also before the room overlay's full draw: no stale rect of the room before)
+frm_clr:        ld      hl, FRM_TAB             ; (and frmlow.asm's variables: lc_sv must start at 0, and low RAM is
+                ld      b, LC_END - FRM_TAB     ; not cleared in the harness)
                 xor     a
 frr_l:          ld      (hl), a
                 inc     hl
                 djnz    frr_l
-                jp      flames_rebuild
+                ret
 ; fb_over (M8a part 16; view.asm flames_build, after rr_table's scan of a flame's rect): Z when the flame's cover
 ; (rr_last) is the last op there, or when the one op after it is CH_ENV 46. That is the base of a gate right of the
 ; torch (its own tile draws the flame, then the base, a transparent piece with no pixel inside the flame's rect: checked

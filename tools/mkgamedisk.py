@@ -106,6 +106,8 @@ def ramdisk_writes():
     w.append((S['OVL_BTN_PAGE'], S['OVL_BTN_RD'], open(os.path.join(B, 'ovl_btn.bin'), 'rb').read()))  # the button overlay
     w.append((S['OVL_DOOR_PAGE'], S['OVL_DOOR_RD'], open(os.path.join(B, 'ovl_door.bin'), 'rb').read()))  # the door overlay
     w.append((S['OVL_FRM_PAGE'], S['OVL_FRM_RD'], open(os.path.join(B, 'ovl_frm.bin'), 'rb').read()))  # the frames overlay
+    w.append((S['OVL_LOW_PAGE'], S['OVL_LOW_RD'], open(os.path.join(B, 'ovl_low.bin'), 'rb').read()))  # the low code (M8a part 25)
+    w.append((S['OVL_LOW2_PAGE'], S['OVL_LOW2_RD'], open(os.path.join(B, 'ovl_low2.bin'), 'rb').read()))
     return w
 
 def launcher_syms():

@@ -10,6 +10,7 @@
 ; the kid and the falling floors (src/m4/sprite.asm), the hit points. After death the button restarts the
 ; level; the exit stairs lead to the next level.
 VARS            equ     0x0800
+LCODE           equ     1               ; gfx.asm restore_shadow, shadow_write: the lazy shadow's hooks (src/m4/frmlow.asm, M8a part 25)
 GAME_BTNC       equ     1               ; room.asm tile_regen: the button picture cache (src/m4/anires.asm, M8a part 14)
 FRAMES          equ     VARS + 0        ; 16-bit, incremented by the VBLN ISR
 VB_LINE         equ     VARS + 2        ; 16-bit: 8253 counter 1 (HSYNC count, down) latched by the VBLN ISR

@@ -25,6 +25,7 @@ STRETCHES = {
     'gate (gate_push 200-260)': ('gate_push.txt', 200, 260),
     'traps (traps_b1 0-300)': ('traps_b1.txt', 0, 300),
     'fight (fight1 60-160, guard on)': ('fight1.txt', 60, 160),
+    'choppers (frm_button 20-120)': ('frm_button.txt', 20, 120),    # (M8a part 25: l10r10's two choppers, a closer)
 }
 
 def script_path(script):

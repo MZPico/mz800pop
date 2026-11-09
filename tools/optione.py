@@ -16,6 +16,9 @@
                                object's picture in (count a tick, overlap bytes a plane)
   direct SCRIPT ...            (M8a part 17) every direct copy of a cached torch flame into VRAM against the beam:
                                torn copies (must be 0), the copy's length and the beam's closest approach
+  direct2 SCRIPT ...           (M8a part 25) every direct copy of a chopper's or spike's complete picture (frmlow2.asm
+                               lc_direct, row-major) against the beam, row by row: torn passes (must be 0), the copy's
+                               length and the beam's closest approach to the row being written
   model CSV [--e K=V,...]      the busy-rooms cost model (tools/busyrooms.py fit) with E's per-step costs:
                                frames a tick, median / p90, now and after E, per scene
 The stages (inclusive frames of mz800emu's call profiler, one tick):
@@ -324,10 +327,68 @@ def direct(scripts):
               sum(waits) / len(waits) if waits else 0, max(waits) if waits else 0))
     return bad_all
 
+def direct2(scripts):
+    """M8a part 25: every direct copy of a complete picture (frmlow2.asm lc_direct: ld_go to ld_end, a row's four planes at
+    a time, top row first) against the beam. Row r is written from its start (the trace at ld_r) to the next row's start;
+    the beam is on canvas row y + r during [isr + (113 + y + r + 312 k) x 228, + 228) T. A pass k of the beam over the rect
+    shows row r new when the row was written before the beam came, old when it was written after the beam left, torn
+    when the two overlap; the pass is torn when a row is torn or the rows are mixed (some new, some old). Prints per
+    script the copies, the torn passes (0 is the claim), the longest copy (lines), lines a row (max), the closest the
+    beam came to the row being written (lines, min: behind it, ahead of it) and the wait for the beam (lines)."""
+    from m3_test import syms
+    L2 = syms(os.path.join(ROOT, 'build', 'ovl_low2.sym'))
+    bad_all = 0
+    for sp in scripts:
+        with Emu() as e:
+            S, n = TC.emu_setup(e, TC.script_path(sp))
+            pts = {'isr': S['isr'], 'in': L2['lc_direct'], 'go': L2['ld_go'], 'row': L2['ld_r'], 'end': L2['ld_end'],
+                   'done': S['tick_done']}
+            ids = {}
+            for k, a in pts.items():
+                ids[e.trace_add(a, mem=((S['CRX'], 4),) if k == 'go' else ())] = k
+            by = {a: k for k, a in pts.items()}
+            t = 0; isr = None; cur = None; cps = []; t_in = None; waits = []
+            for r in e.collect(200, stop=lambda r: t >= n):
+                k = ids.get(r.get('id')) or by.get(r['addr'])
+                c = r['cycles']
+                if k == 'isr': isr = c
+                elif k == 'in': t_in = c
+                elif k == 'go':
+                    cur = {'isr': isr, 'rect': r['mem'][0], 'rows': []}
+                    if t_in is not None: waits.append((c - t_in) / 228.0)
+                elif k == 'row' and cur is not None: cur['rows'].append(c)
+                elif k == 'end' and cur is not None: cur['end'] = c; cps.append(cur); cur = None
+                elif k == 'done': t += 1
+            e.trace_clear()
+        torn = 0; ln = 0; lpr = 0; behind = ahead = 10 ** 9
+        for cp in cps:
+            x, y, w, h = cp['rect']; rows = cp['rows'] + [cp['end']]
+            assert len(rows) == h + 1, (sp, 'rows traced', len(rows) - 1, h)
+            base = cp['isr']
+            ln = max(ln, (rows[-1] - rows[0]) / 228.0)
+            lpr = max(lpr, max((rows[i + 1] - rows[i]) / 228.0 for i in range(h)))
+            l0 = (rows[0] - base) / 228.0
+            k0 = int((l0 - 113 - y) // 312)
+            for kk in range(k0 - 1, k0 + 3):
+                st = set()
+                for i in range(h):
+                    T0 = base + (113 + y + i + 312 * kk) * 228
+                    if rows[i + 1] <= T0: st.add('new'); behind = min(behind, (T0 - rows[i + 1]) / 228.0)
+                    elif rows[i] >= T0 + 228: st.add('old'); ahead = min(ahead, (rows[i] - T0 - 228) / 228.0)
+                    else: st.add('torn')
+                if 'torn' in st or len(st) > 1: torn += 1
+        bad_all += torn
+        print('%s: %d direct copies (%.2f a tick), %d torn passes; longest %.1f lines, %.2f lines a row at most; the beam at '
+              'least %.1f lines after a row was written, %.1f lines before; the wait %.1f lines a copy (mean), %.1f at most' % (
+              os.path.basename(sp), len(cps), len(cps) / max(n, 1), torn, ln, lpr, behind if cps else 0, ahead if cps else 0,
+              sum(waits) / len(waits) if waits else 0, max(waits) if waits else 0))
+    return bad_all
+
 def main():
     a = sys.argv[1:]
     if not a: sys.exit(__doc__)
     if a[0] == 'direct': sys.exit(1 if direct(a[1:]) else 0)
+    if a[0] == 'direct2': sys.exit(1 if direct2(a[1:]) else 0)
     if a[0] == 'profile': profile(a[1], a[2], [int(x) for x in a[3].split(',')])
     elif a[0] == 'diff': diff(a[1], a[2], [int(x) for x in a[3].split(',')])
     elif a[0] == 'chunks': chunks(a[1], [int(x) for x in a[2].split(',')])

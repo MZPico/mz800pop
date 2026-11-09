@@ -1329,7 +1329,11 @@ sha0:           ld      a, (CRY)
 ; restore_shadow: compose rect <- shadow (background without fore pieces). Per row: the row's address, CRW INIs
 ; (entered by a jump into rs_ini), the next shadow row (+40) and compose row (+CW: no add when CRW = CW); the row
 ; count in B', the plane count in C'.
-restore_shadow: ld      a, (CRW)
+restore_shadow:
+                if defined LCODE
+                call    LC_RSPRE                ; (M8a part 25: the rect wholly in a stale one: from its slot, no return)
+                endif
+                ld      a, (CRW)
                 add     a, a
                 ld      e, a
                 ld      d, 0
@@ -1403,10 +1407,18 @@ rs_2:           exx
                 dec     c
                 exx
                 jr      nz, rsplane
+                if defined LCODE
+                jp      LC_RSPOST               ; (M8a part 25: the parts in stale rects from their slots)
+                else
                 ret
+                endif
 
 ; shadow_write: compose rect -> shadow (call after composing a clean background cell)
-shadow_write:   ld      a, (CRW)                ; the OUTI chain entry for CRW bytes: otr_end - 2 * CRW
+shadow_write:
+                if defined LCODE
+                call    LC_SWPRE                ; (M8a part 25: the stale rects it touches written back first)
+                endif
+sw_body:        ld      a, (CRW)                ; the OUTI chain entry for CRW bytes: otr_end - 2 * CRW
                 add     a, a
                 ld      e, a
                 ld      d, 0
