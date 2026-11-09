@@ -17,6 +17,11 @@
 ; snd_playing is the game logic's check_sound_playing: the player's stream runs (SP_WAIT != 0), or never in the
 ; silent mode (SND_MODE 0: every harness run; the launched game sets 1 in game_init, the level-start overlay).
 ; tools/sndsim.py is the Python model of this player (tests/m7_sound.py compares the PSG state frame by frame).
+; The fade (PRES only, `if defined PSG_BANK_PAGE`: the game's player is unchanged): mf_start arms it; every MFADE_PER
+; interrupts the offset mf_off goes up by one and the four channels are written again as min(15, attenuation + mf_off);
+; every attenuation the player writes meanwhile (the envelope steps, the stream's 1cc1aaaa) gets the offset too (ENV
+; keeps the stream's own value); when the offset reaches 15 the stream stops as at its end (SP_WAIT 0, the PSG muted):
+; MFADE_FRAMES interrupts after mf_start (mf_delay: later). snd_halt (and so snd_start) cancels it.
 
 PORT_PSG        equ     0xf2
                 if defined PSG_BANK_PAGE        ; (PRES, src/pres/pres.asm: its own bank, M7 step 6)
@@ -35,6 +40,9 @@ MF_W            equ     SP_VARS + 7     ; the ring's write position (low byte; h
 SND_MODE        equ     SP_VARS + 8     ; 0 silent (snd_playing always 0), 1 live (the player's state)
 ENV             equ     SP_VARS + 9     ; 4 x (attenuation, counter, period): the envelopes (0x03D1-0x03DC)
 MUS_BUF         equ     0xfe02          ; the ring (0xFE02-0xFEFF)
+MFADE_PER       equ     3               ; (PRES) the fade: frames per attenuation step (tools/sndsim.py MFADE_PER)
+MFADE_FRAMES    equ     15 * MFADE_PER  ; the fade's length: 45 frames = 0.9 s = 54 SDLPoP ticks (MFADE_TICKS)
+MFADE_TICKS     equ     MFADE_FRAMES * 6 / 5
                 if (ENV / 256) - ((ENV + 11) / 256)
                 .error ENV straddles a page
                 endif
@@ -42,9 +50,41 @@ MUS_BUF         equ     0xfe02          ; the ring (0xFE02-0xFEFF)
 ; snd_isr: the tail of the VBLN interrupt (game.asm isr pushed AF and HL): one frame of the stream
 snd_isr:        ld      a, (SP_WAIT)
                 or      a
+                if defined PSG_BANK_PAGE
+                jp      z, spi_x                ; no stream
+                else
                 jr      z, spi_x                ; no stream
+                endif
                 push    bc
                 push    de
+                if defined PSG_BANK_PAGE
+                ld      a, (mf_cnt)             ; the fade (0: none)
+                or      a
+                jr      z, spe_0
+                dec     a
+                jr      nz, mf_held
+                ld      a, (mf_off)
+                inc     a
+                cp      15
+                jp      z, mf_end               ; silent: the stream stops
+                ld      (mf_off), a
+                ld      hl, ENV                 ; the four channels at the new offset
+                ld      c, 0x90
+mf_ch:          ld      a, (hl)
+                or      c
+                call    mf_att
+spo_5:          out     (PORT_PSG), a
+                inc     hl
+                inc     hl
+                inc     hl
+                ld      a, c
+                add     a, 0x20
+                ld      c, a
+                jr      nc, mf_ch
+                ld      a, MFADE_PER
+mf_held:        ld      (mf_cnt), a
+spe_0:
+                endif
                 ld      hl, ENV
                 ld      c, 0x90                 ; the attenuation latch of channel 0
 spe:            ld      a, (hl)
@@ -57,6 +97,9 @@ spe:            ld      a, (hl)
                 dec     hl
                 ld      (hl), a
                 or      c
+                if defined PSG_BANK_PAGE
+                call    mf_att
+                endif
 spo_1:          out     (PORT_PSG), a           ; (spo_1-3: src/m4/ovl_keys.asm snd_onoff, sound off: patched to NOPs)
                 inc     hl
                 inc     hl
@@ -77,6 +120,10 @@ spg:            call    sp_rd
                 or      a
                 jr      z, spi_end
                 jp      p, spi_hold             ; 1-127: the next group after A frames
+                if defined PSG_BANK_PAGE
+                bit     4, a
+                jr      nz, spg_fa              ; (an attenuation: with the fade's offset)
+                endif
 spo_2:          out     (PORT_PSG), a
                 ld      b, a
                 bit     4, a
@@ -115,6 +162,15 @@ spi_x:          pop     hl
                 pop     af
                 ei
 spi_reti:       reti
+                if defined PSG_BANK_PAGE
+spg_fa:         ld      b, a
+                call    mf_att
+spo_4:          out     (PORT_PSG), a
+                jr      spg_att
+mf_end:         xor     a                       ; the fade is over: the stream stops as at its end
+                ld      (mf_cnt), a
+                ld      (mf_off), a
+                endif
 spi_end:        ld      (SP_WAIT), a            ; (A = 0) the stream ended
                 call    psg_mute
 spi_ended:      jr      spi_done
@@ -124,6 +180,36 @@ sp_rd:          ld      a, (hl)
                 ret     nz
                 ld      l, MUS_BUF % 256
                 ret
+
+                if defined PSG_BANK_PAGE
+; mf_att: A = an attenuation latch byte 1cc1aaaa -> aaaa + mf_off (at most 15). Keeps the other registers.
+mf_att:         push    bc
+                ld      b, a
+                and     0x0f
+                ld      c, a
+                ld      a, (mf_off)
+                add     a, c
+                cp      16
+                jr      c, mfa_1
+                ld      a, 15
+mfa_1:          xor     b
+                and     0x0f
+                xor     b
+                pop     bc
+                ret
+; mf_start: the fade starts (silent MFADE_FRAMES interrupts later; nothing without a stream); mf_delay: A = frames
+; (at most 255 - MFADE_PER) before it starts
+mf_start:       xor     a
+mf_delay:       add     a, MFADE_PER
+                push    af
+                xor     a
+                ld      (mf_off), a
+                pop     af
+mf_go:          ld      (mf_cnt), a             ; (tests: the fade starts; A = MFADE_PER + the delay)
+                ret
+mf_cnt:         db      0                       ; interrupts to the next step (0: no fade)
+mf_off:         db      0                       ; the offset
+                endif
 
 ; psg_mute: attenuation 15 (off) on the four channels. Uses A.
 psg_mute:       ld      a, 0x9f
@@ -141,6 +227,10 @@ snh_di:         push    af                      ; (tests/m7_sound.py: the stop h
                 ld      (SP_WAIT), a
                 ld      (MF_LEFT), a
                 ld      (MF_LEFT + 1), a
+                if defined PSG_BANK_PAGE
+                ld      (mf_cnt), a             ; (the fade cancelled)
+                ld      (mf_off), a
+                endif
                 call    psg_mute
                 pop     af
                 ret     po

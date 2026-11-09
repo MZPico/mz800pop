@@ -76,6 +76,7 @@ class Tracker:
         self.pending = None; self.loaded = False; self.armed_at = {}; self.lengths = []; self.cur = None
         self.underruns = 0; self.fill_frames = []; self.gap = 0; self.last_fill = None; self.wraps = {}
         self.addr = None; self.hooks = {}; self.extra = {}
+        self.fades = []; self.faded = []     # (PRES's music fade: mf_go) [frame its steps start counting], [(id, frame it stopped)]
         self.trace = e.tracing if trace is None else trace; self.traced = False; self.end = None
         f = frames(e); st = psg(e)
         assert e.mem(S['SP_WAIT'], 1)[0] == 0
@@ -106,6 +107,8 @@ class Tracker:
             except sndsim.Underrun:
                 self.underruns += 1; self.bad_one(self.sim.frame, 'underrun'); self.sim.p.wait = 0
             if was and not self.sim.p.playing() and self.cur is not None:
+                if self.sim.p.loops: self.wraps[self.cur[0]] = self.wraps.get(self.cur[0], 0) + self.sim.p.loops
+                if self.sim.p.last == 'fade': self.faded.append((self.cur[0], self.sim.frame))
                 self.lengths.append((self.cur[0], self.sim.frame - self.cur[1])); self.cur = None
     def bad_one(self, *what):
         self.bad += 1
@@ -140,11 +143,13 @@ class Tracker:
             self.extra[what](f, m, R, P)
         elif what == 'act':
             st = P(); self.samples += 1; self.states.append((f, st))
-            if sim.p.last not in ('step', 'end'): self.bad_one(f, 'z80 player active, sndsim', sim.p.last)
+            if sim.p.last not in ('step', 'end', 'fade'): self.bad_one(f, 'z80 player active, sndsim', sim.p.last)
             if st != sim.p.psg.state():
                 self.bad_one(f, 'emu', st, 'sndsim', sim.p.psg.state())
                 sim.p.psg.load(st)                       # (resynchronise: count each difference once)
         elif what == 'start': self.pending = R()['AF'] >> 8; self.loaded = False
+        elif what == 'fade':                            # (mf_go: A = MFADE_PER + the delay)
+            d = (R()['AF'] >> 8) - sndsim.MFADE_PER; sim.p.fade(d); self.fades.append(f + d)
         elif what == 'halt':
             if self.cur is not None and sim.p.loops: self.wraps[self.cur[0]] = self.wraps.get(self.cur[0], 0) + sim.p.loops
             sim.p.halt(); self.cur = None; self.states.append((f, sim.p.psg.state()))

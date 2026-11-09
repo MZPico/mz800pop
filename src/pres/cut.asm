@@ -360,10 +360,11 @@ s_pv:           db      OP_WAIT
                 SEQ_SLOT 0, CSEQ_100
                 db      OP_CSAND, 0, OP_CFRAMES, 6, OP_CSND, 52, OP_CFRAMES, 24, OP_CHGN, 2, OP_CFRAMES, 9
                 SEQ_SLOT 1, CSEQ_113
-                db      OP_CFRAMES, 28, OP_CFADEOUT, OP_CRET
+                db      OP_CFRAMES, 22, OP_MFADE, OP_CFRAMES, 6 ; (Jaffar's piece fades out from frame 360, tick
+                db      OP_CFADEOUT, OP_MSTOP, OP_CRET          ; 2493: silent a few frames before the fade-out's last pass)
 ; time_expired, then the title
-s_exp:          db      OP_SYNC, OP_CHGN, 7, OP_CSND, 36, OP_CFADEIN, OP_CFRAMES, 2, OP_CFRAMES, 100, OP_CFADEOUT, OP_WAITM
-                db      OP_EXPEND
+s_exp:          db      OP_SYNC, OP_CHGN, 7, OP_CSND, 36, OP_CFADEIN, OP_CFRAMES, 2, OP_CFRAMES, 100, OP_CFADEOUT, OP_MFADEM
+                db      OP_WAITM, OP_MSTOP, OP_EXPEND           ; (music 36 faded out over its last 54 ticks)
 ; end_sequence_anim, then pres.asm's ending_steps
 s_end:          db      OP_CSHOW, OP_SYNC, OP_CSND, 26
                 INIT_PRINCESS                                   ; init_ending_princess

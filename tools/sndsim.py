@@ -4,7 +4,9 @@ sound model's request rules (src/m4/sound.asm, tools/kidsim.py) on top of it, an
 
   Psg        the chip's registers: per channel the attenuation, the tone divider (10 bits; a latch byte sets the low
              4 bits, which take effect with the data byte, as in mz800emu psg.c), the noise rate and type
-  Player     psg.asm: halt (stop + mute), start(id) (= halt, copy the stream from the bank, arm), isr() (one frame)
+  Player     psg.asm: halt (stop + mute), start(id) (= halt, copy the stream from the bank, arm), isr() (one frame),
+             fade() (PRES's music fade-out: mf_start; MFADE_PER frames per attenuation step, silent and stopped after
+             MFADE_FRAMES)
   Sim        play(id) / next() / stop() (SDLPoP play_sound / play_next_sound / stop_sounds, the priorities and
              interruptible flags of kidsim) in the 'silent' (nothing ever plays) or 'live' (the player's stream)
              mode, frame by frame: run(script) gives the PSG state after every frame
@@ -28,6 +30,9 @@ BANK = os.path.join(HERE, '..', 'build', 'assets', 'sound.bin')
 OUTDIR = os.path.join(HERE, '..', 'build', 'sound')
 PSG_CLK = SC.CPU / 16.0
 RATE = 44100
+MFADE_PER = 3                       # psg.asm (PRES): the fade's frames per attenuation step
+MFADE_FRAMES = 15 * MFADE_PER       # 45 frames = 0.9 s = 54 SDLPoP ticks
+MFADE_TICKS = MFADE_FRAMES * 6 // 5
 
 # the sound model's tables (tools/kidsim.py: SDLPoP sound_prio_table, sound_interruptible, PoP 1.3 values)
 import kidsim
@@ -101,10 +106,19 @@ class Player:
         self.wait = 0; self.r = self.LO; self.w = self.LO; self.left = 0; self.src = b''; self.pos = 0
         self.ring = {}; self.avail = 0; self.env = [[15, 0, 0] for _ in range(4)]
         self.writes = 0; self.last = None; self.fills = []; self.loop = None; self.loops = 0
+        self.mf_cnt = 0; self.mf_off = 0
+    def fade(self, delay=0):
+        """mf_start / mf_delay: the fade-out starts after `delay` interrupts (PRES): every MFADE_PER interrupts the
+        offset added to every attenuation written goes up by one (the four channels written again); at 15 the stream
+        stops as at its end"""
+        self.mf_off = 0; self.mf_cnt = MFADE_PER + delay
+    def adj(self, v):
+        """mf_att: an attenuation latch byte with the fade's offset (at most 15)"""
+        return (v & 0xF0) | min(15, (v & 15) + self.mf_off)
     def mute(self):
         for v in (0x9F, 0xBF, 0xDF, 0xFF): self.psg.write(v)
     def halt(self):
-        self.wait = 0; self.left = 0; self.mute()
+        self.wait = 0; self.left = 0; self.mf_cnt = self.mf_off = 0; self.mute()
     def free(self):
         """room in the ring as snd_fill computes it (253 at most)"""
         return (self.r - self.w - 1) % 256 - (2 if self.r <= self.w else 0)
@@ -150,11 +164,19 @@ class Player:
         """one interrupt; returns the number of PSG bytes written"""
         self.writes = 0; self.last = None
         if not self.wait: return 0
+        if self.mf_cnt:                                 # the fade (PRES)
+            self.mf_cnt -= 1
+            if not self.mf_cnt:
+                if self.mf_off + 1 == 15:               # silent: the stream stops as at its end
+                    self.mf_off = 0; self.wait = 0; self.mute(); self.writes += 4; self.last = 'fade'
+                    return self.writes
+                self.mf_off += 1; self.mf_cnt = MFADE_PER
+                for c, e in enumerate(self.env): self.out(self.adj(0x90 | (c << 5) | e[0]))
         for c, e in enumerate(self.env):                # the envelopes
             if e[0] < 15:
                 e[1] = (e[1] - 1) & 255
                 if e[1] == 0:
-                    e[0] += 1; e[1] = e[2]; self.out(0x90 | (c << 5) | e[0])
+                    e[0] += 1; e[1] = e[2]; self.out(self.adj(0x90 | (c << 5) | e[0]))
         self.last = 'step'
         self.wait -= 1
         if self.wait: return self.writes
@@ -164,7 +186,7 @@ class Player:
                 self.wait = 0; self.mute(); self.writes += 4; self.last = 'end'; return self.writes
             if b < 0x80:
                 self.wait = b; return self.writes
-            self.out(b)
+            self.out(self.adj(b) if b & 0x10 else b)
             if not b & 0x10:
                 if b < 0xE0: self.out(self.rd())        # a tone latch's data byte
             else:
