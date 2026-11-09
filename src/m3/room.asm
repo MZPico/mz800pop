@@ -3258,7 +3258,28 @@ run_rect:       ld      hl, COMPOSE_A
                 jp      z, rr_ca
                 ld      hl, SPRBUF_B
 rr_ca:          ld      (V_COMPOSE), hl
-                call    rect_bounds
+                call    rr_lays
+                jp      rr_sw
+; rr_layc: the rect (CRX/CRY/CRW/CRH) laid into V_COMPOSE: the black fill and the back and mid ops, without the
+; shadow write (M8a part 24: colshift.asm lays a gate's contact band into its own compose rect); the candidate tile
+; columns RR_C0..RR_C1 from the rect as dr_run's. rr_lays: the same, the columns set.
+rr_layc:        ld      a, (CRX)
+                ld      b, a
+                sub     6
+                jr      nc, rlc1
+                xor     a
+rlc1:           rrca
+                rrca
+                and     63
+                ld      (RR_C0), a
+                ld      a, (CRW)
+                add     a, b
+                dec     a
+                rrca
+                rrca
+                and     63
+                ld      (RR_C1), a
+rr_lays:        call    rect_bounds
                 ld      a, 1
                 ld      (RR_MODE), a
                 xor     a
@@ -3270,7 +3291,7 @@ rr_ca:          ld      (V_COMPOSE), hl
                 xor     a
                 ld      (RR_MODE), a
                 call    rc_hook         ; (M4: lays the recorded ops itself: carry)
-                jp      c, rr_sw
+                ret     c
                 ld      a, (rr_last)
                 or      a
                 jp      z, rr_fill
@@ -3295,6 +3316,7 @@ rr_lay:         xor     a
                 call    rr_table        ; mid
                 xor     a
                 ld      (RR_MODE), a
+                ret
 rr_sw:          call    shadow_write    ; the shadow room holds the background without the fore pieces
                 ld      a, (RR_SHONLY)
                 or      a

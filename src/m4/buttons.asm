@@ -1,10 +1,10 @@
 ; ---------------------------------------------------------------- buttons (seg007 trigger_button, do_trigger_list, trigger_gate)
-; Included in three W1 overlays (M8a part 14): the events overlay (2026-11-01: moved out of objects.asm), the gate and
-; the door overlay. check_press calls trigger_button every tick while the kid stands on a plate, and the plate opens a
-; gate (or the exit door) that moves meanwhile: with the copy in the gate and door overlays, the stub (ovl.asm) runs the
-; one in W1 and nothing is loaded. m4test includes it in its main block. Called from the kid (check_press), a guard, a
-; loose floor and lr_special; levelstart.asm (W2), autocontrol_shadow and died_on_button (events overlay: its own copy)
-; too. tb_type .. dt_res are scratch of one call.
+; Resident in the game's main block since M8a part 24 (before: the events overlay, and from M8a part 14 copies in the
+; gate and door overlays). check_press calls trigger_button every tick while the kid stands on a plate; in W1 it made
+; the events overlay load every tick while another W1 overlay (the frames, the button overlay) was in use. m4test
+; includes it in its main block too. Called from the kid (check_press), a guard, a loose floor and lr_special;
+; levelstart.asm (W2), autocontrol_shadow and died_on_button (events overlay) too. tb_type .. dt_res are scratch of
+; one call.
 trigger_button: ld      (TB_SND), a
                 ld      (O_T1), bc
                 ld      a, (CURR_TILEPOS)

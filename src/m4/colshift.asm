@@ -6,7 +6,7 @@
 ; its picture kept in SPRBUF_B (the object pass composes the people and the fore pieces over it, no restore).
 ; Entries: gate_step (gate.asm gate_redraw; the gate overlay, src/m4/ovl_anim.asm, CS_GATE), door_step (spike.asm
 ; door_redraw; the door overlay, src/m4/ovl_door.asm, CS_DOOR); carry set: not this way, the caller redraws the tile(s)
-; as before. Both overlays also hold a copy of trigger_button (src/m4/buttons.asm; ovl.asm's stub uses the one in W1).
+; as before. (trigger_button, once copied into both overlays, is resident since M8a part 24.)
 ; C, E = the new and the old modifier; VS_KIND, VS_TAG, VS_POS (view.asm vs_entry).
 ;
 ; The shared part (also for pre-drawn pictures from the RAM disk, fix A): a rect is composed in SPRBUF_B from a source
@@ -14,85 +14,12 @@
 ; puts it on the dirty list and marks SPRBUF_B as its kept background (room.asm rr_kr / rr_kv, tcache.asm oc_kept).
 
 ; (cs_get, cs_put: src/m4/anires.asm, block 2)
+; (cs_scan and its variables: src/m4/csres.asm, main)
 ; cs_lay: HL = an op record: lay it into the compose rect (clipped to it)
 cs_lay:         ld      de, 8
                 add     hl, de
                 ld      (OPL_PTR), hl
                 jp      rl_lay
-; cs_scan: A = tag, D..E = an id range, C = k: in the tag's back slice every CH_ENV record with an id in D..E moves by
-; k rows up (ytop -= k; its slice's extent widened: room.asm sb_yr). Out: HL = the last such record, Z: none. (k = 0:
-; only finds it.)
-cs_scan:        ld      (cs_tag), a
-                ld      (cs_lo), de
-                ld      e, a
-                ld      a, c
-                ld      (cs_kk), a
-                ld      hl, 0
-                ld      (cs_last), hl
-                ld      d, h
-                ld      hl, SL_CNT
-                add     hl, de
-                ld      b, (hl)
-                ld      hl, SL_START
-                add     hl, de
-                ld      l, (hl)
-                ld      h, d
-                add     hl, hl
-                add     hl, hl
-                add     hl, hl
-                ld      de, (opl_base)
-                add     hl, de                  ; the slice's first record
-                inc     b
-                jr      css_n1
-css_l:          push    bc
-                push    hl
-                inc     hl
-                ld      a, (hl)                 ; chtab
-                cp      CH_ENV
-                jr      nz, css_n
-                inc     hl
-                ld      a, (hl)                 ; id: D <= id <= E (kept in cs_lo as E, D)
-                ld      hl, cs_lo + 1
-                cp      (hl)
-                jr      c, css_n
-                dec     hl
-                cp      (hl)
-                jr      z, css_y
-                jr      nc, css_n
-css_y:          pop     hl
-                push    hl
-                ld      (cs_last), hl
-                ld      (sb_rec), hl
-                ld      de, 4
-                add     hl, de
-                ld      a, (cs_kk)
-                ld      c, a
-                rla
-                sbc     a, a
-                ld      b, a                    ; BC = k
-                ld      e, (hl)
-                inc     hl
-                ld      d, (hl)
-                ex      de, hl
-                or      a
-                sbc     hl, bc
-                ex      de, hl
-                ld      (hl), d
-                dec     hl
-                ld      (hl), e
-                ld      a, (cs_tag)
-                ld      e, a
-                ld      d, 0
-                call    sb_yr
-css_n:          pop     hl
-                ld      de, 8
-                add     hl, de
-                pop     bc
-css_n1:         djnz    css_l
-                ld      hl, (cs_last)
-                ld      a, h
-                or      l
-                ret
 ; cs_find: DE = an id range: cs_scan of the drawing tile's (cs_bt) slice without moving (HL = the last record, Z: none)
 cs_find:        ld      c, 0
                 ld      a, (cs_bt)
@@ -172,8 +99,9 @@ cs_8:           ld      l, a
 ;   min(p) <= 12: rows MY - 13..MY - min(p) - 1 (where the floor meets the bars, down to the lower bottom) laid by
 ;   run_rect (dr_run): there the floor drawn before the bars shows below them.
 ; Exact for every gate of levels 1-14 whose bars tile is empty, a floor, a button (pressed: a floor or a stuck floor),
-; a loose floor, a torch, a gate or a dungeon pillar, whose base (92, mono black, laid after the bars) is laid again over
-; them (tools/movecheck.py); a palace pillar's base does not cover what it moved there: the old way.
+; a loose floor, a torch, a gate or a pillar: its base 92, laid after the bars, is kept where it covers them (cs_pil,
+; M8a part 24: the dungeon's bytes 1-2 read again, the palace's head laid again and pixels 16-19 kept;
+; tools/movecheck.py).
 ; The records: the bars' (CH_ENV 50..59) move by k rows, the frame slice gets its new id, height and top; the top
 ; frame its new id. Where the record count or the branch changes ((46 - min(p)) & 7 = 0: a slice more or less; min(p)
 ; = 11: the open / closed branch of draw_gate_back) the bars tile is regenerated instead (tile_regen).
@@ -229,13 +157,6 @@ gs2:            rrca
                 ret     c
                 ld      a, c
                 ld      (cs_ty), a
-                cp      T_PILLAR                ; a pillar: the dungeon's only (its base is laid again over the bars)
-                jr      nz, gs2p
-                ld      a, (LEVEL_TYPE)
-                or      a
-                scf
-                ret     nz
-gs2p:
                 ld      a, (cs_bt)
                 call    cs_chg
                 scf
@@ -394,11 +315,29 @@ gs9:            ld      a, (cs_k)
                 call    m, cs_lay               ; closing: row GT from the frame slice
                 ld      a, (cs_ty)
                 cp      T_PILLAR
-                jr      nz, gs10
-                ld      de, 92 * 256 + 92       ; the pillar's base (draw_tile_base, after the bars) over them again
-                call    cs_find
-                call    nz, cs_lay
-gs10:           call    cs_put
+                call    z, cs_pil               ; a pillar's base (92, laid after the bars) over them
+gs10:           ld      a, (cs_cl)              ; the contact band (M8a part 24): laid into the compose rect below
+                or      a                       ; S1 (one rect, kept: no restore in the object pass), while the
+                jr      z, gs11                 ; rect stays within SPRBUF_B's 64 rows (min >= 4)
+                ld      a, (cs_min)
+                cp      4
+                jr      c, gs11
+                ld      a, (cs_gt)
+                add     a, 46                   ; MY - 13
+                ld      (CRY), a
+                call    cpp_row
+                ld      (V_COMPOSE), hl
+                ld      a, (cs_min)
+                cpl
+                add     a, 14                   ; 13 - min rows
+                ld      (CRH), a
+                push    af
+                call    rr_layc
+                pop     af
+                call    cs_whole
+                xor     a
+                ld      (cs_cl), a
+gs11:           call    cs_put
                 ld      a, (cs_cl)
                 or      a
                 ret     z                       ; (carry clear)
@@ -420,6 +359,170 @@ gs10:           call    cs_put
                 call    dr_run
                 or      a
                 ret
+; cs_pil (M8a part 24): the bars tile is a pillar, whose base 92 is laid after the bars over rows GT..GT + 59. The
+; dungeon's covers bytes 1-2 of the column whole in rows GT..S1 - 1: there the old picture (read again). The
+; palace's covers pixels 16-19 (byte 2, bits 0-3) in rows GT + 9..GT + 46, more in rows GT..GT + 8: rows GT..GT + 9
+; get the bars' records (CH_ENV 50..59) and 92 laid again, rows GT + 10..S1 - 1 bits 0-3 of byte 2 from the old
+; picture (tools/movecheck.py gates: exact for every pillar gate of levels 1-14).
+cs_pil:         ld      a, (LEVEL_TYPE)
+                or      a
+                jr      nz, cpp_p
+                ld      a, (cs_gt)              ; the dungeon: bytes 1-2 of rows GT..S1 - 1 from the shadow
+                ld      c, a
+                ld      b, a
+                ld      a, (cs_s1)
+                sub     c
+                ld      h, a
+                ld      l, 2
+                ld      a, (cs_x)
+                inc     a
+                call    cpp_get
+                jp      cpp_end
+cpp_p:          ld      a, (cs_gt)              ; the palace: rows GT..GT + 9, the bars' records and 92 laid again
+                ld      (CRY), a
+                ld      a, 10
+                ld      (CRH), a
+                call    cpp_row
+                ld      (V_COMPOSE), hl
+                call    rect_bounds
+                ld      de, 50 * 256 + 59
+                call    cs_layr
+                ld      de, 92 * 256 + 92
+                call    cs_layr
+                ld      a, (cs_gt)              ; rows GT + 10..S1 - 1: bits 0-3 of byte 2 from the old picture
+                add     a, 10
+                ld      c, a
+                ld      b, a
+                ld      a, (cs_s1)
+                sub     c
+                ld      (cs_kk), a
+                ld      h, a
+                ld      l, 1
+                ld      a, (cs_x)
+                add     a, 2
+                push    bc
+                ld      de, COMPOSE_A           ; (free while the tiles are redrawn: no chunk is pending)
+                call    cpp_gt
+                pop     bc
+                ld      a, b
+                call    cpp_row0
+                inc     hl
+                inc     hl
+                ex      de, hl
+                ld      hl, COMPOSE_A
+                ld      b, 4
+cpp_pl:         push    bc
+                push    hl
+                push    de
+                ld      a, (cs_kk)
+                ld      b, a
+cpp_r:          ld      a, (de)
+                xor     (hl)
+                and     0xf0
+                xor     (hl)
+                ld      (de), a
+                ld      a, l
+                add     a, CW
+                ld      l, a
+                jr      nc, cpp_r1
+                inc     h
+cpp_r1:         ld      a, e
+                add     a, CW
+                ld      e, a
+                jr      nc, cpp_r2
+                inc     d
+cpp_r2:         djnz    cpp_r
+                pop     de
+                pop     hl
+                inc     d
+                inc     d
+                inc     h
+                inc     h
+                pop     bc
+                djnz    cpp_pl
+cpp_end:        ld      a, (cs_x)               ; the whole rect again (for cs_put)
+                ld      (CRX), a
+                ld      a, 3
+                ld      (CRW), a
+                xor     a
+                jp      cs_whole
+; cpp_get: A = CRX, L = CRW, H = CRH, C = CRY: the shadow's rect into the compose's row B on (the same bytes);
+; cpp_gt: into DE instead
+cpp_get:        push    hl
+                push    af
+                ld      a, b
+                call    cpp_row0
+                pop     af
+                push    af
+                ld      e, a
+                ld      a, (cs_x)
+                cpl
+                inc     a
+                add     a, e
+                ld      e, a
+                ld      d, 0
+                add     hl, de                  ; (the byte: CRX - x)
+                ex      de, hl
+                pop     af
+                pop     hl
+cpp_gt:         ld      (CRX), a
+                ld      (CRW), hl
+                ld      a, c
+                ld      (CRY), a
+                ex      de, hl
+                jp      cs_get
+; cpp_row: HL = row CRY of the compose rect in SPRBUF_B (cpp_row0: row A)
+cpp_row:        ld      a, (CRY)
+cpp_row0:       ld      hl, cs_t0
+                sub     (hl)
+                jp      cs_8
+; cs_layr: DE = an id range: lay every CH_ENV record of the bars tile's (cs_bt) back slice with an id in it, in list
+; order, into the compose rect (rect_bounds set; rec_lay rejects the ones that miss it)
+cs_layr:        ld      a, (cs_bt)
+                ld      l, a
+                ld      h, 0
+                ld      (cs_lo), de
+                ld      de, SL_CNT
+                add     hl, de
+                ld      b, (hl)
+                ld      de, SL_START - SL_CNT
+                add     hl, de
+                ld      l, (hl)
+                ld      h, 0
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                ld      de, (opl_base)
+                add     hl, de
+                inc     b
+                jr      clr_n1
+clr_l:          push    bc
+                push    hl
+                inc     hl
+                ld      a, (hl)
+                cp      CH_ENV
+                jr      nz, clr_n
+                inc     hl
+                ld      a, (hl)
+                ld      hl, cs_lo + 1
+                cp      (hl)
+                jr      c, clr_n
+                dec     hl
+                cp      (hl)
+                jr      z, clr_y
+                jr      nc, clr_n
+clr_y:          pop     hl
+                push    hl
+                ld      de, 8
+                add     hl, de
+                ld      (OPL_PTR), hl
+                call    rec_lay
+clr_n:          pop     hl
+                ld      de, 8
+                add     hl, de
+                pop     bc
+clr_n1:         djnz    clr_l
+                ret
 cs_pos:         cp      189                     ; A = modifier -> min(A, 188) / 4
                 jr      c, csp1
                 ld      a, 188
@@ -427,7 +530,7 @@ csp1:           rrca
                 rrca
                 and     0x3f
                 ret
-; the bars tile's types: empty, floor, a pillar (the dungeon's), stuck (a pressed closer), closer, loose floor, opener,
+; the bars tile's types: empty, floor, a pillar (both kinds: cs_pil), stuck (a pressed closer), closer, loose floor, opener,
 ; torch, gate
 CS_OK0          equ     (1 << T_EMPTY) | (1 << T_FLOOR) | (1 << T_PILLAR) | (1 << T_GATE) | (1 << T_STUCK)
 cs_okmap:       db      CS_OK0 | (1 << T_CLOSER_R)
@@ -602,20 +705,15 @@ ds4:            ld      a, (cs_s1)              ; the revealed row: 99 and 144 c
                 ret
 
                 endif
-
 cs_x:           db      0                       ; (cs_x, cs_t0: CRX, CRY of the rect)
 cs_t0:          db      0
 cs_k:           db      0
-cs_kk:          db      0
 cs_pn:          db      0
 cs_min:         db      0
 cs_bt:          db      0
 cs_gt:          db      0
 cs_s1:          db      0
 cs_cl:          db      0
-cs_tag:         db      0
 cs_ty:          db      0
-cs_lo:          dw      0
-cs_last:        dw      0
 cs_rtop:        dw      0
 cs_rfr:         dw      0

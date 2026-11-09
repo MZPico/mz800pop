@@ -1053,3 +1053,17 @@ piece used AND/XOR semantics.
    5.70). Main +130 bytes (1,205 free), block 2 +12 (14 free). Exact: tools/collrows_diff.py (the old and the new
    check_collisions and k_get_tile in two emulators, 84,000 random cases over levels 1-14, all of KV and the registers
    compared: 0 differing), m4_test all 74 scripts, m4_game --every 1 (see the PR).
+67. M8a part 24, gates at pillars and the closed band (2026-11-09, docs/perf.md "M8a part 24: gates at pillars and the
+   closed band"; G1 and G3 of the speed roadmap's section 8): a palace-pillar gate takes the column shift (rows GT..GT +
+   9 with the bars' records and 92 laid again, below them pixels 16-19 from the old picture), a dungeon pillar's bytes
+   1-2 are read again instead of 92 laid, and the closed gate's contact band is laid into the step's own compose rect
+   (room.asm run_rect split: rr_lays / rr_layc; one kept rect, no restore; min(p) >= 4). trigger_button resident (the
+   plate thrash: l05r24 standing -0.35 a tick), cs_scan in main. Per step (a - b mean, 1 MB): G1 5.01 -> 3.70, G3 3.72
+   -> 3.29, G3 at a dungeon pillar 4.93 -> 4.04, open at a dungeon pillar 2.40 -> 2.22, button hits 1.69 -> 1.39;
+   l10r01 walk median 8.92 -> 7.93 (p90 14.38 -> 12.67), l11r02 6.30 -> 5.01; perfcheck lower (gate 4.07 -> 4.04, the
+   1 MB level door step 8.00 -> 7.90, fight 5.70 -> 5.63). Main +406 bytes (799 free). Measured and not built: a
+   band-picture cache (5-7 % hits), the palace band cut to 3 rows (the Z80's shadow differs from the reference's under
+   a fore piece), a faster palace head (+120 bytes of main for ~0.25 a G1 step). Exact: tools/movecheck.py (8,280 gate
+   steps incl. every pillar gate), m4_game --every 1 at 3 sizes, m4_test (see the PR). Next: G2 (drops) and G4 (to or
+   from 47) remain on the old path (~7 a step, 4 % of the steps); then the remaining roadmap items (R2, the room
+   cache; B1 button misses).
