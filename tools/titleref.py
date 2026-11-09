@@ -9,7 +9,8 @@ title images) and are drawn as SDLPoP's draw_full_image does with data.h's full_
 Screens are 200 rows of 320 MZ colours (lists).
   screen(names)      the images drawn in order on a black screen, e.g. screen(['MAIN', 'POP', 'MECHNER'])
   STEPS              the title's steps (docs/m7-design.md §1.2) as PRES plays them in M7 step 6: (name, images on the
-                     screen, SDLPoP ticks); step f's ticks come from the ticks model of music 54
+                     screen, SDLPoP ticks); step f's ticks: the ticks model of music 54 less F_EARLIER, the title
+                     theme stopped F_MUSIC ticks into f (music_stop_tick: after TITLE_PASSES passes)
   wipe(old, new, n)  transition_ltr after n of PRES's 40 8-px columns (SDLPoP: 160 2-px columns, 4 per PRES column)
   fade_in(new, k)    the EGA fade-in after pass k (rows y mod 5 < k from the new screen; DOSBox, §15)
 usage: titleref.py [out_dir]   (PNGs of the steps' screens)"""
@@ -23,17 +24,43 @@ NAMES = {'MAIN': 51, 'PRESENTS': 52, 'GAME': 53, 'POP': 54, 'MECHNER': 55, 'FRAM
          'HAIL': 44, 'CREDITS': 45, 'FRAME_RED': 46}
 LAYOUT = {r: (x, y, mode) for r, _, x, y, mode in TITLE_IMAGES}
 WIPE_TICKS = 80             # transition_ltr: 160 steps at 120 a second
+FADE_TICKS = 16             # fade_in_2: 5 passes 4 ticks apart; the music of step a starts with the last (tick 16)
 MUSIC = 54
+TITLE_PASSES = 2            # the title theme's passes in a-f (the user's decision, 2026-11-09)
+F_EARLIER = 60              # ... and f ends 1 s before SDLPoP's (DOS) end of music 54
 
 def music_end_ticks():
-    """step f lasts until music 54 ends: SDLPoP polls check_sound_playing once a tick, so the title's clock at f's end
-    is the first whole tick after the music's length (the ticks model: kidsim SOUND_SECONDS)"""
+    """SDLPoP's step f lasts until music 54 ends: SDLPoP polls check_sound_playing once a tick, so the title's clock at
+    f's end is the first whole tick after the music's length (the ticks model: kidsim SOUND_SECONDS)"""
     return math.ceil(kidsim.SOUND_SECONDS[MUSIC] * 60 - 1e-9)
 
+def title_frames():
+    """one pass of PRES's title theme (the Master System's song 1, looped whole) in 50 Hz frames"""
+    import presbank
+    return presbank.piece('title')['frames']
+
+def music_stop_tick():
+    """the title's tick at which PRES stops the title theme (step f's OP_MSTOP): the clock's frame floor(5 T / 6) is the
+    one of the music's start (the fade-in's last pass, its first group at the next interrupt) + TITLE_PASSES passes, so
+    the stop comes after the interrupt that played the last pass's last frame and before the one that would start the
+    next pass: the smallest such tick"""
+    f = FADE_TICKS * 5 // 6 + TITLE_PASSES * title_frames()
+    t = -(-6 * f // 5)
+    assert t * 5 // 6 == f
+    return t
+
 # (step, images on the screen at its end, its length in SDLPoP ticks; 'wipe' = transition_ltr first)
+# A deviation from SDLPoP: its f waits until the DOS music 54 ends (music_end_ticks: 1502 ticks from a, 25.02 s); PRES
+# plays the Master System's title theme (11.40 s) instead, which would loop to 22.80 s and be cut 2.2 s into a third
+# pass by g's music. PRES plays it exactly TITLE_PASSES times (f stops it at music_stop_tick: F_MUSIC ticks into f) and
+# ends f F_EARLIER ticks before SDLPoP: a-f AF_TICKS = 1442 ticks, ~1.2 s of silence on the logo before g.
 _AE = (('a', ['MAIN'], 130), ('b', ['MAIN', 'PRESENTS'], 205), ('c', ['MAIN'], 65), ('d', ['MAIN', 'GAME'], 270),
        ('e', ['MAIN'], 235))
-STEPS = list(_AE) + [('f', ['MAIN', 'POP', 'MECHNER'], music_end_ticks() - sum(t for *_, t in _AE)),
+AE_TICKS = sum(t for *_, t in _AE)
+AF_TICKS = music_end_ticks() - F_EARLIER
+F_MUSIC = music_stop_tick() - FADE_TICKS - AE_TICKS
+assert 0 < F_MUSIC < AF_TICKS - AE_TICKS
+STEPS = list(_AE) + [('f', ['MAIN', 'POP', 'MECHNER'], AF_TICKS - AE_TICKS),
                      ('g', ['FRAME', 'ABSENCE'], WIPE_TICKS + 600)]
 WIPES = ('g',)
 

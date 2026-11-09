@@ -990,7 +990,7 @@ tools/titleref.py; the recording stays in build/dosbox/title/.
 **title.pack** (tools/build_assets.py build_title, from TITLE.DAT through the dither): res 51 and 41 4 planes maskless
 (32,000 bytes each), res 52, 53, 55 4 planes maskless with the right edge mask of a box wider than the image (dir byte
 7, flag bit 1), res 54 (the logo, transparent) the inverted mask + 4 planes, res 42-45 1 bpp (flag bit 2: drawn as
-colour 15); 99,619 bytes raw. title.inc: TITLE_F_TICKS = 597, step f's wait (below).
+colour 15); 99,619 bytes raw. title.inc: TITLE_F_MUSIC = 463 and TITLE_F_REST = 74, step f's two waits (below, §19).
 
 **POP800.PRS** (one FSMZ file, 36,864 bytes = 144 blocks; 0xFF00 holds; the intro / cutscene art of steps 7-8 will need
 the second file with an index entry carrying a file number):
@@ -1035,12 +1035,18 @@ RAM disk by the boot (D2/D3).
 
   | | a | b | c | d | e | f | j | k | m (fade-out) |
   |---|---|---|---|---|---|---|---|---|---|
-  | ticks | 130 | 205 | 65 | 270 | 235 | 597 | 80 + 120 | 80 + 360 | 20, then the fade-in 16 |
-  | frames | 108 | 171 | 54 | 225 | 196 | 498 | 166 | 367 | 30 |
+  | ticks | 130 | 205 | 65 | 270 | 235 | 463 + 74 | 80 + 120 | 80 + 360 | 20, then the fade-in 16 |
+  | frames | 108 | 171 | 54 | 225 | 196 | 448 | 166 | 367 | 30 |
 
   f: music 54 starts with the fade-in's last pass (tick 16) and lasts ceil(25.023 s x 60) = 1502 ticks in the ticks
-  model (kidsim SOUND_SECONDS), so f waits 1502 - 905 = 597 ticks; the stream (1,251 frames) ends at frame 1265, f's
-  end. j's and k's next screens are decoded into page 1 during their own waits (FRAME + credits after j's wipe, MAIN
+  model (kidsim SOUND_SECONDS), so SDLPoP's f waits 1502 - 905 = 597 ticks. PRES deviates (2026-11-09, the user's
+  decision): its title theme (§19, 570 frames a pass) plays exactly twice and f ends 60 ticks (1 s) earlier, a-f 1442
+  ticks. f's first wait (TITLE_F_MUSIC 463) ends at tick 1384, frame 1153 = 13 + 2 x 570: after the interrupt that
+  played the 2nd pass's last frame; OP_MSTOP (snd_halt: all four attenuations 15) comes before the next one, which
+  would start a 3rd pass. That is the pass boundary's own state (the tones are off there, the loop group's first
+  frame would mute the noise), so there is no click. The rest (TITLE_F_REST 74 ticks, 62 frames, 1.24 s) is silent;
+  g starts at tick 1458, frame 1215. tools/titleref.py computes the ticks (music_stop_tick from the piece's frames in
+  assets/sms/pieces.json), tools/build_assets.py writes them to title.inc. j's and k's next screens are decoded into page 1 during their own waits (FRAME + credits after j's wipe, MAIN
   after k's), ~65 frames each. After k: the fade-out (5 passes), then the title again from the fade-in (step 9 puts the
   demo there). Step a's code runs 2 frames after its tick (the last pass is drawn first); the clock is exact.
 - Keys (polled once a frame in every wait): first all keys must be let go; then Ctrl+L, or any other key, SHIFT or the
@@ -1053,8 +1059,8 @@ RAM disk by the boot (D2/D3).
 
 **Tests** (tests/m7_title.py, ~25 min; all ok): 1. one title loop and the next one's first two steps: VRAM at every
 step start, at the 10 fade passes, the 5 fade-out passes and 9 columns of each wipe against tools/titleref.py (42
-screens, pixel-exact), every step's frame = floor(5 T / 6) (table above), music 54 armed at frame 13 / 1828 with the
-fade-in's last pass and ending by frame 1265, the PSG state at the 1,360 interrupts that played a group equal to
+screens, pixel-exact), every step's frame = floor(5 T / 6) (table above), music 54 armed at frame 13 with the
+fade-in's last pass and stopped at frame 1153 (2 x 570 frames, the pass boundary; 2026-11-09), the PSG state at the 1,360 interrupts that played a group equal to
 sndsim's (tests/m7_sound.py's tracker, the presentation bank). 2. SPACE at step a: the handoff, then main RAM, the
 RAM disk, KV, EV and VRAM at level_ready and 100 ticks later as a direct level 1 start, NEED_L1M 1, SND_MODE 1; CTRL
 alone does nothing; SHIFT starts. 3. a save made as tests/m5_save.py does (level 3, 41:290, Ctrl+G): Ctrl+L at step b
@@ -1446,7 +1452,7 @@ command; the tones rescaled by 1.0000006), build/sound/sms/index.txt:
 
 | Screen | SMS piece (frames) | PRES id(s) | Loop | Bank |
 |---|---|---|---|---|
-| Title a-f (MAIN .. logo) | 01 title (570 = 11.40 s) | 54 | whole; halted at g after 2 full plays (1252 frames) | A |
+| Title a-f (MAIN .. logo) | 01 title (570 = 11.40 s) | 54 | whole; stopped in f after exactly 2 plays (1140 frames), f 60 ticks shorter (§15) | A |
 | Story text g, into h's black and fade-in | 11 hourglass (985) | 55 | from frame 25 (0.50 s intro, 19.20 s loop) | A, B (same address) |
 | pv_scene h from its first cue (frame 2), "Marry Jaffar" i | 05 story_jaffar (1220 = 24.40 s) | 50 | whole | B |
 | Main picture j | 01 | 54 | whole | C |
@@ -1481,15 +1487,16 @@ band of a draw, the cutscene engine once a frame.
 **Lengths changed** (cutsim.PRES_TICKS60; kidsim.SOUND_SECONDS untouched): 27, 35, 40 -> 519 ticks (ceil(8.64 x 60); the
 cutscene cue: the level starts when SMS 7 ends; DOS 720 / 618 / 412); 56 -> 1212 ticks (the hail + TITLE_MAIN wait after the
 embrace's 840: 2052 = 3 x 684 = 3 plays of the title theme; DOS 7482). They reach cut.inc (cut_len60, CUT_L56), the SDLPoP hook
-(tools/cut_suite.py passes cutsim.sound_ticks60 as POP800_CUT_TICKS) and the tests. title.inc's TITLE_F_TICKS stays 597 (f ends
-at the DOS 1502-tick point).
+(tools/cut_suite.py passes cutsim.sound_ticks60 as POP800_CUT_TICKS) and the tests. title.inc's TITLE_F_TICKS stayed 597 (f ended
+at the DOS 1502-tick point, the theme cut 2.2 s into a third play by g) until 2026-11-09: now two plays, f 60 ticks
+shorter (§15: TITLE_F_MUSIC 463 + TITLE_F_REST 74).
 
 **Timings as built** (the emulator; the music starts in the fade-in's frame, tick 0 of the scene, §17): the level scenes end at
 tick 519 (was 720 / 618 / 412 by the same count): the scenes' frames and fade-out end at tick 196 (2/6, 4, 12), 400 (8) and 472 (9),
 then the black screen with the music for 323 / 119 / 47 ticks. The piece is 518.4 ticks and
 the model rounds up while the clock rounds down (floor(5 T / 6)), so the level start's snd_halt cuts its last 1-2 frames
 (tests/m7_cut.py checks that every byte of the stream was copied and read by then). The title: unchanged ticks
-(§17), the music under it as the table. The ending: embrace 840, hail 916, wipe + TITLE_MAIN 240, the final wait 56 ticks
+(§17) but f (§15), the music under it as the table. The ending: embrace 840, hail 916, wipe + TITLE_MAIN 240, the final wait 56 ticks
 (the third play of the title theme ends at 2052), fade-out 20: 2072 ticks (34.5 s) instead of 7502.
 
 **Listening**: build/sound/pres/model_<piece>.wav (`python3 tools/presbank.py --wav`: the piece and one loop through the

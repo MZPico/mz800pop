@@ -34,7 +34,7 @@
 ; 0x1000-0x1FFF) is mapped only inside the row / column copies: the code, ROWBUF, the stack and the ISR's data are
 ; outside 0x1000-0x1FFF and 0x8000-0x9FFF.
                 include "../boot/launch.inc"
-                include "../../build/assets/title.inc"  ; TITLE_F_TICKS (tools/build_assets.py build_title)
+                include "../../build/assets/title.inc"  ; TITLE_F_MUSIC, _REST (tools/build_assets.py build_title)
 
 VRAM            equ     0x8000
 PORT_WF         equ     0xcc
@@ -1061,7 +1061,10 @@ title_steps:    db      OP_DRAW, SLOT_MAIN, TGT_P1      ; (load_title_images: th
                 dw      235                             ; e: cleared
                 db      OP_STEP, 'f', OP_DRAW, SLOT_POP, TGT_VRAM, OP_DRAW, SLOT_MECHNER, TGT_VRAM
                 db      OP_DRAW, SLOT_FRAME, TGT_P1, OP_DRAW, SLOT_ABSENCE, TGT_P1, OP_WAIT
-                dw      TITLE_F_TICKS                   ; f: the logo and the copyright until music 54 ends; g's screen in page 1
+                dw      TITLE_F_MUSIC                   ; f: the logo and the copyright; g's screen in page 1; the title
+                db      OP_MSTOP, OP_WAIT               ;   theme's 2nd pass ends (stopped between two interrupts: on
+                dw      TITLE_F_REST                    ;   the pass boundary), then silence (a deviation: SDLPoP waits
+                                                        ;   until music 54 ends, 1 s later; tools/titleref.py)
                 db      OP_STEP, 'g', OP_MUSIC, 55, OP_WIPE, OP_WAIT
                 dw      600                             ; g: frame + "In the Sultan's absence", music 55
                 db      OP_FADEOUT                      ; fade_out_2

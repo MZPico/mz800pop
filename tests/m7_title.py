@@ -4,13 +4,16 @@ checked against DOSBox's EGA original, docs/m7-design.md §15). Every run boots 
 writes a mounted image back on eject) with the RAM disk filled with a pattern (tests/m5_boot.py).
   1. the title's first steps (a-f, g and its fade-out; h-m: tests/m7_story.py): at the start of every step
      (ts_step) VRAM equals the reference screen of the step before, pixel for pixel, and the frame (FRAMES) is exactly
-     the start frame + floor(5 T / 6), T = the step's SDLPoP tick (docs/m7-design.md §1.2; step f until music 54 ends:
-     the ticks model, kidsim SOUND_SECONDS; after the fade-in the step's code runs once its last pass is drawn,
+     the start frame + floor(5 T / 6), T = the step's SDLPoP tick (docs/m7-design.md §1.2; the exception, step f: SDLPoP's
+     lasts until music 54 ends (the ticks model, kidsim SOUND_SECONDS), PRES's ends 60 ticks earlier, tools/titleref.py
+     STEPS; after the fade-in the step's code runs once its last pass is drawn,
      up to 3 frames later, the clock exact); the fade-in's 5 passes (tf_pass: rows y mod 5 < k + 1 from the new screen),
      the fade-out's (tfo_pass) and the wipes' columns (tw_col: j and k, the columns COLS) against the reference too,
      at their ticks (t_target); the PSG state at every interrupt that plays a group equals tools/sndsim.py's player
      for the same events (the tracker of tests/m7_sound.py; the presentation's bank A build/assets/sound_pres.bin), music
-     54 (the Master System title theme, looped: M7 step 11) starts with the fade-in's last pass and loops to step g;
+     54 (the Master System title theme, looped: M7 step 11) starts with the fade-in's last pass and plays exactly twice:
+     f stops it (snd_halt) between the interrupt that played its 2nd pass's last frame and the one that would start a
+     3rd (titleref.music_stop_tick), silence until step g;
      build/sound/pres/title_a-g.wav is what the emulator played.
   2. keys: SPACE at step a starts level 1 (the handoff ACT_PLAY level 1, 60:719, 3 hit points; the launched game at
      level_ready and TICKS ticks later equals a direct level 1 start (tests/m4_game.py setup, the real game's options:
@@ -97,6 +100,7 @@ def title_run(dsk):
         for a in mine: e.call('bp_add', addr=a)
         loop = 0; seen = set(); arms = []; t0 = time.time()
         tr.hooks['arm'] = lambda f: arms.append((tr.cur[0], tr.cur[1] - F0))
+        halts = []; tr.hooks['halt'] = lambda f: halts.append(f - F0)
         while True:
             r = e.run(1000)
             if r['stopped_by'] != 'breakpoint': tr.poll(); continue
@@ -143,16 +147,20 @@ def title_run(dsk):
     for (l0, s0, t0_, _, f0_, _), (l1, s1, t1_, _, f1_, _) in zip(rows, rows[1:]):
         if l0 == 0: durs[s0] = (t1_ - t0_, f1_ - f0_)
     print('   durations (ticks -> frames): %s' % ', '.join('%s %d -> %d' % (s, t, f) for s, (t, f) in durs.items()))
-    check('every step starts at its frame: start + floor(5 T / 6) (%d steps; f: music 54 to tick %d)' % (len(rows), T.music_end_ticks()),
+    check('every step starts at its frame: start + floor(5 T / 6) (%d steps; f: %d ticks, SDLPoP\'s - %d)' % (
+          len(rows), dict((s, t) for s, _, t in T.STEPS)['f'], T.F_EARLIER),
           not bad_t, bad_t[:5])
     check('VRAM pixel-exact against tools/titleref.py at every step, fade pass and wipe column checked (%d screens)' % n_scr,
           not bad_scr, bad_scr[:4])
     want_arm = [(54, 16 * 5 // 6), (55, TL[('step', 0, 'g')] * 5 // 6)]
     check('music 54 starts with the fade-in\'s last pass, music 55 with step g (frames %s)' % [a for _, a in want_arm], arms == want_arm, arms)
     j0 = TL[('step', 0, 'g')] * 5 // 6
-    want_loops = (j0 - arms[0][1]) // 570 if arms else None      # (the title theme: 570 frames, looped whole; halted at g)
-    check('music 54 (the title theme, 570 frames) loops through a-f: %s loop commands by step g (frame %d)' % (want_loops, j0),
-          want_loops and tr.wraps.get(54) == want_loops and 54 not in dict(tr.lengths), (tr.wraps, tr.lengths))
+    n = T.title_frames(); stop = T.music_stop_tick() * 5 // 6     # (the title theme, looped whole)
+    want_stop = arms[0][1] + T.TITLE_PASSES * n if arms else None
+    check('music 54 (the title theme, %d frames) plays %d times: f stops it at frame %s = its start + %d (the pass '
+          'boundary), %d frames before g' % (n, T.TITLE_PASSES, want_stop, T.TITLE_PASSES * n, j0 - stop),
+          want_stop == stop and stop in halts and not [h for h in halts if want_stop < h < j0]
+          and tr.wraps.get(54) == T.TITLE_PASSES and 54 not in dict(tr.lengths), (halts, tr.wraps, tr.lengths))
     check('the PSG state at every interrupt that played a group equals sndsim\'s (%d samples, %.0f s)' % (tr.samples, time.time() - t0),
           tr.bad == 0 and tr.samples > 1000, tr.first)
     w = os.path.join(BUILD, 'sound', 'pres', 'title_a-g.wav')
