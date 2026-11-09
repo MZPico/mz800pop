@@ -36,7 +36,7 @@ OVL_W2_END      equ     0xb000
 OVL_RD_PAGE     equ     7               ; the overlay table and images: RAM-disk page 7 after the vizier guard set (0x8D80-0xD8F3;
 OVL_RD_TAB      equ     0xd900          ; page 6 0xE300-0xFFFF until 2026-11-01, full then) (256-aligned: entry k at low byte 8 k)
 OVL_RD_LAST     equ     0xffff          ; (the area ends with the page)
-OVL_MAX         equ     14              ; table entries (the images follow the table)
+OVL_MAX         equ     16              ; table entries (the images follow the table)
 OVL_ROOM        equ     0               ; W1: the full room draw (src/m4/ovl_room.asm)
 OVL_LEVEL       equ     1               ; W2: load_level and the level start (src/m4/ovl_level.asm)
 OVL_EVENT       equ     2               ; W1: potions, scripted shadows, the mirror jump (src/m4/ovl_event.asm)
@@ -51,6 +51,8 @@ OVL_ANIM        equ     10              ; W1: animated tiles' steps as moving pa
 OVL_BTN         equ     11              ; W1: a button's press or release from cached pictures (src/m4/ovl_btn.asm)
 OVL_DOOR        equ     12              ; W1: the level door's opening step (src/m4/ovl_door.asm)
 OVL_FRM         equ     13              ; W1: choppers' and spikes' pre-drawn pictures (src/m4/ovl_frm.asm)
+OVL_LOW         equ     14              ; WL: the lazy shadow, resident (src/m4/ovl_low.asm, M8a part 25)
+OVL_LOW2        equ     15              ; WL2: choppers' and spikes' steps and direct copies, resident (src/m4/ovl_low2.asm)
 OVL_WF          equ     0xaa00          ; the fill overlay's window: W2's top (the level-start overlay ends below it)
 OVL_FILL_PAGE   equ     6               ; its image in the RAM disk (written on every size; page 7's area is nearly full)
 OVL_FILL_RD     equ     0xec00
@@ -60,6 +62,23 @@ OVL_DOOR_PAGE   equ     6               ; the door overlay's image: its own plac
 OVL_DOOR_RD     equ     0xf600
 OVL_FRM_PAGE    equ     0               ; the frames overlay's image: its own place too (page 0 0xA400-0xA7FF)
 OVL_FRM_RD      equ     0xa400
+OVL_WL          equ     0x0500          ; the low code (M8a part 25): low RAM 0x0500-0x06FF (src/m4/ovl_low.asm) and
+OVL_WL_END      equ     0x0700          ; 0x0E00-0x0FFF (ovl_low2.asm), copied in by game_start (gstart.asm) and never
+OVL_WL2         equ     0x0e00          ; replaced; their images have their own places (page 4 0xFE00-0xFFFF, page 1
+OVL_WL2_END     equ     0x1000          ; 0xDE18-0xDFFF); their data 0x0700-0x076D (spike.asm FRM_TAB, LC_VARS)
+OVL_LOW_PAGE    equ     4
+OVL_LOW_RD      equ     0xfe00
+OVL_LOW2_PAGE   equ     1
+OVL_LOW2_RD     equ     0xde18
+LC_RSPRE        equ     OVL_WL + 0      ; their entries (src/m4/frmlow.asm, frmlow2.asm): gfx.asm restore_shadow's head
+LC_RSPOST       equ     OVL_WL + 3      ; and tail, shadow_write's head, sprite.asm obj_chunk's direct copy (LC_CHUNK,
+LC_SWPRE        equ     OVL_WL + 6      ; LC_DIRECT) and save, the frames overlay's step
+LC_CR           equ     OVL_WL + 9
+LC_CMP4         equ     OVL_WL + 12
+LC_STEP         equ     OVL_WL2 + 0
+LC_DIRECT       equ     OVL_WL2 + 3
+LC_SAVE         equ     OVL_WL2 + 6
+LC_CHUNK        equ     OVL_WL2 + 9
 
 ; stubs: the entries resident code calls
 draw_room_full: push    af              ; A = room

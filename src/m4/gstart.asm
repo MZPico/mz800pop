@@ -7,7 +7,11 @@ game_start:     call    launched        ; the boot's ACT_FILL (1 MB and more): t
                 ld      a, (HO_MAIN + HO_ACTION)
                 cp      ACT_FILL
                 jr      z, gs_fill
-gs_play:        in      a, (0xe0)       ; VRAM on: the screen cleared, the palette set
+gs_play:        ld      a, OVL_LOW      ; the low code (M8a part 25: src/m4/ovl_low.asm; the launcher zeroed low RAM)
+                call    ovl_load
+                ld      a, OVL_LOW2
+                call    ovl_load
+                in      a, (0xe0)       ; VRAM on: the screen cleared, the palette set
                 call    video_init
                 in      a, (0xe1)       ; VRAM window off: 0x8000-0x9FFF is RAM for the renderer's tables
                 call    tables_init

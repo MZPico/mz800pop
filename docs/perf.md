@@ -2776,8 +2776,8 @@ pixel tests check it).
 | 1 | **L1: loose floors draw only on a picture change, regenerating their own tile and the right neighbour only** (a loose case in spike.asm anim_redraw: the picture group of the old and the new modifier, as chomp_redraw) | the 5 countdown ticks without a change ~-3.5 each (8.5 -> ~5); a visible step -0.4; ~-18 frames over a floor's countdown | every floor stepped on (172 loose floors in levels 1-14; walk_level1: 15 of its 318 ticks shake) | main ~35 | none | 1 day, low, exact |
 | 2 | **M1 + M2: a falling floor is laid only in the chunks it touches, and the torch cache tests the chunk, not the tick** (one test of the floor's OMOBR rect against the chunk, used by oc_mob and tc_try) | one floor falling -1.0..-1.5 (a - b 3.6 -> ~2.2); five floors -2.5 (lay_mob 3.9 -> ~1.4); -0.2 a torch more | every falling-floor tick (~5-8 a floor; level 13's run constantly) | ~40: main (obj_chunk is in the low block, 9 free: a call into main) | none | 1-2 days, low, exact |
 | 3 | **L2: cached loose-floor pictures** (part 15's frame slots: the floor's rect, own tile + the right piece, its three background-only pictures through cs_put; knock shakes too) | a visible shake step 4.2 -> **~1**; the normal tick -0.4 (5.12 -> ~4.7); level 13's 8-floor knock ~33 -> ~12 | every visible shake step (5 of a countdown, 4 of a knock) | ~150-250 of overlay (the frames overlay has 4 free: a second overlay or a reclaim) + ~20 main | 3 small slots (648 B) a floor: 512 KB / 1 MB share part 15's 20 slots with choppers and spikes (a miss takes today's path); 16 MB: page 62 | 3-5 days, medium (invalidation as part 15), exact |
-| 4 | Option E step 3: the lazy shadow (choppers, spikes, cached buttons: no shadow write, the restore from the slot) | -0.7 a chopper / spike step, -0.4 a cached button press | the busy rooms | ~160 main + 4 low: **needs a reclaim** | none | 4-5 days, medium, exact |
-| 5 | Option E step 4: complete pictures with nobody in the rect, copied directly | -1.0..-1.5 a step on top of 4 (l08r23 stand 6.64 -> ~4.4) | the chopper rooms | ~80 main: **needs the reclaim** | 16 MB all; 512 KB / 1 MB choppers only (slots) | 3-4 days, medium, exact |
+| 4 | Option E step 3: the lazy shadow (choppers, spikes, cached buttons: no shadow write, the restore from the slot; **built for choppers and spikes: M8a part 25**) | -0.7 a chopper / spike step, -0.4 a cached button press | the busy rooms | ~160 main + 4 low: **needs a reclaim** | none | 4-5 days, medium, exact |
+| 5 | Option E step 4: complete pictures with nobody in the rect, copied directly (**built for choppers: M8a part 25**) | -1.0..-1.5 a step on top of 4 (l08r23 stand 6.64 -> ~4.4) | the chopper rooms | ~80 main: **needs the reclaim** | 16 MB all; 512 KB / 1 MB choppers only (slots) | 3-4 days, medium, exact |
 | 6 | the visited-room cache (with the op lists) | revisit 106 -> ~15-20 (2 s -> 0.3-0.4 s) | most room changes after a room's first visit | ~20-40, a second room overlay | **16 MB only** | 1-2 weeks, medium, exact |
 | 7 | a faster op-list build | -3..-4 a room change; -0.1..-0.2 a tile regeneration in play (helps 1's remaining steps, gates' regenerating steps, chopper misses) | every room change | room.asm in main: likely +50..+100 | none | 3-5 days, medium, exact (m3 tests) |
 | 8 | band cells for the full room draw | -6..-8 a room change (estimate) | every room change | ~300 overlay (a second room overlay) | none | 1-1.5 weeks, high; a prototype first |
@@ -3862,3 +3862,201 @@ on a closer.
 A fault found on the way: the palace head's lay ran with the compose rect of the closing step's one-row shadow read
 (CRX / CRW of byte 2), and laid nothing (l10r01 walk_a tick 109). tools/movecheck.py cannot see this, since it models
 the pixels, not the registers; the emulator test did. The rect is now set before the lay.
+
+## M8a part 25: choppers and spikes, lazy shadow and direct copy (2026-11-09)
+
+Status: **built.** Steps 3 and 4 of "Option E: measured" section 7 (the speed roadmap's candidates 4 and 5).
+- **The lazy shadow:** a chopper's or spike's step whose picture is in its slot writes nothing into the shadow.
+- **The complete pictures:** a chopper's rect with nobody in it is copied from a RAM-disk slot straight into VRAM.
+
+Cached buttons keep their shadow write (below).
+
+### Where a step's time went (measure first; tools/optione.py profile / diff, 1 MB, main 132af94)
+
+- **A chopper hit with nobody in its rect** (l08r23 walk_chomper tick 30, l03r16 ticks 30 / 32) costs ~3.2 frames of
+  work:
+  - the redraw 1.28: the slot read ~0.42, cs_put's shadow write 0.70, the patches and the stub ~0.15;
+  - the chunk +1.5: the fore pieces 0.62-1.05, and people_chunk +0.65 although the kid is not in the chunk (pc_draw
+    runs spr_draw clipped to nothing, lmx_ent x 4);
+  - the copy 0.47, the wait ~0.
+- **Two hits in one tick** cost 6.6-7.7: the second one's chunk restores and waits.
+- **A spike hit** (l07r19 walk_spike ticks 82, 83) costs ~1.9-2.4: the redraw 0.77 (read 0.28, shadow write 0.38), the
+  chunk +1.25-1.33, the copy 0.27. A miss's redraw is 2.7-2.8 (dr_run).
+- **In the busy scenes** (busyrooms.py measure, a - b on the walk_chomper ticks with one picture change), a chopper step
+  costs a median 2.7-3.0, a mean 3.0-3.4 (the misses after each restart included). The steps that regenerate (2 of 5)
+  cost +0.7.
+
+### What changed
+
+1. **The lazy shadow** (src/m4/frmlow.asm, frmlow2.asm lc_step). A hit (the picture's slot valid) no longer reads the
+   slot into SPRBUF_B and no longer calls cs_put. Instead:
+   - the shadow's rect is marked stale (FE_ST), and the slot's place is kept in the object's entry;
+   - the rect goes on the dirty list (dirty_hook, without the kept picture);
+   - the slot holds the bytes the shadow should hold (fix A: dr_run wrote them).
+
+   Every reader and writer of the shadow follows it:
+   - **restore_shadow** (gfx.asm):
+     - a compose rect wholly inside a stale rect is read from the slot alone (rs_pre: no shadow read);
+     - a compose rect that meets one gets those rows from the slot after the shadow's read (rs_post).
+     - cs_get, which jumps into restore_shadow, follows too.
+   - **shadow_write** (gfx.asm sw_pre):
+     - a write that covers a stale rect clears its mark;
+     - a write that only touches one first writes the slot back (lc_wb: the slot into COMPOSE_A by lc_rd, then
+       shadow_write's body).
+   - **a hit** first runs sw_pre over its own rect, so stale rects never overlap. A spike's rect reaches into its
+     right neighbour's column, and a chopper may stand there.
+   - **a room draw**: the room overlay clears FRM_TAB before it (frm_clr), and frm_reset clears it again after.
+2. **The complete pictures** (frmlow2.asm lc_chunk, lc_save, lc_direct). obj_chunk asks lc_chunk first.
+   - A chunk that is exactly a chopper's rect, with nothing else in it, is the picture plus the fore pieces. "Nothing
+     else" is tc_try's rule: no overlay op, no falling floor, no character's rect (this tick's or the last), and here
+     also no registered torch flame (it animates on its own).
+   - Such a chunk depends on the picture only. Its first composition is written to the picture's complete slot,
+     row-major (a row's four planes one after the other).
+   - Later such chunks go from that slot straight into VRAM (lc_direct, timed against the beam: below). There is no
+     restore, no people pass, no fore pieces, no compose buffer and no pending chunk.
+   - frm_drop drops a complete picture with its background (FE_CMASK with FE_MASK). The object's own step keeps both.
+   - The slots:
+     - 16 MB: every chopper picture, at its slot + 0x6000 in page 62.
+     - 512 KB and 1 MB: a pool of 4 x 960 bytes in page 6 0x16C0-0x25BF (free since part 17), for the first chopper
+       to step after a room draw (its pictures 0-3).
+   - **Spikes get no complete pictures.** On the trap scenes (tools/trapscenes.py) a spike's chunk had the kid in it
+     on all but 1 of ~100 steps, so keeping the pictures (648 bytes each) only cost time: +0.08 a step at 16 MB in a
+     first build. A spike step has the lazy shadow only.
+3. **Cached buttons** keep their shadow write. A button's picture is composed in SPRBUF_B by btnstep.asm with its
+   records, and its 1,233-byte slot holds both states. Making it lazy needs the slot's place per state in the
+   restore's form and a third resident part. That would be ~0.4 a cached press, which happens a few times a room
+   visit: not built.
+
+### Memory (main 7baaac2 / this)
+
+| area | change |
+|---|---|
+| main (end_of_code 0x78E1 -> 0x78F0) | +15: the hooks in restore_shadow (head, tail) and shadow_write (head), frm_drop's FE_CMASK, frm_clr; **784 free** |
+| low code block (end_of_low 0x1FCF -> 0x1FD3) | +4 (obj_chunk's call): 45 free; block 2 unchanged (14 free) |
+| low RAM 0x0500-0x06FF | the low code, part 1 (src/m4/ovl_low.asm, frmlow.asm): 485 bytes |
+| low RAM 0x0700-0x076D | FRM_TAB (moved from 0x09DB, 8 -> 20 bytes an object) and the low code's variables: 110 bytes |
+| low RAM 0x0E00-0x0FFF | the low code, part 2 (ovl_low2.asm, frmlow2.asm): 483 bytes |
+| overlays | frames 1,020 -> 988 (36 free); room 975 -> 980 (44 free); the table 14 -> 16 entries |
+| RAM disk, every size | the low code's images: page 4 0xFE00-0xFFE4, page 1 0xDE18-0xDFFA (both copied in by game_start at every start) |
+| RAM disk, runtime only | 512 KB / 1 MB: the complete-picture pool, page 6 0x16C0-0x25BF (4 x 960; 704 bytes of the part 17 gap left); 16 MB: page 62 0x6000-0xBFFF |
+
+The free low RAM of parts 19 and 20 is used, and main stays nearly as it was. The two parts are separate W-type
+overlays because their images need own places of at most 512 / 488 bytes (docs/memory.md "The low code"). The
+write-back reuses shadow_write's body through COMPOSE_A, which is free while the tiles are redrawn (colshift.asm uses it
+the same way). A row-by-row RAM-disk copy would have needed ~70 bytes more.
+
+### Why it cannot tear (tools/optione.py direct2)
+
+The copy writes a row's four planes, then the next row, top first. That is slower than the beam (as pend_flush's chunk
+copies), so the beam must not overtake it:
+- **Its speed, measured on a chopper's 4-byte rows:**
+  - 2.5 lines a row (151 lines a copy) without RAM-disk waits;
+  - 3.6 (216 lines) with the 15 wait states the boot accepts at most.
+
+  Up to 8 lines a row when the VBLN interrupt falls inside.
+- **When it starts:** when d, the lines until the beam next reaches the rect's top row, is at least
+  (3w - 2) / 4 x CRH + 20 (2.5 CRH + 20 for a chopper), and at most 312 - 12 (not just behind the beam: pend_flush's
+  guard).
+
+`direct2` traces every copy row by row (lc_direct's ld_r) and the interrupt's entry. A pass of the beam over the rect
+is torn when a row is being written while the beam is on it, or when the rows are mixed (some new, some old):
+
+| scenes (l08r23_stand_a, l03r16_walk_a, l05r24_stand_a, l10r10_walk_a, fight_chomper, the spike scenes) | copies | torn passes | longest copy | closest beam (lines) | wait a copy (lines, mean) |
+|---|---:|---:|---|---|---|
+| 16 MB, no waits (trace build) | 255 | 0 | 152.6 | 78 behind a row, 12.5 ahead | 22-114 |
+| 16 MB, 15 waits (mz800emu-regions) | 255 | 0 | 215.8 | 16 behind, 12.4 ahead | 38-94 |
+| 1 MB, no waits | 100 | 0 | 152.6 | 78 behind, 12.6 ahead | 10-106 |
+| 1 MB, 15 waits | 100 | 0 | 215.8 | 18 behind, 12.8 ahead | 34-77 |
+
+The start condition is fixed for the worst RAM disk. Without waits a copy waits ~20-60 lines more than it needs to (the
+boot's measured speed, HO_RDSPD_MAIN, is not read: 0 in the harness). That is the next small gain here (~0.1 a copy).
+
+### Per chopper step (tools/busyrooms.py measure, walk_chomper a - b on ticks with one picture change, misses included; median / mean, main -> this)
+
+| room (ticks) | 512 KB | 1 MB | 16 MB |
+|---|---|---|---|
+| l03r16 (54) | 3.04 / 3.30 -> **2.47** / 2.76 | 3.07 / 3.29 -> **2.36** / 2.83 | 3.04 / 3.25 -> **1.85** / 2.36 |
+| l05r24 (39) | 2.99 / 3.41 -> **2.29** / 2.79 | 2.99 / 3.40 -> **2.30** / 2.76 | 2.98 / 3.36 -> **1.90** / 2.40 |
+| l08r04 (46) | 2.70 / 2.99 -> **2.13** / 2.14 | 2.69 / 2.96 -> **2.10** / 2.15 | 2.74 / 2.97 -> **1.16** / 1.65 |
+| l08r23 (46) | 2.97 / 3.24 -> **2.43** / 2.68 | 2.84 / 3.22 -> **2.42** / 2.61 | 2.80 / 3.19 -> **1.55** / 2.08 |
+| l10r10 (16) | 3.78 / 3.93 -> **3.56** / 3.74 | 3.78 / 3.88 -> **3.55** / 3.71 | 3.96 / 4.07 -> **3.95** / 3.95 |
+| l10r14 (38) | 2.96 / 3.19 -> **1.79** / 2.26 | 2.96 / 3.12 -> **1.74** / 2.19 | 2.91 / 3.04 -> **1.52** / 1.96 |
+
+- **16 MB:** -1.1..-1.6 a step at the median (l08r04 2.74 -> 1.16). This is every chopper's complete picture plus the
+  lazy shadow.
+- **512 KB and 1 MB:** -0.4..-1.2. That is the lazy shadow plus the pool, which covers 4 of the first chopper's 5
+  pictures.
+- **l10r10** gains little: its kid is in a chopper's rect on most of these ticks.
+- **The means** hold the misses after each death and restart (dr_run, unchanged).
+
+**Spikes** (tools/trapscenes.py's 9 spike scenes, 107 steps; a - b median / mean): 1 MB 3.10 / 2.84 -> 3.09 / 2.87,
+16 MB 3.13 / 2.84 -> 3.06 / 2.84. Nearly all of these steps are misses (the first cycle after the room draw) with the kid
+in the rect: the lazy shadow saves only on hits, and the complete pictures are not kept for spikes.
+
+### The busy rooms (tools/busyrooms.py measure; frames a tick median / p90 / mean work, main -> this)
+
+| scene | 512 KB | 1 MB | 16 MB |
+|---|---|---|---|
+| l03r16 walk | 7.96 / 12.30 / 8.56 -> **7.46** / 10.96 / 8.11 | 7.89 / 11.99 / 8.25 -> **7.13** / 10.32 / 7.76 | 7.41 / 11.78 / 7.97 -> **6.44** / 9.75 / 6.93 |
+| l03r16 stand | 7.01 / 11.00 / 7.76 -> **6.56** / 9.60 / 7.01 | 7.01 / 11.00 / 7.71 -> **6.56** / 9.60 / 6.96 | 7.01 / 11.00 / 7.72 -> **5.40** / 7.73 / 6.15 |
+| l08r23 walk | 6.55 / 10.41 / 6.56 -> **5.99** / 9.15 / 6.25 | 5.97 / 9.93 / 6.09 -> **5.48** / 8.64 / 5.78 | 5.71 / 9.86 / 5.83 -> **4.82** / 7.00 / 5.16 |
+| l08r23 stand | 5.67 / 9.60 / 5.60 -> **4.69** / 8.48 / 5.13 | 5.67 / 9.60 / 5.56 -> **4.69** / 8.20 / 5.07 | 5.67 / 9.60 / 5.56 -> **4.07** / 5.98 / 4.60 |
+| l05r24 walk | 7.06 / 11.51 / 7.59 -> **6.20** / 10.40 / 7.32 | 6.50 / 10.92 / 7.09 -> **5.99** / 9.73 / 6.83 | 6.09 / 10.92 / 6.80 -> **5.32** / 9.25 / 6.26 |
+| l05r24 stand | 6.58 / 10.84 / 6.58 -> **4.98** / 9.42 / 6.08 | 6.58 / 10.84 / 6.53 -> **4.98** / 9.39 / 6.02 | 6.58 / 10.84 / 6.54 -> **4.98** / 6.99 / 5.56 |
+| l10r10 walk | 7.03 / 15.95 / 8.79 -> **6.33** / 15.98 / 8.65 | 7.03 / 15.84 / 8.60 -> **6.31** / 14.99 / 8.50 | 6.36 / 14.97 / 8.13 -> **5.56** / 15.43 / 8.02 |
+| l10r10 stand | 5.97 / 9.92 / 5.97 -> **4.58** / 8.84 / 5.44 | 5.98 / 9.92 / 5.92 -> **4.58** / 8.56 / 5.39 | 5.93 / 9.98 / 5.92 -> **4.03** / 5.99 / 4.88 |
+| l08r04 walk | 6.87 / 11.44 / 7.03 -> **5.93** / 9.37 / 6.53 | 6.45 / 10.51 / 6.50 -> **5.16** / 8.51 / 5.99 | 5.96 / 10.44 / 6.10 -> **4.94** / 7.01 / 5.25 |
+| l08r04 stand | 5.96 / 9.97 / 5.66 -> **4.99** / 8.55 / 5.20 | 5.96 / 9.97 / 5.61 -> **4.99** / 7.98 / 5.15 | 5.97 / 9.97 / 5.61 -> **4.98** / 6.98 / 4.89 |
+| l10r14 walk | 5.01 / 8.00 / 5.78 -> **5.02** / 7.31 / 5.63 | 4.74 / 7.49 / 5.24 -> **4.92** / 7.01 / 5.06 | 4.03 / 7.09 / 4.94 -> **4.05** / 6.07 / 4.66 |
+| l10r14 stand | 3.99 / 6.92 / 4.37 -> **3.99** / 5.55 / 4.06 | 3.99 / 6.92 / 4.32 -> **3.99** / 5.55 / 4.01 | 3.99 / 6.92 / 4.32 -> **3.99** / 5.42 / 3.95 |
+| l07r19 walk | 7.23 / 11.07 / 7.90 -> **7.28** / 10.76 / 7.93 | 6.29 / 10.95 / 7.28 -> **6.36** / 10.96 / 7.32 | 6.29 / 10.10 / 7.05 -> **6.36** / 10.11 / 7.09 |
+| l07r19 stand | 3.99 / 7.49 / 4.67 -> **3.99** / 7.46 / 4.65 | 3.99 / 7.08 / 4.62 -> **3.99** / 7.09 / 4.63 | 3.99 / 7.08 / 4.62 -> **3.99** / 7.09 / 4.63 |
+
+- **The standing scenes:** the median falls by 0.5-1.6 frames, the p90 by 1-4 (16 MB). l08r23 stands at 4.07 / 5.98 on
+  16 MB, 4.69 / 8.2 on 1 MB.
+- **The walking scenes** gain less: the kid passes through the choppers' rects.
+- **l07r19** (gates, a spike) and **l10r14 stand** are as before.
+
+### perfcheck (one run per size; main 7baaac2's runs = the baselines; lowered where beaten, in this commit)
+
+| Stretch | 512 KB base / new | 1 MB base / new | 16 MB base / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.73 / 4.73 | 4.51 / 4.51 | 4.44 / 4.44 |
+| level door step (walkthrough 203-207) | 8.73 / **8.56** | 7.90 / 7.90 | 7.90 / 7.90 |
+| room change (walkthrough 89) | 87.93 / 88.03 | 88.25 / 88.26 | 87.26 / 87.27 |
+| walkthrough 190-260 | 5.95 / **5.92** | 5.77 / 5.77 | 5.42 / 5.42 |
+| gate (gate_push 200-260) | 4.04 / 4.04 | 4.04 / 4.04 | 4.04 / 4.04 |
+| traps (traps_b1 0-300) | 5.00 / 5.01 | 4.80 / 4.81 | 4.78 / 4.78 |
+| fight (fight1 60-160, guard on) | 6.35 / 6.35 | 5.63 / 5.67 | 5.42 / 5.43 |
+| **choppers (frm_button 20-120)**, new | 6.86 / **6.43** | 6.63 / **6.18** | 6.29 / **5.55** |
+
+- **The new stretch:** l10r10's two choppers and a closer (tests/m4_scripts/frm_button.txt). Its baselines are this
+  commit's.
+- **The fight +0.04 at 1 MB:** the hooks' early exits (a few calls a chunk). It is within the tolerance, and the
+  baseline stays.
+- **The room change +0.1 at 512 KB:** frm_clr before the draw, and the beam phase.
+- **The 512 KB level door step:** the beam phase.
+
+### Same pixels, same logic
+
+- **tests/m4_game.py --every 1** at 512 KB, 1 MB and 16 MB, 0 state diffs and 0 differing pixels on each of 33
+  scripts:
+  - chomper (the blood), fight_chomper, frm_button, frm_spike_btn, btn_bars, traps_b1, traps_b9, walk_level1, fight1,
+    fight_spikes;
+  - the trap scenes l07_spike_a, l08_spike_a, l14_spike_a, l06_spike_c, l07_spike_c;
+  - the walk_a and stand_a of the busy rooms l03r16, l08r23, l05r24, l10r10, l08r04, l10r14, l07r19, l09r22, l09r01.
+- **tests/m4_test.py** (chomper, fight_chomper, frm_button, frm_spike_btn, traps_b1): 0 differing.
+- **tools/movecheck.py** chompers (780 steps), spikes (3,600), caches (2,352 screens): 0 differ.
+- **tests/m5_boot.py:** RUNTIME_SCRATCH now leaves out the complete-picture pool.
+- `make ci-build`, `make cheats`, `make pace`, `make m3`. The full regression on the runners: see the PR.
+
+Faults found on the way (the emulator tests found them; the pixels stayed exact):
+- The hit test read the complete pictures' mask instead of the pictures' (an instruction inserted between the load and
+  the test), so most hits went the miss path.
+- lc_save tested lc_sv's full address after clearing only its high byte. A later chunk could then write a complete
+  picture through a stale entry pointer: one 16 MB run of frm_button stalled.
+- lc_sv was also not cleared at a room draw (frm_clr now clears the low code's variables with FRM_TAB).
+
+After those, two runs stalled once each: a 1 MB l10r14_stand_a at tick 0, and one busy-rooms measurement. Both ran
+with 9-12 emulators on 8 cores, and neither repeated alone. A capped run of all 54 busy-room scripts at 1 MB (a scratch
+script: every tick within 400 frames) and the 99 final pixel runs did not stall.

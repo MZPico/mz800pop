@@ -390,7 +390,9 @@ orr_ynext:      ld      a, (CRY)
                 add     a, CH
                 jp      orr_y
 ; obj_chunk: one compose chunk (CRX, CRY, CRW, CRH): background, falling floors, kid, fore pieces, blit
-obj_chunk:      call    oc_kept                 ; the background-only redraw of this rect: its picture as base
+obj_chunk:      call    LC_CHUNK                ; a chopper's or spike's complete picture straight into VRAM (M8a part 25)
+                ret     c
+                call    oc_kept                 ; the background-only redraw of this rect: its picture as base
                 jp      c, oc_base
                 call    tc_try                  ; a torch chunk seen before: from its cache straight into VRAM
                 ret     c
@@ -418,7 +420,7 @@ oc_fore:        call    lay_fore_rect
                 ld      a, (OV_NF)
                 ld      b, a
                 call    lay_list
-                call    tc_save                 ; (a torch chunk to remember)
+                call    LC_SAVE                 ; (a chopper's or spike's complete picture, a torch chunk to remember)
 oc_rec:         ; record the chunk: CRX, CRY, CRW, CRH, buffer
                 ld      a, (PEND_N)
                 ld      l, a

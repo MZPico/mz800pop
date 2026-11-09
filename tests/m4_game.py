@@ -149,6 +149,8 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_btn.bin'), 'rb').read(), S['OVL_BTN_PAGE'], S['OVL_BTN_RD'])  # the button overlay
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_door.bin'), 'rb').read(), S['OVL_DOOR_PAGE'], S['OVL_DOOR_RD'])  # the door overlay
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_frm.bin'), 'rb').read(), S['OVL_FRM_PAGE'], S['OVL_FRM_RD'])  # the frames overlay
+    write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_low.bin'), 'rb').read(), S['OVL_LOW_PAGE'], S['OVL_LOW_RD'])  # the low code (M8a part 25)
+    write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_low2.bin'), 'rb').read(), S['OVL_LOW2_PAGE'], S['OVL_LOW2_RD'])
     e.call('mem_write', addr=S['level_number'], data_hex='%02x' % lv)
     e.call('mem_write', addr=S['guard_opts'], data_hex=guard_opts_bytes(opts).hex())
     e.call('mem_write', addr=S['ev_opts'], data_hex=ev_opts_bytes(opts).hex())

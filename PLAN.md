@@ -1067,3 +1067,14 @@ piece used AND/XOR semantics.
    steps incl. every pillar gate), m4_game --every 1 at 3 sizes, m4_test (see the PR). Next: G2 (drops) and G4 (to or
    from 47) remain on the old path (~7 a step, 4 % of the steps); then the remaining roadmap items (R2, the room
    cache; B1 button misses).
+68. M8a part 25, choppers and spikes: lazy shadow and direct copy (2026-11-09, docs/perf.md "M8a part 25"; steps 3 and 4
+   of "Option E: measured", the roadmap's candidates 4 and 5): a chopper's or spike's hit writes no shadow (the rect goes
+   stale, its slot holds it; restore_shadow reads from the slot, shadow_write writes it back first when it only touches
+   it), and a chopper's rect with nobody in it is copied from its complete picture straight into VRAM (row-major, timed
+   against the beam: tools/optione.py direct2, 0 torn passes at 0 and 15 waits). Complete pictures: 16 MB every chopper,
+   512 KB / 1 MB 4 of the first chopper's pictures (page 6 pool); none for spikes (the kid is in their rect). The code is
+   in low RAM 0x0500-0x06FF and 0x0E00-0x0FFF (two resident images copied in by game_start), main +15 bytes (784 free).
+   Chopper step a - b median 2.7-3.1 -> 1.2-1.9 (16 MB), 2.1-2.5 (1 MB); 16 MB standing medians l08r23 5.67 -> 4.07,
+   l05r24 6.58 -> 4.98, l10r10 5.93 -> 4.03, l03r16 7.01 -> 5.40 (p90 -1..-4); perfcheck adds 'choppers (frm_button
+   20-120)': 6.63 -> 6.18 (1 MB), 6.29 -> 5.55 (16 MB). Not built: cached buttons' lazy shadow (~0.4 a cached press),
+   the beam wait from the measured RAM-disk speed (~0.1 a copy). Next: G2 / G4 gates, R2 (the room cache), B1.

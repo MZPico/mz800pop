@@ -108,6 +108,9 @@ def frame_slots():
             out.append((img[o], img[o + 1] | img[o + 2] << 8, size, 'a chopper or spike picture'))
     return out
 RUNTIME_SCRATCH += frame_slots()
+# ... and the complete pictures' pool of 512 KB and 1 MB (M8a part 25, src/m4/spike.asm FRM_CPOOL: the first chopper's
+# pictures with their fore pieces, valid only until the next room draw)
+RUNTIME_SCRATCH += [(6, 0x16C0, 4 * 960, 'the complete chopper pictures')]
 
 def ramdisk(e, masks=RESERVED):
     """pages 0-7, the masked areas (page, address, length, ...) and RUNTIME_SCRATCH as zeros"""

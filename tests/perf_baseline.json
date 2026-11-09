@@ -5,5 +5,6 @@
  "walkthrough 190-260": 5.77,
  "gate (gate_push 200-260)": 4.04,
  "traps (traps_b1 0-300)": 4.8,
- "fight (fight1 60-160, guard on)": 5.63
+ "fight (fight1 60-160, guard on)": 5.63,
+ "choppers (frm_button 20-120)": 6.18
 }
