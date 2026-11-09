@@ -44,8 +44,8 @@ def go(e, limit=30000):
 def scr(e): return T.from_planes(e.vram_planes())
 
 def title_ticks():
-    """the title's tick of g's start (f ends with music 54), of h (g's wipe + wait + fade-out)"""
-    tg = 16 + T.music_end_ticks()
+    """the title's tick of g's start (f: titleref.AF_TICKS after the fade-in), of h (g's wipe + wait + fade-out)"""
+    tg = T.FADE_TICKS + T.AF_TICKS
     return tg, tg + 80 + 600 + 20
 
 def run_step(e, tr, want, limit=30000):

@@ -1087,3 +1087,10 @@ piece used AND/XOR semantics.
    overlay +15 bytes (29 free), no resident bytes. Exact by construction (the no-cover path of run_rect); m3_test of
    every room, m3_anim_test, m4_game --every 1 at 3 sizes (see the PR). Next: G2 / G4 gates, R2 (the room cache), B1;
    for the room change the faster op-list build (candidate 7, -3..-4) and the room cache on 16 MB.
+70. The title's music in PRES (2026-11-09, docs/m7-design.md §15, §19; the user's report: the title theme is shorter
+   than a-f, repeats, and its third start was cut by g): the Master System title theme (570 frames) now plays exactly
+   twice from the fade-in's last pass and f stops it (OP_MSTOP) on the pass boundary, between the interrupt of the 2nd
+   pass's last frame and the one that would start a 3rd (frame 1153; no click: the boundary's state is all muted); f
+   ends 60 ticks before SDLPoP's (a-f 1442 ticks instead of 1502), ~1.2 s of silence on the logo before g. f's two
+   waits (TITLE_F_MUSIC 463, TITLE_F_REST 74) come from tools/titleref.py (the piece's frames from assets/sms) through
+   tools/build_assets.py's title.inc; tests/m7_title.py checks the stop frame, f's 537 ticks (the documented exception).

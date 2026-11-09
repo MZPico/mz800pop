@@ -53,8 +53,10 @@ $(BUILD)/assets/sound_pres.bin: tools/presbank.py tools/sndsim.py $(BUILD)/asset
 # M7: boot.asm is also the launcher (src/boot/launch.inc); src/pres/pres.asm (PRES, the presentation program) goes into
 # POP800.PRS with its scenes; the boot keeps the game's compressed image in the RAM disk (tests/m7_launch.py).
 # M7 step 6: PRES plays the title (its art: build/assets/title.pack, tools/build_assets.py build_title, which also
-# writes title.inc: step f's wait from the ticks model); the PSG player, the PZ decoder and load_saved are included
-$(BUILD)/assets/title.inc $(BUILD)/assets/title.pack: tools/build_assets.py tools/titleref.py tools/kidsim.py tools/datfile.py
+# writes title.inc: step f's waits from the ticks model and the title theme's length); the PSG player, the PZ decoder and
+# load_saved are included
+$(BUILD)/assets/title.inc $(BUILD)/assets/title.pack: tools/build_assets.py tools/titleref.py tools/kidsim.py tools/datfile.py \
+		tools/presbank.py assets/sms/pieces.json
 	$(PY) tools/build_assets.py --title
 # M7 step 7: the cutscene engine (src/pres/cut.asm: the room entry of POP800.PRS) and its tables (tools/cutart.py)
 $(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/build_assets.py $(BUILD)/assets/seqtbl.bin $(BUILD)/assets/seqtbl_offsets.txt $(BUILD)/assets/seqtbl_z80.bin
