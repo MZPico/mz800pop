@@ -1041,3 +1041,15 @@ piece used AND/XOR semantics.
    (1,335 free). Tick-exact: m4_test all 74 scripts, m4_game --every 1 (see the PR). Also measured and dropped by the
    user: step 3, the VRAM copy (docs/perf.md "Step 3 (the VRAM copy): measured and dropped"; PUSH waits on the GDG,
    the banded LDI copy -2.5 frames a room change for ~680 bytes and a 16-row mixed-plane strip).
+66. M8a part 23, collision rows (2026-11-09, docs/perf.md "M8a part 23: collision rows"; trim A of "Kid logic: measured
+   (2026-11-08)" with D, B and G): get_row_collision_data walks the row (k_get_tile only for the first column and where
+   TILE_COL would reach 10, a pointer through fg, the two wall compares as running 16-bit differences in the alternate
+   registers, the rooms filled per room segment, the last column's tile variables and COLL_TLX stored as before);
+   k_get_tile's in-room path; check_collisions' bump loop by pointers; get_tile_div_mod's tables page-aligned (by
+   moving get_row_collision_data's 12 bytes of data to the head of block 2, src/m4/collpad.inc, so the tables keep
+   their order and x_bump's out-of-range reads find the same bytes). The logic -0.15..-0.27 frames a tick (walking
+   0.776 -> 0.543, fight 1.070 -> 0.804); the frames a tick -0.06..-0.22 (fight1 5.88 -> 5.70, l05r24 7.44 -> 7.22);
+   perfcheck lower on every stretch and size but the 1 MB room change (1 MB normal tick 4.59 -> 4.51, fight 5.87 ->
+   5.70). Main +130 bytes (1,205 free), block 2 +12 (14 free). Exact: tools/collrows_diff.py (the old and the new
+   check_collisions and k_get_tile in two emulators, 84,000 random cases over levels 1-14, all of KV and the registers
+   compared: 0 differing), m4_test all 74 scripts, m4_game --every 1 (see the PR).

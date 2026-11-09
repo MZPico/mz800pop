@@ -441,7 +441,14 @@ end_of_code:
 ; ---- second block: the data tables and more code (0xC000-0xEBFF)
                 org     0xc000
 block2:
+                include "../m4/collpad.inc"
                 include "../../build/assets/tables.inc"
+                if ((wall_type_tbl & 255) + 31) > 255
+                .error  wall_type_tbl must not cross a 256-byte page (kid.asm get_row_collision_data)
+                endif
+                if ((tile_div_tbl & 255) != 0) or (tile_mod_tbl != tile_div_tbl + 256)
+                .error  tile_div_tbl / tile_mod_tbl must be page-aligned, one after the other (kid.asm get_tile_div_mod; the head of block 2: collpad.inc)
+                endif
                 include "../m4/overlay.asm"
                 include "../m4/tcache.asm"
                 include "../m4/rcache.asm"

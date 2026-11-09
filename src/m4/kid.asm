@@ -226,11 +226,30 @@ dir_front:      ld      a, (K_DIR)
 ; ================================================================ tiles
 ; k_get_tile: A = room, C = column (signed), B = row (signed). Out: A = CURR_TILE2 (also CURR_ROOM, TILE_COL,
 ; TILE_ROW, CURR_TILEPOS). Room 0 reads as wall.
+; M8a part 23: the column and the row inside the room (0..9, 0..2) take a short path to the same stores, registers
+; and flags (row * 10 + column without tbl_line; room 0 still a wall)
 k_get_tile:     ld      (CURR_ROOM), a
-                ld      a, c
-                ld      (TILE_COL), a
                 ld      a, b
                 ld      (TILE_ROW), a
+                ld      a, c
+                ld      (TILE_COL), a
+                cp      10
+                jp      nc, kgt_loop
+                ld      a, b
+                cp      3
+                jp      nc, kgt_loop
+                ld      a, (CURR_ROOM)
+                or      a
+                jp      z, kgt_wall
+                ld      a, b
+                add     a, a
+                add     a, a
+                add     a, b
+                add     a, a
+                add     a, c
+                ld      (CURR_TILEPOS), a
+                ld      a, (CURR_ROOM)
+                jp      kgt_rd
 kgt_loop:       ld      a, (TILE_ROW)
                 bit     7, a
                 jp      z, kgt_c
@@ -288,7 +307,7 @@ kgt_done:       ld      a, (CURR_ROOM)
                 add     a, (hl)
                 ld      (CURR_TILEPOS), a
                 ld      a, (CURR_ROOM)
-                call    tile_base       ; HL = &fg[(room-1)*30]
+kgt_rd:         call    tile_base       ; HL = &fg[(room-1)*30]
                 ld      a, (CURR_TILEPOS)
                 call    k_tbl
                 and     0x1f
@@ -433,15 +452,12 @@ get_tile_div_mod:
                 ld      a, h
                 or      a
                 jr      nz, gtdm_big
-                ld      a, l
-                push    hl
-                ld      hl, tile_mod_tbl
-                call    k_tbl
+                ld      h, tile_mod_tbl / 256 ; (page-aligned, tile_div_tbl the page before: M8a part 23)
+                ld      a, (hl)
                 ld      (OBJ_XL), a
-                pop     hl
-                ld      a, l
-                ld      hl, tile_div_tbl
-                jp      k_tbl
+                dec     h
+                ld      a, (hl)
+                ret
 gtdm_neg:       ld      de, 70          ; xpos + 70 (five tiles), column - 5
                 add     hl, de
                 call    get_tile_div_mod
@@ -1621,43 +1637,46 @@ cc_r1:          ld      (RIGHT_CHK), a
                 ld      hl, ABOVE_ROOMS
                 ld      de, ABOVE_FLAGS
                 call    get_row_collision_data
+                ld      hl, CURR_ROOMS + 9 ; M8a part 23: by pointers (HL the current row, DE the previous; the flags
+                ld      de, PREV_ROOMS + 9 ; 10 bytes on, all in KV's page: move_coll_to_prev's guards)
                 ld      b, 9
-cc_loop:        ld      hl, CURR_ROOMS
-                ld      a, b
-                call    k_tbl
-                bit     7, a
-                jp      nz, cc_next
-                ld      c, a
-                ld      hl, PREV_ROOMS
-                ld      a, b
-                call    k_tbl
-                cp      c
-                jp      nz, cc_next
-                ld      hl, PREV_FLAGS
-                ld      a, b
-                call    k_tbl
-                ld      c, a
-                ld      hl, CURR_FLAGS
-                ld      a, b
-                call    k_tbl
-                ld      e, a            ; curr flags
-                ld      a, c
+cc_loop:        ld      a, (de)
+                cp      (hl)            ; the same room as before (and not none: 0xff)
+                jr      nz, cc_next
+                or      a
+                jp      m, cc_next
+                ld      a, l
+                add     a, 10
+                ld      l, a
+                ld      a, e
+                add     a, 10
+                ld      e, a
+                ld      a, (de)
+                ld      c, a            ; prev flags
                 and     0x0f
                 jr      nz, cc_hi
-                ld      a, e
+                ld      a, (hl)         ; curr flags
                 and     0x0f
                 jr      z, cc_hi
                 ld      a, b
                 ld      (BUMP_L), a
 cc_hi:          ld      a, c
                 and     0xf0
-                jr      nz, cc_next
-                ld      a, e
+                jr      nz, cc_back
+                ld      a, (hl)
                 and     0xf0
-                jr      z, cc_next
+                jr      z, cc_back
                 ld      a, b
                 ld      (BUMP_R), a
-cc_next:        dec     b
+cc_back:        ld      a, l
+                sub     10
+                ld      l, a
+                ld      a, e
+                sub     10
+                ld      e, a
+cc_next:        dec     l
+                dec     e
+                dec     b
                 jp      p, cc_loop
                 ret
 move_coll_to_prev:
@@ -1716,82 +1735,195 @@ mcp_clr2:       ld      (hl), a
                 if (BELOW_ROOMS != CURR_ROOMS + 20) or (ABOVE_ROOMS != CURR_ROOMS + 40)
                 .error  the three collision rows must be contiguous
                 endif
-; get_row_collision_data: A = row, HL = rooms array, DE = flags array
+                if ((PREV_ROOMS / 256) != (CURR_FLAGS + 9) / 256) or (PREV_FLAGS != PREV_ROOMS + 10) or (CURR_FLAGS != CURR_ROOMS + 10)
+                .error  check_collisions' bump loop: the previous and the current row in one page, the flags 10 bytes on
+                endif
+; get_row_collision_data: A = row, HL = rooms array (check_collisions: CURR_ROOMS, BELOW_ROOMS or ABOVE_ROOMS; the
+; flags array is HL + 10, DE is not read). SDLPoP seg004.c: columns LEFT_CHK..RIGHT_CHK, each one's tile from
+; get_tile(Char.room, column, row), flags[tile_col] = (left wall < char_x_right_coll) * 0x0F | (right wall >
+; char_x_left_coll) * 0xF0, rooms[tile_col] = curr_room, coll_tile_left_xpos += 14 a column.
+; M8a part 23: a row walker. k_get_tile resolves the first column, and again only where tile_col would reach 10 (the
+; next column is then in the room on the right, as k_get_tile finds it from Char.room: the rows' links first, the
+; columns', then the rows' downwards). Inside a room a column's k_get_tile only adds one to TILE_COL and CURR_TILEPOS
+; and reads the next byte of fg (room 0: T_WALL, CURR_TILEPOS 0), so a pointer walks fg. The two compares are running
+; 16-bit differences in the alternate set: HL' = coll_tile_left_xpos - char_x_right_coll - 1, the left wall's flag when
+; HL' + (wall_dist_from_left + 1) is negative; DE' = coll_tile_left_xpos - char_x_left_coll - 1, the right wall's
+; when DE' + (13 - wall_dist_from_right) is not (the same 16-bit values as the old subtractions, plus or minus one).
+; A column without a wall gets the row's constant flags (0xFF < rcoll, 0 > lcoll). The rooms array is filled per
+; room segment. At the end CURR_ROOM, TILE_ROW (k_get_tile's), TILE_COL, CURR_TILEPOS, CURR_TILE2 and COLL_TLX are
+; the last column's, as before. (The old code's scratch K_TMP, K_TMPW, K_TMPW2 is not written: no reader.)
 get_row_collision_data:
                 ld      (grc_row), a
-                ld      (grc_rooms), hl
-                ld      (grc_flags), de
+                ld      a, l
+                ld      (grc_rlo), a
                 ld      a, (LEFT_CHK)
+                ld      c, a
                 add     a, FIRST_COL
                 ld      hl, x_bump
                 call    k_tbl
                 add     a, TILE_MIDX
                 ld      l, a
                 ld      h, 0
-                jp      nc, grc0
+                jr      nc, grc0
                 inc     h
 grc0:           ld      (COLL_TLX), hl
-                ld      a, (LEFT_CHK)
-                ld      (grc_col), a
-grc_loop:       ld      a, (grc_col)
-                ld      b, a
                 ld      a, (RIGHT_CHK)
-                sub     b               ; right - column < 0: done (signed, small values)
-                jp      m, grc_end
-                ld      a, (grc_col)
-                ld      c, a
+                sub     c               ; right - left < 0: no column (signed, small values)
+                ret     m
+                inc     a
+                ld      b, a            ; B = the columns, C = LEFT_CHK
+                push    bc
+                ld      de, (CX_RCOLL)
+                push    hl
+                scf
+                sbc     hl, de
+                ex      (sp), hl        ; (SP) = tlx - rcoll - 1
+                ld      bc, (CX_LCOLL)
+                scf
+                sbc     hl, bc
+                ex      de, hl          ; DE = tlx - lcoll - 1
+                xor     a               ; no wall: 0x00FF - rcoll < 0 (its high byte is -H): 0x0F
+                sub     h
+                rla
+                sbc     a, a
+                and     0x0f
+                ld      l, a
+                ld      a, b            ; lcoll - 0 < 0: 0xF0
+                rla
+                sbc     a, a
+                and     0xf0
+                or      l
+                ld      (grc_nf), a
+                pop     hl
+                exx
+                pop     bc
+; grc_get: k_get_tile (Char.room, column C, the row): a segment's first column (B = the columns left with it)
+grc_get:        push    bc
                 ld      a, (grc_row)
                 ld      b, a
                 ld      a, (K_ROOM)
                 call    k_get_tile
-                ld      c, a            ; the tile: the right wall's input too (M8a part 21: SDLPoP's second
-                call    get_left_wall_xpos ; get_tile has the same inputs and get_left_wall_xpos changes no
-                ld      (K_TMPW), hl    ; memory and keeps BC, so the call would return this tile again)
-                ld      a, c
-                call    get_right_wall_xpos
-                ld      (K_TMPW2), hl
-                ; flags: (left_wall < cx_rcoll) * 0x0F | (right_wall > cx_lcoll) * 0xF0
-                xor     a
-                ld      (K_TMP), a
-                ld      hl, (K_TMPW)
-                ld      de, (CX_RCOLL)
-                or      a
-                sbc     hl, de          ; left - rcoll < 0 ?
-                jp      p, grc1
-                ld      a, 0x0f
-                ld      (K_TMP), a
-grc1:           ld      hl, (CX_LCOLL)
-                ld      de, (K_TMPW2)
-                or      a
-                sbc     hl, de          ; lcoll - right < 0  <=> right > lcoll
-                jp      p, grc2
-                ld      a, (K_TMP)
-                or      0xf0
-                ld      (K_TMP), a
-grc2:           ld      a, (TILE_COL)
-                ld      hl, (grc_flags)
-                ld      e, a
-                ld      d, 0
-                add     hl, de
-                ld      a, (K_TMP)
-                ld      (hl), a
-                ld      hl, (grc_rooms)
-                add     hl, de
+                pop     bc
                 ld      a, (CURR_ROOM)
-                ld      (hl), a
-                ld      hl, (COLL_TLX)
-                ld      de, TILE_SIZEX
+                or      a
+                ld      hl, grc_walls   ; room 0: walls (TILE_COL is normalised, CURR_TILEPOS 0)
+                jr      z, grc_s1
+                call    tile_base       ; HL = the room's fg (keeps BC)
+                ld      a, (CURR_TILEPOS)
+                add     a, l
+                ld      l, a
+                jr      nc, grc_s1
+                inc     h
+grc_s1:         ld      a, (TILE_COL)
+                ld      (grc_tc0), a
+                ld      c, a            ; C = TILE_COL
+                ld      a, (grc_rlo)
+                add     a, 10
+                add     a, c
+                ld      e, a
+                ld      d, CURR_ROOMS / 256 ; DE = &flags[TILE_COL]
+                jr      grc_col
+; the walk. Main: HL = the tile's byte, DE = &flags[TILE_COL], C = TILE_COL, B = columns left. Alternate: HL', DE' the
+; differences, BC' scratch; AF' holds the left wall's flag
+grc_next:       inc     c
+                ld      a, c
+                cp      10
+                jr      z, grc_cross
+                inc     hl
+grc_col:        ld      a, (hl)
+                and     0x1f
+                exx
+                add     a, wall_type_tbl & 255
+                ld      c, a
+                ld      b, wall_type_tbl / 256
+                ld      a, (bc)         ; the wall type
+                or      a
+                jp      z, grc_none
+                add     a, a
+                add     a, (grc_wd - 2) & 255
+                ld      c, a
+                ld      b, grc_wd / 256
+                ld      a, (bc)         ; wall_dist_from_left + 1
+                add     a, l
+                ld      a, h
+                adc     a, 0
+                rla                     ; CY: the left wall < rcoll
+                ex      af, af'
+                inc     c
+                ld      a, (bc)         ; 13 - wall_dist_from_right
+                add     a, e
+                ld      a, d
+                adc     a, 0
+                rla                     ; no CY: the right wall > lcoll
+                sbc     a, a
+                cpl
+                and     0xf0
+                ld      c, a
+                ex      af, af'
+                sbc     a, a
+                and     0x0f
+                or      c
+grc_adv:        ld      bc, TILE_SIZEX
+                add     hl, bc
+                ex      de, hl
+                add     hl, bc
+                ex      de, hl
+                exx
+                ld      (de), a
+                inc     e
+                djnz    grc_next
+; the end: the last column's tile variables (CURR_ROOM and TILE_ROW are k_get_tile's), COLL_TLX
+                call    grc_fill
+                ld      a, (CURR_ROOM)
+                or      a
+                jr      z, grc_e1
+                ld      a, (grc_tc0)
+                ld      e, a
+                ld      a, (CURR_TILEPOS) ; + TILE_COL - the segment's first
+                add     a, c
+                sub     e
+                ld      (CURR_TILEPOS), a
+grc_e1:         ld      a, c
+                ld      (TILE_COL), a
+                ld      a, (hl)
+                and     0x1f
+                ld      (CURR_TILE2), a
+                exx
+                ld      de, (CX_RCOLL)
                 add     hl, de
+                inc     hl
                 ld      (COLL_TLX), hl
-                ld      a, (grc_col)
+                exx
+                ret
+grc_none:       ld      a, (grc_nf)
+                jp      grc_adv
+; grc_cross: TILE_COL would be 10: the segment ends; the next column (RIGHT_CHK + 1 - columns left) from k_get_tile
+grc_cross:      dec     c
+                call    grc_fill
+                ld      a, (RIGHT_CHK)
                 inc     a
-                ld      (grc_col), a
-                jp      grc_loop
-grc_end:        ret
-grc_row:        db      0
-grc_col:        db      0
-grc_rooms:      dw      0
-grc_flags:      dw      0
+                sub     b
+                ld      c, a
+                jp      grc_get
+; grc_fill: rooms[grc_tc0 .. C] = CURR_ROOM (keeps BC, HL)
+grc_fill:       push    bc
+                ld      a, (grc_tc0)
+                ld      e, a
+                ld      a, c
+                sub     e
+                inc     a
+                ld      b, a
+                ld      a, (grc_rlo)
+                add     a, e
+                ld      e, a
+                ld      d, CURR_ROOMS / 256
+                ld      a, (CURR_ROOM)
+grf1:           ld      (de), a
+                inc     e
+                djnz    grf1
+                pop     bc
+                ret
+grc_walls:      db      T_WALL, T_WALL, T_WALL, T_WALL, T_WALL, T_WALL, T_WALL, T_WALL, T_WALL, T_WALL
 ; get_left_wall_xpos / get_right_wall_xpos: A = tile (just read) -> HL
 get_left_wall_xpos:
                 call    wall_type
