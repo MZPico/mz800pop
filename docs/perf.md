@@ -3723,3 +3723,142 @@ diffs, 0 differing pixels; at 512 KB on walk_level1, fight_killpush, traps_b1, l
 level12_shadow_merge, level6_shadow_exit, l10r01: 0. tables.inc and the room renderer are unchanged (m3test's
 binary does not include kid.asm). `make ci-build`, `make cheats`, `make pace`. The full regression on the runners:
 see the PR.
+
+## M8a part 24: gates at pillars and the closed band (2026-11-09)
+
+Status: **built.** Candidates G1 and G3 of "Speed roadmap (2026-11-08)" section 8. A gate whose bars tile is a pillar
+now takes part 14's column shift too: the palace pillar (G1) was on the old path, and the dungeon pillar's base is no
+longer laid again. A closed gate's contact band (G3) is laid into the step's own compose rect. trigger_button became
+resident; that made the room in the gate overlay. G2 and G4 (drops, steps to or from 47) are unchanged.
+
+### Where a step's time went (measure first; tools/optione.py profile / diff, walk_gate against walk_b, 1 MB)
+
+- **G3** (l01r05 ticks 5, 6, 12, 13), against an open step (ticks 20, 21):
+  - the step itself costs 2.6 frames against 1.2;
+  - the band's run_rect 1.24-1.31 (5 pieces: lay_piece16 0.80, scans and the fill ~0.3);
+  - the object pass restores the merged chunk, +0.45 (the band's rect is not the kept SPRBUF_B rect);
+  - a second shadow write, +0.19, and the copy, +0.1.
+- **G1** (l11r02, a-b work 4.2-5.5 a step):
+  - the bars tile regenerated, 1.1;
+  - run_rect 3.1-3.4 (12 pieces);
+  - the shadow write, 0.6;
+  - the object pass, +1.3 (the kid, the pillar's fore piece).
+- **A cache of the band's pictures** (a picture per position, kept per room visit) was simulated with kidsim over the
+  m4 / m5 / m6 scripts and the busy scenes: 5-7 % hits. Gates do not close and open again within one visit, so the
+  cache was not built.
+
+### What changed
+
+1. **G1, the palace pillar** (colshift.asm cs_pil). Its base 92, laid after the bars, covers pixels 16-19 of the bars'
+   column (byte 2, bits 0-3) in rows GT + 9..GT + 46, and more of rows GT..GT + 8. So the step is the plain shift, then:
+   - rows GT..GT + 9 get the bars' records (CH_ENV 50..59 of the bars tile's slice) and 92 laid again (cs_layr);
+   - rows GT + 10..S1 - 1 take bits 0-3 of byte 2 from the old picture.
+
+   The palace pillar left cs_okmap's exceptions.
+2. **The dungeon pillar.** Its base covers bytes 1-2 of the column whole in rows GT..S1 - 1. Those bytes are now read
+   again from the shadow, instead of 92 being laid again over the moved rows.
+3. **G3, the band in place.** room.asm run_rect is split:
+   - rr_lays: the fill and the back and mid ops;
+   - rr_layc: the same, with the tile columns set from the rect, as dr_run's.
+
+   gate_step lays the band (rows MY - 13..MY - min - 1) into SPRBUF_B below S1. One cs_put then writes, dirties and
+   keeps the whole rect, so the object pass composes over it without a restore. While min(p) < 4 the rect would pass
+   SPRBUF_B's 64 rows (T0 = GT - 9 to MY - min), so those steps keep the second rect (dr_run).
+4. **trigger_button resident** (buttons.asm in main; its copies in the gate, door and events overlays and the stub
+   are gone). This is the planned plate-thrash item: a plate pressed while the frames or button overlay held W1
+   loaded the events overlay every tick.
+5. **cs_scan in main** (src/m4/csres.asm, with its 7 bytes of variables): both the gate and the door overlay use it.
+
+Tried and dropped:
+
+- **A faster palace head**: the head copied from the compose 8 rows lower (the bars are slices there while min(p) <=
+  28), with a mask table and in-place merges. It was exact by tools/movecheck.py and ~0.25 a step faster on those
+  steps, but it needed ~120 bytes more of main for the helpers it pushed out of the overlay.
+- **A palace band cut to 3 rows** (rows MY - 13..MY - 11 for a floor or torch bars tile). It is exact on the Python
+  reference's pictures, but on the Z80 the shifted row MY - 10 differed (l05r08, l10r01, gate_push): the shadow
+  differs from the reference under a fore piece there. Not built.
+
+### Memory (main 0312bd3 / this)
+
+| area | before | after |
+|---|---|---|
+| main (end_of_code) | 0x774B, 1,205 free | 0x78E1, **799 free** (+406: trigger_button 251, cs_scan + variables 123, rr_layc and the run_rect split ~30) |
+| low code, block 2, low RAM, RAM disk | | unchanged (the door overlay's image in page 6 shrank) |
+| gate overlay (W1) | 1,014 (10 free) | **924** (100 free): the trigger_button copy out (-272), cs_pil + cs_layr in (~+160), the band's lay (+46) |
+| door overlay | 868 | 471 |
+| events overlay | 1,009 | 737 |
+
+### Per gate-step kind (tools/reeval.py gates; 1 MB; a - b on walk_gate's ticks with one step; main 0312bd3 / this)
+
+| kind (share of the 1,182 visible steps) | ticks | a-b median | a-b mean |
+|---|---:|---|---|
+| open (39 %) | 190 | 1.68 / 1.68 | 1.64 / 1.64 |
+| **G3** closed band (15 %) | 79 | 3.69 / **3.18** | 3.72 / **3.29** |
+| open at a dungeon pillar (13 %) | 91 | 2.47 / **2.25** | 2.40 / **2.22** |
+| **G1** palace pillar (13 %) | 49 | 5.28 / **3.38** | 5.01 / **3.70** |
+| regen (8 %) | 39 | 3.08 / 3.20 | 3.46 / **3.17** |
+| **G3** at a dungeon pillar (5 %) | 41 | 4.87 / **3.81** | 4.93 / **4.04** |
+| regen at a dungeon pillar (3 %) | 19 | 3.88 / **3.62** | 4.30 / **3.90** |
+| G2 drop (2.4 %) / G4 to or from 47 (1.6 %) | 19 / 6 | 6.81 / 6.71; 7.07 / 7.07 | 6.97 / 6.89; 5.31 / 5.31 |
+| button hit / B1 miss | 32 / 12 | 1.39 / **1.19**; 5.13 / **4.56** | 1.69 / **1.39**; 5.64 / **5.28** |
+
+- G1 gains -1.3 a step, not the estimated -3.5. The old path's own work was smaller than its 6.06 a-b suggested;
+  the object pass is unchanged.
+- G3 gains -0.43 a step, -0.89 at a dungeon pillar; -0.55 over both kinds. The steps with min(p) < 4 (4 of the 11
+  kinds) gain nothing.
+- Over a game (the re-evaluation's ~1,700 G3 and ~700 G1 steps): ~-930 and ~-910 frames, plus the pillar steps.
+- The buttons gain from trigger_button: no events overlay loaded in a tick that already loads the button overlay.
+
+### The busy rooms (tools/busyrooms.py measure; 1 MB; frames a tick median / p90, and the mean work; main / this)
+
+| scene | median | p90 | mean work |
+|---|---|---|---|
+| l10r01 walk (4 gates, one at a palace pillar) | 8.92 / **7.93** | 14.38 / **12.67** | 8.29 / **7.43** |
+| l10r01 stand | 3.99 / 3.99 | 13.33 / **11.57** | 6.81 / **6.04** |
+| l11r02 walk (palace pillar gates) | 6.30 / **5.01** | 9.26 / **8.16** | 5.81 / **5.11** |
+| l05r08 walk | 8.93 / **7.98** | 11.96 / 11.84 | 8.22 / 8.13 |
+| l09r01 walk (a dungeon pillar) | 8.07 / **7.44** | 13.51 / **12.98** | 8.39 / **8.02** |
+| l09r22 walk | 7.28 / **6.54** | 11.43 / 11.63 | 7.88 / **7.49** |
+| l07r07 walk (dungeon pillars) | 6.96 / 6.91 | 9.97 / **8.99** | 7.38 / **7.05** |
+| l02r18 walk | 8.29 / **7.90** | 12.97 / **12.23** | 8.68 / **8.38** |
+| l10r10 stand | 6.46 / **5.98** | 10.55 / **9.92** | 6.21 / **5.92** |
+| l08r23 walk (choppers, a spike: no gate) | unchanged | | |
+
+**trigger_button alone, l05r24** (choppers, a potion, plates; no visible gate step in the scene):
+
+- walk: 6.59 / 6.50 median, 11.50 / 10.92 p90, mean work 7.26 / 7.09;
+- stand (the kid on a plate): 7.32 / 6.58 median, 11.42 / 10.84 p90, mean work 6.88 / **6.53** (-0.35 a tick).
+
+### perfcheck (one run per size; main 0312bd3 = the baselines; lowered where beaten, in this commit)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.73 / 4.73 | 4.51 / 4.51 | 4.44 / 4.44 |
+| level door step (walkthrough 203-207) | 8.73 / 8.74 | 8.00 / **7.90** | 8.00 / **7.90** |
+| room change (walkthrough 89) | 87.93 / 87.94 | 88.25 / 88.26 | 87.27 / **87.26** |
+| walkthrough 190-260 | 5.95 / 5.93-5.95 | 5.79 / **5.77** | 5.45 / **5.42** |
+| gate (gate_push 200-260) | 4.07 / **4.04** | 4.07 / **4.04** | 4.07 / **4.04** |
+| traps (traps_b1 0-300) | 5.00 / 5.00 | 4.81 / **4.80** | 4.78 / 4.78 |
+| fight (fight1 60-160, guard on) | 6.41 / **6.35** | 5.70 / **5.63** | 5.48 / **5.42** |
+
+The level door step loads no events overlay any more (the kid stands on the exit's plate). The fight's guard stands
+on a closer.
+
+### Same pixels, same logic
+
+- **tools/movecheck.py gates** models the new rules: every pillar gate (both kinds) and the band. 8,280 steps of
+  every gate of levels 1-14 on every screen that shows it, every one-row step both ways with both positions <= 46:
+  0 differ. It was 7,452 before; the palace pillar gates are now in. Doors, buttons, chompers and the other checks:
+  0 differ.
+- **tests/m4_game.py --every 1** at 512 KB, 1 MB and 16 MB, 0 state diffs and 0 differing pixels on each of:
+  - gate_push, btn_bars, frm_button, frm_spike_btn, walk_level1, fight1;
+  - l04_open_a, l04_drop_a, l02_open_a, l07_drop_a;
+  - the busy scenes l10r01, l11r02, l07r07, l05r08, l02r18, l10r10 (walk_a) and l05r24 (stand_a).
+  At 1 MB also l04r18, l05r07, l01r05, l07r19, l09r01, l09r09, l09r22 walk_a and l10r01, l11r02, l05r08, l07r07
+  stand_a.
+- **tests/m4_test.py** (gate_push, walk_level1, traps_b1, btn_bars, fight1): 0 differing.
+- `make ci-build`, `make cheats`, `make pace`, `make m3`. The full regression on the runners: see the PR.
+
+A fault found on the way: the palace head's lay ran with the compose rect of the closing step's one-row shadow read
+(CRX / CRW of byte 2), and laid nothing (l10r01 walk_a tick 109). tools/movecheck.py cannot see this, since it models
+the pixels, not the registers; the emulator test did. The rect is now set before the lay.

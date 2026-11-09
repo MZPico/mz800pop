@@ -671,7 +671,7 @@ sdt1:           ld      a, (hl)
                 or      c
                 ld      (hl), a
                 ret
-; trigger_button, do_trigger_list, trigger_gate, died_on_button: src/m4/events.asm (the events overlay, W1; stubs in ovl.asm)
+; trigger_button, do_trigger_list, trigger_gate: src/m4/buttons.asm (main since M8a part 24); died_on_button: src/m4/events.asm (the events overlay, W1; stub in ovl.asm)
 
 ; ---------------------------------------------------------------- loose floors
 ; make_loose_fall: A = modifier, at CURR_ROOM/CURR_TILEPOS

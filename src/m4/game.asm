@@ -432,6 +432,8 @@ beam_lines:     di
                 include "../m4/sndobj.asm"
                 include "../m4/fslook.asm"
                 include "../m4/spike.asm"
+                include "../m4/buttons.asm"
+                include "../m4/csres.asm"
                 include "../m4/ovl.asm"
 end_of_code:
                 if end_of_code > OVL_W1

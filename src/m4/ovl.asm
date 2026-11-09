@@ -105,19 +105,7 @@ jump_through_mirror:
                 ld      a, OVL_EVENT
                 call    ovl_w1
                 jp      OVL_W1 + 6
-; the buttons (src/m4/buttons.asm): trigger_button keeps A (the click), B (type), C (modifier). The kid on a plate calls
-; it every tick: the copy in W1 runs when W1 holds the gate or the door overlay (both have one: a gate or the door moving
-; meanwhile loads nothing), else the events overlay's (M8a part 14)
-trigger_button: push    af
-                ld      a, (ovl_cur1)
-                cp      OVL_ANIM
-                jr      z, tbs1
-                cp      OVL_DOOR
-                jr      z, tbs1
-                ld      a, OVL_EVENT
-                call    ovl_w1
-tbs1:           pop     af
-                jp      OVL_W1 + 9
+; trigger_button (src/m4/buttons.asm) is resident since M8a part 24 (main, game.asm)
 died_on_button: ld      a, OVL_EVENT
                 call    ovl_w1
                 jp      OVL_W1 + 12

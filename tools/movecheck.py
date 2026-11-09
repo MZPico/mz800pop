@@ -127,7 +127,7 @@ def tiles(t):
                     if L.fg[i] & 0x1F == t: yield lv, room, i, r, 0
 
 GATE_BARS_OK = {T.empty, T.floor, T.stuck, T.closer, T.loose, T.opener, T.torch, T.gate}   # colshift.asm cs_okmap (and
-                                                                                          # the dungeon's pillar)
+                                                                                          # the pillar: cs_pil)
 
 def gates():
     n = bad = other = 0
@@ -135,7 +135,7 @@ def gates():
     for lv, room, i, r, bc in tiles(T.gate):
         L = Level(lv)
         bt = L.fg[(room - 1) * 30 + r * 10 + bc] & 0x1F
-        pillar = bt == T.pillar and L.type == 0
+        pillar = bt == T.pillar
         if bt not in GATE_BARS_OK and not pillar: other += 1; continue
         GT = 63 * r + 3; MY = GT + 59; X0 = COL_XH[bc] * 8; T0 = max(GT - 9, 0)
         R = {}
@@ -158,9 +158,16 @@ def gates():
             if k < 0:
                 fr = [op for op in ops if op[0] == CH_ENV and 52 <= op[1] <= 59 and op[2] == X0 and op[3] == GT]
                 paint(pred, rr, fr[0], clip)
-            if pillar:
-                for op in ops:
-                    if op[0] == CH_ENV and op[1] == 92 and op[2] == X0: paint(pred, rr, op, clip)
+            if pillar and L.type == 0:                      # the dungeon's base covers bytes 1-2: the old picture
+                for y in range(GT, S1):
+                    for x in range(X0 + 8, X0 + 24): pred[y][x] = old[y][x]
+            elif pillar:                                    # the palace's (colshift.asm cs_pil): rows GT..GT + 9
+                hc = (X0, X0 + 24, GT, GT + 10)             # with the bars' records and 92 laid again, below
+                for lo, hi in ((50, 59), (92, 92)):         # them pixels 16-19 from the old picture
+                    for op in ops:
+                        if op[0] == CH_ENV and lo <= op[1] <= hi and op[2] == X0: paint(pred, rr, op, hc)
+                for y in range(GT + 10, S1):
+                    for x in range(X0 + 16, X0 + 20): pred[y][x] = old[y][x]
             if mn <= 12:
                 for y in range(MY - 13, MY - mn):
                     for x in range(X0, X0 + 24): pred[y][x] = new[y][x]
