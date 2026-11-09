@@ -9,7 +9,8 @@
 ; tiles in row 2, 1, 0, then the row above order and draws the objects of a tile after its overlay, so only the
 ; overlays after an object's tile cover it. ov_mark_char marks the tiles of each character, ov_gen_all generates
 ; their ops once per tick into OV_MID (and, for the row above, the bottom piece's fore copy into OV_FORE);
-; people_chunk lays them between the objects.
+; people_chunk lays them between the objects. The falling floors are objects too (people2.asm mob_place: SDLPoP
+; draw_mob marks the tile right of a floor, whose base and bottom then cover the floor's right part).
 OV_MID          equ     0x9dc0                  ; 32 records (the temp fore list's room: free outside tile_regen)
 OV_FORE         equ     0x9ec0                  ; 8 records
 ov_cfg:         dw      TMP_BACK, OV_MID, OV_FORE
@@ -217,16 +218,7 @@ omt_set:        ld      e, a
                 ret     c
                 ld      (hl), a
                 ret
-; ov_order: B = row 0..2, C = col 0..9 -> A = (2 - row) * 10 + col
-ov_order:       ld      a, 2
-                sub     b
-                ld      e, a
-                add     a, a
-                add     a, a
-                add     a, e
-                add     a, a
-                add     a, c
-                ret
+; ov_order: people2.asm (main RAM: block 2 is full)
 
 ; ov_gen: (ov_k) = place in the order: add that tile's overlay ops
 ov_gen:         and     1                       ; A = the mark: 2 other (ov_kind 0), 1 floor (ov_kind 1)
@@ -631,14 +623,15 @@ kc_m:           db      0
 ; XORed d px further right; the shadow, and the kid in the blink after the level 12 union). Drawing order: the
 ; objects of a tile come after the tile's overlay (ov_gen_all), in redraw order of their tiles (tile 30 first, the
 ; splashes last), within a tile by y, the shadow last (objtable scanned last to first, then a stable sort: among
-; equal keys slot order 5, 4, 3, 2, 1, 0, 6). PP_DL lists the visible slots in that order; people_chunk draws them
+; equal keys slot order 5, 4, 3, 2, 1, 0, 6). PP_DL lists the visible slots in that order, the falling floors among
+; them as slots 7.. (people2.asm mob_until: before a person when their key is smaller); people_chunk draws them
 ; into a compose chunk with the overlay ops between them.
 SWORDBUF        equ     0x1000                  ; the kid's sword image (<= 5 x 19 x 4 bytes; the ROM monitor's
 SPR_S           equ     0x1180                  ; work area, free once the game runs) and its sprite descriptor
 SPR_GS          equ     0x0780                  ; the guard's sword: descriptor (image at GSWBUF, <= 256 bytes)
 SPR_G           equ     0x0798                  ; the guard: descriptor (image at SPRBUF_G)
 SPR_SP          equ     0x07b0                  ; the hurt splash: descriptor (image at SPLBUF)
-PP_DL           equ     0x07c8                  ; draw list: count, then up to 7 slots in drawing order
+PP_DL           equ     0x07c8                  ; draw list: count, then up to 13 slots in drawing order (7.. falling floors)
 GSWBUF          equ     0x0000
 SPRBUF_G        equ     0xf600                  ; <= 1,148 bytes (guard images 1,092; the shadow's kid images 1,148)
 SPLBUF          equ     0xfa80                  ; 520 bytes
@@ -750,6 +743,7 @@ pp_g:           ld      a, (GUARD_REC + OF_DIR) ; the guard (draw_guard)
 pp_order:       ld      hl, PP_SAVE             ; the kid again
                 ld      de, KV
                 call    gcp16
+                call    mob_place               ; the falling floors' tiles and marks (people2.asm)
                 call    ov_gen_all              ; (draw_floor_overlay reads the kid's frame)
                 ; ---- the drawing order: selection of the smallest key, among equal keys the last one in PP_KEYS
                 ; (slot 6, the mirror image, is first there: objtable entry 0, drawn after the others of its key)
@@ -780,6 +774,7 @@ pq_n:           inc     ix
                 ld      a, (pq_rng + 1)
                 cp      c
                 jr      nz, pq_i
+                call    mob_until               ; (the falling floors before it: people2.asm)
                 ld      a, d
                 and     e
                 inc     a
@@ -1399,6 +1394,8 @@ pch_l:          inc     hl
                 push    hl
                 push    bc
                 ld      a, (hl)                 ; a slot: the overlay ops before it, then its image
+                cp      7
+                jp      nc, mob_pch             ; (a falling floor: people2.asm)
                 push    af
                 call    slot_p
                 call    pc_ops

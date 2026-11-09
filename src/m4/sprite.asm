@@ -54,9 +54,8 @@ dirty_from_dr:  call    flm_hook                ; (a redraw touching a torch fla
                 ld      a, (DR_Y1)
                 ld      e, a
                 jp      dr_add_xy
-draw_objects:   call    people_place            ; the kid and the guard (overlay.asm): their objects, rects, order
-do_kid_done:    ; ---- the falling floors
-                ld      a, (OMOBR_N)            ; last tick's rects
+draw_objects:   ld      a, (OMOBR_N)            ; the falling floors: last tick's rects
+
                 or      a
                 jp      z, do_m0
                 ld      b, a
@@ -70,6 +69,7 @@ do_om:          push    bc
                 pop     bc
                 djnz    do_om
 do_m0:          call    mobs_visible            ; MOBR (draw list) and OMOBR (their rects, for next tick and now)
+                call    people_place            ; the kid, the guard and the floors (overlay.asm): objects, rects, order
                 ld      a, (OMOBR_N)
                 or      a
                 jp      z, do_m1
@@ -328,9 +328,13 @@ mv_add:         ld      a, (MOBR_N)
                 bit     7, d                    ; clip the top at 0
                 jp      z, mv_t1
                 ld      a, e
-                add     a, 17
-                jp      m, mv_next_pop          ; entirely above
-                ld      b, a
+                add     a, 16
+                jp      m, mv_next_pop          ; entirely above (ybottom < 0, as tests/m4_game.py mob_objs)
+                inc     a
+                cp      3                       ; (at least rows 0-2: the room above's floor bottom that SDLPoP
+                jr      nc, mv_t0               ; lays again over a floor coming in, people2.asm mp_mark)
+                ld      a, 3
+mv_t0:          ld      b, a
                 ld      de, 0                   ; (M8a part 18: D too; a floor coming in from the room above was
                                                 ; taken for one below the screen and never drawn)
 mv_t1:          ld      a, d
@@ -389,7 +393,7 @@ orr_w:          ld      (CRW), a
 orr_ynext:      ld      a, (CRY)
                 add     a, CH
                 jp      orr_y
-; obj_chunk: one compose chunk (CRX, CRY, CRW, CRH): background, falling floors, kid, fore pieces, blit
+; obj_chunk: one compose chunk (CRX, CRY, CRW, CRH): background, the people and the falling floors, fore pieces, blit
 obj_chunk:      call    LC_CHUNK                ; a chopper's or spike's complete picture straight into VRAM (M8a part 25)
                 ret     c
                 call    oc_kept                 ; the background-only redraw of this rect: its picture as base
@@ -413,7 +417,6 @@ oc_free:        ld      (V_COMPOSE), de
                 call    flames_cover            ; a chunk inside a torch flame needs no background
                 call    nc, restore_shadow
 oc_base:        call    flames_lay              ; the flames' current frames (the shadow may hold old ones)
-                call    mob_lay                 ; the falling floors in this chunk (people2.asm)
 oc_kid:         call    people_chunk            ; the people and the overlays in their drawing order
 oc_fore:        call    lay_fore_rect
                 ld      hl, OV_FORE
