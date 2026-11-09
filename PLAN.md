@@ -1078,3 +1078,12 @@ piece used AND/XOR semantics.
    l05r24 6.58 -> 4.98, l10r10 5.93 -> 4.03, l03r16 7.01 -> 5.40 (p90 -1..-4); perfcheck adds 'choppers (frm_button
    20-120)': 6.63 -> 6.18 (1 MB), 6.29 -> 5.55 (16 MB). Not built: cached buttons' lazy shadow (~0.4 a cached press),
    the beam wait from the measured RAM-disk speed (~0.1 a copy). Next: G2 / G4 gates, R2 (the room cache), B1.
+69. M8a part 26, the full room draw without the cover scan (2026-11-09, docs/perf.md "M8a part 26"; the roadmap's
+   candidate 10, measured first): no back or mid op covers a whole 8 x 64 cell of the full draw (0 of 4,740 cells in
+   levels 1-14; the fill of only the copy-covered rows would save ~0.14 frames), so the fill stays and the scan that
+   looked for a cover goes. The room overlay's rf_cell lays each cell with run_rect's fill and lay pass only, and
+   rr_bkt calls rl_lay without rec_lay's touch test (a bucket's ops touch its cell). The room change -2.3..-3.5 frames
+   at every size (1 MB l01r01 80.03 -> 77.34, l10r01 95.43 -> 91.93; perfcheck's room change 88.25 -> 85.71); the room
+   overlay +15 bytes (29 free), no resident bytes. Exact by construction (the no-cover path of run_rect); m3_test of
+   every room, m3_anim_test, m4_game --every 1 at 3 sizes (see the PR). Next: G2 / G4 gates, R2 (the room cache), B1;
+   for the room change the faster op-list build (candidate 7, -3..-4) and the room cache on 16 MB.

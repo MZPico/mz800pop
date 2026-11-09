@@ -401,9 +401,9 @@ rb_l:           push    bc
                 ld      de, (bkt_base)
                 add     hl, de
                 ld      (OPL_PTR), hl
-                call    rec_lay
-                pop     bc
-                djnz    rb_l
+                call    rl_lay                  ; (M8a part 26: not rec_lay. A bucket's ops touch its cell, and the
+                pop     bc                      ; piece is clipped to the rect anyway; only rf_cell's lay pass
+                djnz    rb_l                    ; comes here, in RR_MODE 0)
                 ret
 bkt_p:          dw      0
 bkt_base:       dw      0
@@ -445,7 +445,7 @@ ro_b2:          add     a, a
                 ld      (CRW), a
                 ld      a, CH
                 ld      (CRH), a
-                call    run_rect
+                call    rf_cell
                 ld      hl, CELL
                 inc     (hl)
                 ld      a, (hl)
@@ -454,6 +454,16 @@ ro_b2:          add     a, a
                 xor     a
                 ld      (bkt_on), a
                 ret
+
+; rf_cell: run_rect without its cover scan (M8a part 26). No back or mid op covers a whole 8 x 64 cell (none of the
+; 4,740 cells of levels 1-14, docs/perf.md "M8a part 26"), so the scan never skipped the fill here; every op laid over
+; black is what run_rect does when it finds no cover, so the pixels are the same whatever the room. RR_SHONLY is 0 in a
+; full draw (the compose buffer is COMPOSE_A).
+rf_cell:        ld      hl, COMPOSE_A
+                ld      (V_COMPOSE), hl
+                call    rect_bounds
+                call    rr_fill
+                jp      rr_sw
 
 ; draw room A completely
 draw_room_full: call    room_ops
