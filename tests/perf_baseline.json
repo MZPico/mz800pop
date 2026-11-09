@@ -1,9 +1,9 @@
 {
- "normal tick (walkthrough 30-60)": 4.59,
- "level door step (walkthrough 203-207)": 8.23,
+ "normal tick (walkthrough 30-60)": 4.51,
+ "level door step (walkthrough 203-207)": 8.0,
  "room change (walkthrough 89)": 88.25,
- "walkthrough 190-260": 5.9,
- "gate (gate_push 200-260)": 4.08,
- "traps (traps_b1 0-300)": 4.87,
- "fight (fight1 60-160, guard on)": 5.87
+ "walkthrough 190-260": 5.79,
+ "gate (gate_push 200-260)": 4.07,
+ "traps (traps_b1 0-300)": 4.81,
+ "fight (fight1 60-160, guard on)": 5.7
 }

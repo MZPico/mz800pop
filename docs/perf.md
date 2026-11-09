@@ -3362,7 +3362,7 @@ docs.
 
 ## Kid logic: measured (2026-11-08)
 
-Status: **measured; A', C and E built in "M8a part 21: kid logic trims"** (the rest not built). Candidate 12 of "Speed roadmap (2026-11-08)" section 6 ("kid logic trims"), on
+Status: **measured; A', C and E built in "M8a part 21: kid logic trims", A, B, D and G in "M8a part 23: collision rows"** (F not built). Candidate 12 of "Speed roadmap (2026-11-08)" section 6 ("kid logic trims"), on
 main e334925 (M8a part 20), 1 MB, no waits. The tool is tools/kidlogic.py `profile SCRIPT T0 T1 [--csv OUT]`. For each
 tick it stops at kid_tick's entry and runs mz800emu's call profiler from there to kid_tick's return. The return
 address is read from the stack, so only the logic is profiled, and the logic's time is exact by cycles. It then
@@ -3589,3 +3589,137 @@ KB and 16 MB on walk_level1, fight1, fight_killpush, traps_b1, level6_shadow_exi
 l05r24, l10r01 scenes: 0. tests/m3_test.py levels 1 and 4: 0 differing pixels (the wall patterns' seeds are all below
 64, so they take PR_TAB, not the generator). E's exhaustive check: 589,824 cases equal. `make ci-build`, `make
 cheats`, `make pace`. The full regression on the runners: see the PR.
+
+## M8a part 23: collision rows (2026-11-09)
+
+Status: **built.** Trim A of "Kid logic: measured (2026-11-08)" (recommendation 2: get_row_collision_data as a row
+walker) with D folded in, and B and G as fill-ins: the same results byte for byte, tick-exact against kidsim (and so
+SDLPoP) by construction, by a differential harness of the old and the new code, and by the tests.
+
+### What changed
+
+1. **A: get_row_collision_data walks the row** (kid.asm). SDLPoP calls get_tile for each column of the row
+   (LEFT_CHK..RIGHT_CHK, 4-7 columns, three rows a tick), and the port did, through k_get_tile's normalising loop.
+   Now k_get_tile resolves the row's first column, and again only where TILE_COL would reach 10. Between those, the
+   next column's k_get_tile (Char.room, column + 1, row) would only add one to TILE_COL and CURR_TILEPOS and read the
+   next fg byte (see "Why it is exact"), so a pointer walks fg (room 0: a 10-byte run of T_WALL, CURR_TILEPOS 0). The
+   two compares are running 16-bit differences in the alternate registers: HL' = coll_tile_left_xpos - CX_RCOLL - 1
+   and DE' = coll_tile_left_xpos - CX_LCOLL - 1, both + 14 a column; a column's tile gives its wall type
+   (wall_type_tbl, page-safe) and the type two offsets (grc_wd: wall_dist_from_left + 1 and 13 -
+   wall_dist_from_right, both 0..13, so the adds are zero-extended): the left flag is the sign of HL' + the first,
+   the right flag the inverted sign of DE' + the second. A column without a wall takes the row's constant flags
+   (0x00FF < CX_RCOLL, 0 > CX_LCOLL). The flags are stored as the walk goes; the rooms array is filled per room
+   segment (grc_fill). At the end TILE_COL, CURR_TILEPOS, CURR_TILE2 (the last column's; CURR_ROOM and TILE_ROW are
+   the last k_get_tile's) and COLL_TLX (= HL' + CX_RCOLL + 1) are stored, as the old code left them. ~2,500 T a row
+   inclusive (walking, ~5 columns), was ~6,950 after part 21's A' (~9,600 before).
+2. **D: k_get_tile's in-room path** (kid.asm): a column 0..9 and a row 0..2 skip the normalising loop and tbl_line
+   (row * 10 + column by adds), then the same tile_base / k_tbl tail, so the same stores, registers and flags. ~340 ->
+   ~250 T an in-room call.
+3. **B: check_collisions' bump loop by pointers** (kid.asm): HL / DE over the current and the previous row (the flags
+   ten bytes on, all in KV's page: an `.error` guard), instead of four k_tbl calls a column. The same columns in the
+   same order (9 down to 0), so BUMP_L / BUMP_R get the same values.
+4. **G: get_tile_div_mod reads its tables by page** (kid.asm): tile_div_tbl / tile_mod_tbl page-aligned (0xC400 /
+   0xC500), `ld h, page; ld a, (hl)` instead of two k_tbl calls. The tables are aligned without moving them relative
+   to each other: get_row_collision_data's data and variables (grc_wd and four bytes, exactly 12) moved to the head
+   of block 2 (src/m4/collpad.inc, game.asm and m4test.asm), which shifts tables.inc by the 12 bytes it needed.
+   (The first try put the two tables first in tables.inc. The differential harness below caught it: x_bump[LEFT_CHK
+   + 5] reads past x_bump's 20 bytes when LEFT_CHK is below -5 or above 14, e.g. CX_LCOLL 0, and those bytes changed.
+   With the padding, x_bump's 256-byte window holds the same bytes as before: y_land, then tile_div_tbl.)
+
+Resident (main d7dd935 -> this):
+
+| area | before | after | |
+|---|---|---|---:|
+| main code (end_of_code) | 0x76C9, 1,335 free | 0x774B, **1,205 free** | **+130** (A +114, D +33, B -7, G -10) |
+| block 2 (block2_end) | 0xEBE6, 26 free | 0xEBF2, **14 free** | **+12** (A's data, the padding for G) |
+| low code, low RAM, overlays, RAM disk | | unchanged | 0 |
+
+A came out larger than the ~+95 of the model (the room segments' fill, the crossing path and room 0's wall run).
+
+### Why it is exact
+
+- **A, the tile part.** k_get_tile (Char.room, c, r) normalises in a fixed order: while the row is negative, + 3 and
+  the room above; then a negative column + 10 and the room on the left, a column >= 10 - 10 and the room on the
+  right (back to the row test after each); last a row >= 3 - 3 and the room below. Room 0 stays room 0 (the values
+  are still normalised). For columns c and c + 1 with the same floor(c / 10), the moves are the same in the same
+  order, so the result is the same room and row with TILE_COL one more, CURR_TILEPOS one more (room 0: 0) and the
+  next fg byte (room 0: T_WALL). When TILE_COL would be 10 the walker calls k_get_tile with (Char.room, the column,
+  the row) itself: a room to the right of the room below need not be the room below the room to the right. The
+  level does not change during a row. So every column reads the tile the old code read, and the variables left
+  after the last column are the same.
+- **A, the flags.** The old code computed left = COLL_TLX + sext(wall_dist_from_left) (or 0x00FF) and tested the
+  sign of left - CX_RCOLL by `sbc hl, de`, and right = COLL_TLX + 13 - wall_dist_from_right (or 0) and the sign of
+  CX_LCOLL - right. Modulo 2^16, left - CX_RCOLL = (COLL_TLX - CX_RCOLL - 1) + (dl + 1), and dl + 1 is 0..11 (dl = -1
+  for the chomper), so the walker's zero-extended add gives the same 16 bits; (COLL_TLX - CX_LCOLL - 1) + r = -(CX_LCOLL
+  - right) - 1 = NOT (CX_LCOLL - right), so its sign is the old sign inverted. Equal for every input, overflow
+  included. The no-wall flags use the old constants (the high byte of 0x00FF - CX_RCOLL is -H). The flags and the
+  rooms go to [TILE_COL] as before; with more than ten columns a later segment overwrites an earlier one's entries
+  in the same order as before (the fill runs at each segment's end).
+- **A, what is not written any more.** The old code's scratch K_TMP (the last column's flags), K_TMPW and K_TMPW2 (its
+  wall x): K_TMPW / K_TMPW2 have no other reader anywhere; every other routine that reads K_TMP writes it first
+  (checked at each reader). grc_row, grc_col, grc_rooms, grc_flags were the routine's own. The alternate registers
+  and AF' are changed now (nothing keeps a value in them across a call: the ISR saves only AF and HL, gfx.asm and
+  frames.asm use them inside a routine).
+- **D.** In range the old loop changed nothing (no links_of, so BC is kept) and kgt_done computed tbl_line[row] +
+  column = row * 10 + column; then the same tile_base and k_tbl, so HL, DE, A and the flags are the same; room 0
+  leaves HL and DE as they came, as before.
+- **B.** Previous room = current room and not 0xff is the old test (current not 0xff, then equal) in the other order;
+  the flag tests are unchanged. No caller reads the registers check_collisions leaves (check_bumped loads its own).
+- **G.** HL leaves pointing at the tile_div_tbl entry as before; DE is kept. The flags differ (no k_tbl `add`); every
+  caller (kid.asm, guard.asm, objects.asm, overlay.asm, genter.asm) stores, adds or tests A first.
+
+**The differential harness** (tools/collrows_diff.py): main's m4test and this one in two emulators, the same level
+loaded, a driver loop at 0x0E00 that copies a KV image in, sets the registers, calls the routine and copies KV and
+the registers out, 30 cases a batch. check_collisions with random inputs (Char's room 1-24, row -1..3, action, CX_LCOLL
+/ CX_RCOLL anywhere in -300..600 or at a wall's x +-1, the previous rows, PREV_COLL_ROW and the tile variables
+random): all 256 bytes of KV compared but K_TMP, K_TMPW, K_TMPW2. k_get_tile with room 0-24, column -15..24, row
+-5..7: KV and AF, BC, DE, HL compared. Its sensitivity: a build with one grc_wd offset off by one differs in 12 of
+300 cases of level 1.
+
+### The logic (tools/kidlogic.py profile; 1 MB, no waits; main d7dd935 / this)
+
+| stretch | logic mean (frames a tick) | frames a tick, mean (measured) | median | p90 | ticks at the floor |
+|---|---|---|---|---|---|
+| walk_level1 30-60 | 0.776 / **0.543** (-0.233) | 4.590 / **4.515** (-0.08) | 4.26 / 4.14 | 6.75 / 6.49 | 13 / 14 of 30 |
+| fight1 60-160 | 1.070 / **0.804** (-0.266) | 5.876 / **5.696** (-0.18) | 4.98 / 4.76 | 9.18 / 8.94 | 25 / 26 of 100 |
+| traps_b1 1-300 | 0.747 / **0.542** (-0.205) | 4.598 / **4.539** (-0.06) | 3.99 / 3.99 | 4.99 / 4.97 | 193 / 197 of 299 |
+| l03r16 walk_a 1-100 (3 choppers) | 0.756 / **0.582** (-0.174) | 8.663 / **8.458** (-0.21) | 7.97 / 7.92 | 12.99 / 12.96 | 2 / 4 of 99 |
+| l05r24 walk_a 1-100 (palace, busy) | 0.897 / **0.688** (-0.209) | 7.441 / **7.221** (-0.22) | 6.59 / 6.55 | 11.94 / 11.50 | 2 / 6 of 99 |
+| l08r23 walk_a 1-100 | 0.655 / **0.505** (-0.150) | 6.395 / **6.253** (-0.14) | 6.11 / 5.98 | 9.95 / 9.95 | 22 / 23 of 99 |
+| l10r01 walk_a 1-100 (pillars, 4 gates) | 0.822 / **0.601** (-0.221) | 8.359 / **8.170** (-0.19) | 8.48 / 8.02 | 14.61 / 14.38 | 25 / 26 of 99 |
+
+The logic gains -0.15..-0.27 frames a tick, a little more than the model's A + B + D + G after part 21 (walking -0.25
+modelled with A at 600 T a row + 280 a column; measured -0.233). After the 4-frame floor: walking -0.08, traps -0.06
+(most of their ticks sit at the floor), the fight and the busy rooms -0.14..-0.22 (nearly all of the saving). Per
+routine (walking): get_row_collision_data 0.293 -> 0.105 inclusive (1,708 T a row exclusive), check_collisions
+0.362 -> 0.155 inclusive, k_get_tile 18.4 -> 7.4 calls a tick (339 -> 251 T a call), k_tbl 117 -> 26 calls,
+get_tile_div_mod 155 -> 85 T a call. A alone (first build, walking): 0.776 -> 0.594; A + B + D 0.560; with G 0.543.
+
+### perfcheck (one run per size; main d7dd935 = the baselines; baselines lowered where beaten, in this commit)
+
+| Stretch | 512 KB main / new | 1 MB main / new | 16 MB main / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.91 / **4.73** | 4.59 / **4.51** | 4.52 / **4.44** |
+| level door step (walkthrough 203-207) | 8.98 / **8.73** | 8.23 / **8.00** | 8.23 / **8.00** |
+| room change (walkthrough 89) | 88.27 / **87.93** | 88.25 / 88.25 | 87.32 / **87.27** |
+| walkthrough 190-260 | 6.12 / **5.95** | 5.90 / **5.79** | 5.56 / **5.45** |
+| gate (gate_push 200-260) | 4.08 / **4.07** | 4.08 / **4.07** | 4.08 / **4.07** |
+| traps (traps_b1 0-300) | 5.12 / **5.00** | 4.87 / **4.81** | 4.83 / **4.78** |
+| fight (fight1 60-160, guard on) | 6.64 / **6.41** | 5.87 / **5.70** | 5.62 / **5.48** |
+
+(Two runs of the final build; the second differed by at most 0.01.)
+
+### Same pixels, same logic
+
+The differential harness (tools/collrows_diff.py, main's m4test against this one): 84,000 cases, 6,000 a level for
+levels 1-14 (42,000 of check_collisions, 42,000 of k_get_tile): 0 differing. tests/m4_test.py (the Z80 logic against
+kidsim: kid, guard, state and sound lines every tick) on all 74 scripts of tests/m4_scripts, m6_scripts, m5_scripts
+and m7_scripts: 0 differing ticks. tests/m4_game.py --every 1 (the state with the level checksum, and VRAM every
+tick) at 1 MB on 30 scripts (walk_level1, run_rooms, jumps_climbs, random1, traps_b1, traps_b9, gate_push, run_fall,
+fight1, fight_killpush, fight_chomper, fight_follow, fight_spikes, level2_drop, level2_fight, level3_skeleton,
+level4_mirror, level6_shadow_exit, level12_shadow_merge, level12_exit_level13, level13_exit, level14_end,
+feather_fall_guard and the busy-room scenes l03r16, l05r24, l08r23, l10r01, l04r18, l10r10, l02r18 walk_a): 0 state
+diffs, 0 differing pixels; at 512 KB on walk_level1, fight_killpush, traps_b1, l05r24 and at 16 MB on fight1,
+level12_shadow_merge, level6_shadow_exit, l10r01: 0. tables.inc and the room renderer are unchanged (m3test's
+binary does not include kid.asm). `make ci-build`, `make cheats`, `make pace`. The full regression on the runners:
+see the PR.
