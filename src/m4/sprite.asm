@@ -395,7 +395,7 @@ obj_chunk:      call    LC_CHUNK                ; a chopper's or spike's complet
                 call    oc_kept                 ; the background-only redraw of this rect: its picture as base
                 jp      c, oc_base
                 call    tc_try                  ; a torch chunk seen before: from its cache straight into VRAM
-                ret     c
+                jr      c, oc_tcx
                 call    buf_pick                ; a free chunk buffer (flush when all are in use)
                 jr      nc, oc_free
                 ld      hl, (CRX)               ; (the flush uses the compose rect: keep this chunk's)
@@ -454,6 +454,9 @@ oc_ry:          ld      a, (CRY)                ; (upside down: call fl_top, the
                 ld      (hl), d
                 ld      hl, PEND_N
                 inc     (hl)
+                ret
+oc_tcx:         xor     a                       ; tc_try copied it: no complete picture is saved from this chunk
+                ld      (lc_sv + 1), a          ; (a guard: lc_chunk's mark must not reach the next chunk's lc_save)
                 ret
 ; pend_flush: copy the composed chunks to the screen, untorn and together. The copy writes a row's four planes
 ; together, top to bottom, at k = 1.31 + 0.28 * w lines a row (slower than the beam), so a chunk is clean when

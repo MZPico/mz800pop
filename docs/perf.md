@@ -2779,7 +2779,7 @@ pixel tests check it).
 | 4 | Option E step 3: the lazy shadow (choppers, spikes, cached buttons: no shadow write, the restore from the slot; **built for choppers and spikes: M8a part 25**) | -0.7 a chopper / spike step, -0.4 a cached button press | the busy rooms | ~160 main + 4 low: **needs a reclaim** | none | 4-5 days, medium, exact |
 | 5 | Option E step 4: complete pictures with nobody in the rect, copied directly (**built for choppers: M8a part 25**) | -1.0..-1.5 a step on top of 4 (l08r23 stand 6.64 -> ~4.4) | the chopper rooms | ~80 main: **needs the reclaim** | 16 MB all; 512 KB / 1 MB choppers only (slots) | 3-4 days, medium, exact |
 | 6 | the visited-room cache (with the op lists) | revisit 106 -> ~15-20 (2 s -> 0.3-0.4 s) | most room changes after a room's first visit | ~20-40, a second room overlay | **16 MB only** | 1-2 weeks, medium, exact |
-| 7 | a faster op-list build | -3..-4 a room change; -0.1..-0.2 a tile regeneration in play (helps 1's remaining steps, gates' regenerating steps, chopper misses) | every room change | room.asm in main: likely +50..+100 | none | 3-5 days, medium, exact (m3 tests) |
+| 7 | a faster op-list build (**built: M8a part 27**, -2.3..-2.8 a room change, -0.1..-0.2 a tile redraw) | -3..-4 a room change; -0.1..-0.2 a tile regeneration in play (helps 1's remaining steps, gates' regenerating steps, chopper misses) | every room change | room.asm in main: likely +50..+100 | none | 3-5 days, medium, exact (m3 tests) |
 | 8 | band cells for the full room draw | -6..-8 a room change (estimate) | every room change | ~300 overlay (a second room overlay) | none | 1-1.5 weeks, high; a prototype first |
 | 9 | the VRAM copy by POP / PUSH or the write modes (**measured and dropped**: "Step 3 (the VRAM copy): measured and dropped"; PUSH waits on the GDG, banded LDI -2.5 a room change for ~680 bytes) | -2..-4 a room change, ~-0.1 a tick | everywhere | ~50-100 main | none | 2-3 days, medium |
 | 10 | the fill skipped under a covering back op in the full draw (**measured: 0 of 4,740 cells covered; built instead: the full draw without the cover scan and the bucket ops' touch test, -2.3..-3.5: M8a part 26**) | -1..-1.5 a room change | every room change | room overlay (86 free) | none | 1 day, low, exact |
@@ -4147,3 +4147,162 @@ in part 25 (no code it runs changed), and its baseline stays.
 - **tests/m4_game.py --every 1** at 512 KB, 1 MB and 16 MB on walk_level1, run_rooms, level12_exit_level13,
   level13_exit and level6_shadow_exit: 0 state diffs and 0 differing pixels on each of the 15 runs.
 - `make ci-build`, `make cheats`, `make pace`. The full regression on the runners: see the PR.
+
+## M8a part 27: a faster op-list build (2026-11-09)
+
+Status: **built.** Candidate 7 of the speed roadmap ("a faster op-list build", estimated at -3..-4 a room change).
+The op lists stay byte-identical: every record, tag, count and slice of every room, and after 2,508 tile
+regenerations. A guard in obj_chunk (lc_sv) comes with it, as a separate change (below).
+
+### Measure first: where room_ops goes (1 MB, mz800emu's call profiler from room_ops' entry to its return)
+
+room_ops (with slices_build, which it ends in) took 9.1-10.6 frames. add_op, reached from add_back / add_fore /
+add_ptr by a jump, was measured through a temporary `call add_op / ret` in addc:
+
+| room (tick) | room_ops | add_op incl / own (records) | of it dir_entry | of it shift_variant | sb_yr + yr_clamp | prandom | get_tile | tt_entry |
+|---|---:|---|---:|---|---:|---:|---:|---:|
+| l01r01 (25) | 9.86 | 4.74 / 2.68 (149) | 1.06 | 0.90 (31 calls) | 0.91 | 0.59 | 0.40 | 0.28 |
+| l04r04 (23) | 9.14 | 4.31 / 2.65 (143) | 1.03 | 0.54 (20) | 0.87 | 0.42 | 0.41 | 0.28 |
+| l10r01 (3) | 10.20 | 5.14 / 3.61 (196) | 1.40 | - | 1.18 | - | 0.41 | 0.39 |
+| l05r24 (3) | 10.64 | 5.41 / 3.34 (181) | 1.29 | 0.66 (18) | 1.09 | 0.31 | 0.39 | 0.32 |
+
+- **add_op is half of the build**: ~2,260 T a record. Its own code ran ~1,300 T, shuffling every value through memory
+  (ao_* and the list tables read one byte at a time).
+- **dir_entry** copied all 8 bytes of the entry through dir_buf (~450 T a lookup). add_op needs only the empty test
+  (offset, w, h) and w, h.
+- **shift_variant** scanned shift_tab (71 entries, ~100 T an entry) for every shifted piece. The wall pattern's marks
+  (chtab 7, ids 11-17) sit 10-59 entries deep: ~2,000 T a call.
+- The rest are many small routines: the draw_tile* logic itself (~2.5 own), tile_tag, tab_get, xh_plus, the room
+  sweeps.
+
+### What changed (src/m3/room.asm, resident: tile_regen gains too; roomfull.asm 2 call targets, the overlay's size unchanged)
+
+1. **add_op** works in registers:
+   - the byte column is V_XH + (V_XL sra 3) and the shift V_XL & 7. xh * 8 has no low bits, so this is the old 16-bit
+     x >> 3 and x & 7. V_XH is still written whenever the id is not 0, as before (also for a skipped op).
+   - the entry's 5 bytes are read straight into registers: far_seek's ports, then `in r, (c)` x 5. Main RAM (page
+     0xFF, the test programs) is read with `ld`. dir_buf is no longer written by add_op; only dir_entry's other
+     callers read it.
+   - ytop, then the flags (mono << 4 | blit << 2 | tbl): the mono nibble now comes from four `add a, a`, which keep the
+     same low nibble as the four `rrca` plus `and 0xf0`.
+   - the list's count and max, then the tag and the record (base + count * 8). The records are 8-byte aligned in every
+     list (OPL_*, TMP_*), so a record is written with `inc l`; the tables opl_max / opl_base / opt_base sit in one
+     page (the old guard), and dir_tab now has the same guard.
+   - the checks keep their order (empty entry, then full list) and the return values (A = 1 NZ / A = 0 Z); IX is
+     untouched (the draw_tile* callers hold the tile_table entry in it).
+2. **shift_variant** first tries the entry where build_assets.py's order puts a wall mark (chtab 7, ids 11-17,
+   shifts 1-7: entry 10 + (id - 11) * 7 + shift - 1). It uses the entry only if the entry's chtab, id and shift are
+   the ones looked for; otherwise it scans the whole table as before. The keys are unique, so the result is the scan's
+   whatever the table holds. The programs that include tables.inc (game, m3test, m4test, demo) check at assembly that
+   the table is long enough for the guess.
+3. **sb_yr / yr_merge** (slices_build's extent of a record, also used by btnstep.asm, csres.asm, frames.asm) clamp
+   inline: no yr_clamp calls, no push / pop. BC and DE are kept as before.
+4. **load_curr_next** (room_ops' two sweeps): after column 0, the left tile is the previous column's current tile
+   (CURR_TILE / CURR_MOD copied as a word to TILE_LEFT / MOD_LEFT). It is the same get_tile call (same room, row and
+   default), and nothing writes those four bytes in between. 40 get_tile calls fewer, and DRAW_XH = col * 4 (col_xh's
+   values).
+
+Measured and not built:
+- **mod 5 / mod 7 unrolled in prandom**: -0.11 on l01r01 for ~80 bytes.
+- **a resident slices_build loop in registers**: ~-0.2 for ~80 bytes, and the room overlay has 29 bytes free.
+- **tt_entry by a table**: ~-0.05.
+
+### The lc_sv guard (sprite.asm obj_chunk; a review finding of part 25)
+
+lc_chunk (frmlow2.asm, lk_f0) marks a chunk to be saved as a chopper's complete picture (lc_sv), and lc_save, after
+the composition, saves it and clears the mark. Between the two, obj_chunk could still return early through tc_try
+(a torch chunk from its cache, `ret c`) with the mark set. The next composed chunk's lc_save would then write that
+chunk into the chopper's complete slot and mark it kept: a wrong picture later.
+- By the rules tc_try never takes a rect that lc_chunk took, and no test showed it. So this is a guard, not a known
+  bug.
+- tc_try's early exit now goes through oc_tcx, which clears lc_sv's high byte (lc_save's own "no mark" test).
+- The cost is 6 bytes of the low code block and ~20 T on a torch-cache hit only.
+
+### Memory (main 6bfdc8c / this)
+
+| area | change |
+|---|---|
+| main (end_of_code 0x78F0 -> 0x7963) | +115: shift_variant's guess +63, load_curr_next +50, yr_merge's inline clamps +12, add_op -10; **669 free** |
+| low code block (end_of_low 0x1FD3 -> 0x1FD9) | +6: oc_tcx (the lc_sv guard); **39 free** |
+| room overlay, block 2, low RAM | unchanged (995 bytes, 29 free; 14 free; the room overlay calls load_curr_next in place of load_curr_left) |
+
+### The op-list build (1 MB; the stage "op-list build (room_ops)" of tools/roadmap.py stages; main / this)
+
+| room (tick) | room_ops | the tick's RAM-disk reads |
+|---|---|---|
+| l01r01 (25) | 9.86 / **7.18** (-2.68) | 47,959 / 47,512 |
+| l01r07 (22) | 9.90 / **7.36** (-2.54) | 48,522 / 48,072 |
+| l03r16 (19) | 10.02 / **7.45** (-2.57) | 51,594 / 51,144 |
+| l04r04 (23) | 9.10 / **6.81** (-2.29) | 39,787 / 39,358 |
+| l05r24 (3) | 10.59 / **7.99** (-2.60) | 53,767 / 53,224 |
+| l10r01 (3) | 10.15 / **7.70** (-2.45) | 60,003 / 59,415 |
+
+The RAM-disk reads are 3 fewer a record (5 of an entry's 8 bytes); the seeks are the same. The buckets, the cells and
+the copy are unchanged.
+
+### The room change (tools/roadmap.py stages, one tick, frames; main 6bfdc8c = part 26's / this)
+
+| room (tick) | 512 KB | 1 MB | 16 MB |
+|---|---|---|---|
+| l01r01 (25) | 78.38 / **75.70** (-2.68) | 77.34 / **74.66** (-2.68) | 77.34 / **74.66** (-2.68) |
+| l01r07 (22) | 79.75 / **77.27** (-2.48) | 79.75 / **77.27** (-2.48) | 79.90 / **77.37** (-2.53) |
+| l03r16 (19) | 83.67 / **80.94** (-2.73) | 84.51 / **81.78** (-2.73) | 83.63 / **81.06** (-2.57) |
+| l04r04 (23) | 71.40 / **69.12** (-2.28) | 70.36 / **68.07** (-2.29) | 70.36 / **68.07** (-2.29) |
+| l05r24 (3) | 87.76 / **85.09** (-2.67) | 87.54 / **84.73** (-2.81) | 87.54 / **84.73** (-2.81) |
+| l10r01 (3) | 91.49 / **88.73** (-2.76) | 91.93 / **89.48** (-2.45) | 91.93 / **89.48** (-2.45) |
+
+-2.3..-2.8 frames every room change at every size: below the roadmap's estimate of -3..-4. The draw_tile* logic and
+slices_build (~4.5 of the remaining ~7) are many small routines with no big cut left.
+
+### In play: a tile regeneration (tests/m3_anim_test.py level 1, tile_redraw by tile type, mean frames; main / this)
+
+| type | redraws | main | this |
+|---|---:|---:|---:|
+| potion (10) | 12 | 2.91 | 2.75 (-0.16) |
+| loose floor (11) | 48 | 2.54 | 2.38 (-0.16) |
+| level door (16) | 4 | 9.82 | 9.60 (-0.22) |
+| spikes (2) | 55 | 4.27 | 4.11 (-0.16) |
+| sword (22) | 2 | 1.25 | 1.16 (-0.09) |
+| gate (4) | 20 | 1.55 | 1.47 (-0.08) |
+| torch (the fast path, no regeneration) | 120 | 0.73 | 0.73 |
+
+A tile_redraw regenerates up to three tiles: -0.05 a regeneration in the game (walk_level1 tick 55's first
+tile_regen: 0.54 -> 0.49), -0.1..-0.2 a redraw.
+
+### perfcheck (one run per size; main = the baselines (a 512 KB run of main 6bfdc8c gave every baseline exactly); lowered where beaten, in this commit)
+
+| Stretch | 512 KB base / new | 1 MB base / new | 16 MB base / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.73 / 4.73 | 4.51 / 4.51 | 4.44 / 4.44 |
+| level door step (walkthrough 203-207) | 8.56 / **8.49** | 7.90 / **7.73** | 7.90 / **7.73** |
+| room change (walkthrough 89) | 85.70 / **82.28** | 85.71 / **82.28** | 85.27 / **81.44** |
+| walkthrough 190-260 | 5.91 / **5.89** | 5.77 / **5.75** | 5.42 / **5.38** |
+| gate (gate_push 200-260) | 4.04 / **4.02** | 4.04 / **4.02** | 4.04 / **4.02** |
+| traps (traps_b1 0-300) | 4.99 / **4.96** | 4.79 / **4.77** | 4.77 / **4.74** |
+| fight (fight1 60-160, guard on) | 6.35 / 6.38 | 5.63 / 5.68 | 5.42 / 5.42 |
+| choppers (frm_button 20-120) | 6.43 / **6.42** | 6.18 / **6.14** | 5.55 / **5.53** |
+
+perfcheck's room change is a whole tick (-3.4..-3.8; the walkthrough's room 89 has more ops than the six rooms
+above). The level door step regenerates the door's tiles every step (-0.07..-0.17). The fight's +0.03 / +0.05 is the
+beam-phase noise of parts 25 and 26: its stretch builds no room and regenerates no tile. Its baselines stay.
+
+### Same pixels, same logic
+
+- **The op lists, byte for byte** (a scratch tool: the M3 test program of main and of this, OPS_ONLY 1 for every room
+  of levels 1-14, then tile_redraw (OPS_ONLY 2) of every animated tile with 2-4 modifiers each). After each build or
+  regeneration it read:
+  - OPCOUNT, the three lists' records, their tags;
+  - SL_CNT, SL_START (of the non-empty slices), SL_Y0 and SL_Y1.
+
+  316 rooms (6,971 records) and 2,508 regenerations: **0 differ**, with the directories in main RAM (the test
+  programs' dir_tab) and again in the RAM disk (dir_tab pointed at copies in page 5, add_op's port path, as the
+  game).
+- **tests/m3_test.py**, every room of levels 1-14: 0 differing pixels, ops ok.
+- **tests/m3_anim_test.py**, levels 1, 4, 10 and 13: 0 differing.
+- **tests/m4_game.py --every 1**:
+  - at 512 KB, 1 MB and 16 MB on walk_level1, run_rooms, gate_push, traps_b1, chomper, level12_exit_level13,
+    level13_exit and level6_shadow_exit: 0 state diffs and 0 differing pixels on each of the 24 runs;
+  - at 1 MB and 16 MB on the chopper scenes, for the lc_sv guard: fight_chomper, frm_button and the busy rooms'
+    l03r16 / l08r23 / l10r10 walk_a and stand_a (tools/busyrooms.py find). All 0.
+- **tests/m4_test.py**: 0 differing ticks.
+- `make cheats`, `make pace`. The full regression on the runners: see the PR.

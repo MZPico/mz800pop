@@ -446,6 +446,9 @@ end_of_code:
 block2:
                 include "../m4/collpad.inc"
                 include "../../build/assets/tables.inc"
+                if $ - shift_tab < 4 * SV_WALLN + 1     ; (room.asm shift_variant's guess stays inside the table)
+                .error shift_tab is shorter than shift_variant's wall-mark entries
+                endif
                 if ((wall_type_tbl & 255) + 31) > 255
                 .error  wall_type_tbl must not cross a 256-byte page (kid.asm get_row_collision_data)
                 endif

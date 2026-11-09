@@ -1102,3 +1102,13 @@ piece used AND/XOR semantics.
    fade-out), i (Jaffar's piece again from i's fade-in, out at i's end), j, k (with m's fade-out), time_expired.
    Unchanged: a-f and the ending (they stop on a pass boundary), the level cutscenes (the piece decays itself), keys
    (an immediate stop). tests/m7_title.py and m7_story.py check every fade's start and silent frame.
+72. M8a part 27, a faster op-list build (2026-11-09, docs/perf.md "M8a part 27"; the roadmap's candidate 7, measured
+   first: add_op was half of room_ops' 9.1-10.6 frames). add_op works in registers and reads the 5 directory bytes it
+   needs itself (no dir_entry copy). shift_variant tries the wall mark's table entry first, verified by its key, and
+   scans as before otherwise. slices_build's extent merge clamps inline. room_ops' sweeps reuse the previous column's
+   tile as the left one (load_curr_next). The op lists are byte-identical: records, tags, counts, slices; 316 rooms and
+   2,508 tile regenerations, directories in main RAM and in the RAM disk. room_ops 9.1-10.6 -> 6.8-8.0. The room
+   change -2.3..-2.8 frames at every size (1 MB l01r01 77.34 -> 74.66, l10r01 91.93 -> 89.48). A tile redraw
+   -0.1..-0.2 in play. Main +115 bytes (669 free). With it, a guard in obj_chunk: the lc_sv mark is cleared when
+   tc_try takes the chunk (low code +6, 39 free). Next: G2 / G4 gates, R2 (the room cache), B1; for the room change
+   the room cache on 16 MB.
