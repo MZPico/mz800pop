@@ -297,6 +297,9 @@ end_of_code:
                 org     0xc000
 block2:
                 include "../../build/assets/tables.inc"
+                if $ - shift_tab < 4 * SV_WALLN + 1     ; (room.asm shift_variant's guess stays inside the table)
+                .error shift_tab is shorter than shift_variant's wall-mark entries
+                endif
 block2_end:
                 if block2_end > 0xe000
                 .error block 2 overlaps the directories

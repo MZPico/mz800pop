@@ -492,6 +492,35 @@ lcl1:           ld      b, a
                 ld      (DRAW_XH), a
                 ret
 
+; load_curr_next: load_curr_left for the next column of the same row of the same room (room_ops' sweeps): the left
+; tile is the one before it (get_tile of the same room, row and default); column 0 reads both (M8a part 27)
+load_curr_next: ld      a, (DRAWN_COL)
+                or      a
+                jp      z, load_curr_left
+                ld      hl, (CURR_TILE)         ; CURR_TILE, CURR_MOD -> TILE_LEFT, MOD_LEFT
+                ld      (TILE_LEFT), hl
+                ld      a, (DRAWN_ROW)
+                ld      e, T_WALL
+                cp      2
+                jp      nz, lcn1
+                ld      e, T_FLOOR      ; top of level: floor
+lcn1:           ld      b, a
+                ld      a, (DRAWN_COL)
+                ld      c, a
+                add     a, a
+                add     a, a
+                ld      (DRAW_XH), a            ; (col_xh: col * 4)
+                ld      a, (R_ROOM)
+                call    get_tile
+                ld      a, d
+                ld      (CURR_TILE), a
+                ld      a, e
+                ld      (CURR_MOD), a
+                ret
+                if (TILE_LEFT - CURR_TILE - 2) or (CURR_MOD - CURR_TILE - 1) or (MOD_LEFT - TILE_LEFT - 1)
+                .error load_curr_next copies CURR_TILE, CURR_MOD as a word
+                endif
+
 ; In: A = tile type. Out: IX = tile_table entry
 tt_entry:       ld      l, a
                 ld      h, 0
@@ -514,112 +543,98 @@ add_op:         ld      b, a
                 ld      a, c
                 or      a
                 ret     z               ; id 0: nothing
-                push    hl
                 ld      a, b
                 ld      (AO_CH), a      ; chtab
-                ; x = xh*8 + xl (signed) -> byte = x >> 3, shift = x & 7
-                ld      a, (V_XH)
-                ld      l, a
+                ; x = xh*8 + xl (signed): byte = xh + (xl >> 3), shift = xl & 7 (xh*8 has no low bits; M8a part 27)
+                ld      a, (V_XL)
+                ld      b, a
+                sra     a
+                sra     a
+                sra     a
+                ex      de, hl
+                ld      hl, V_XH
+                add     a, (hl)
+                ld      (hl), a         ; byte column (signed) reused for the record (also when the op is skipped)
+                ex      de, hl
+                ld      a, b
+                and     7
+                jp      z, ao_noshift
+                ld      (AO_SHIFT), a   ; shift
+                push    hl
+                call    shift_variant   ; C = variant id (or 0 if none)
+                pop     hl
+                ld      a, c
+                or      a
+                ret     z               ; no variant: skipped (A = 0)
+ao_noshift:     ld      a, c
+                ld      (ao_id), a      ; final image id
+                push    hl              ; ybottom
+                ; the directory entry's offset (3 bytes), w and h straight into registers (dir_entry copies all 8)
+                ld      l, c
                 ld      h, 0
                 add     hl, hl
                 add     hl, hl
                 add     hl, hl
-                ld      a, (V_XL)
-                ld      e, a
-                rla
-                sbc     a, a
-                ld      d, a
-                add     hl, de          ; HL = x
-                ld      a, l
-                and     7
-                ld      (AO_SHIFT), a     ; shift
-                sra     h
-                rr      l
-                sra     h
-                rr      l
-                sra     h
-                rr      l
-                ld      a, l
-                ld      (V_XH), a       ; byte column (signed) reused for the record
-                ld      a, (AO_SHIFT)
-                or      a
-                jp      z, ao_noshift
-                call    shift_variant   ; C = variant id (or 0 if none)
-                ld      a, c
-                or      a
-                jp      z, ao_skip
-ao_noshift:     ld      a, c
-                ld      (ao_id), a      ; final image id
+                ex      de, hl          ; DE = id * 8
                 ld      a, (AO_CH)
-                call    dir_entry       ; HL = the entry (a copy)
-                ld      a, (hl)
+                ld      c, a
+                add     a, a
+                add     a, c
+                add     a, dir_tab & 255
+                ld      l, a
+                ld      h, dir_tab / 256        ; (dir_tab's 24 bytes in one page)
+                ld      a, (hl)         ; page
+                inc     l
+                ld      c, (hl)
+                inc     l
+                ld      h, (hl)
+                ld      l, c
+                add     hl, de          ; address of the entry
+                inc     a
+                jp      z, ao_ram       ; page 0xFF: main RAM (the test programs)
+                dec     a
+                out     (RD_PAGE), a    ; (far_seek)
+                ld      b, h
+                ld      c, RD_ADDR
+                out     (c), l
+                dec     c               ; RD_DATA
+                in      a, (c)
+                in      l, (c)
+                or      l
+                in      l, (c)
+                or      l               ; off
+                in      d, (c)          ; w
+                or      d
+                in      e, (c)          ; h
+                or      e
+                jp      nz, ao_wh
+ao_skip:        pop     hl
+                xor     a
+                ret
+ao_ram:         ld      a, (hl)
                 inc     hl
                 or      (hl)
                 inc     hl
-                or      (hl)
+                or      (hl)            ; off
                 inc     hl
-                or      (hl)            ; off|wb
+                ld      d, (hl)         ; w
+                or      d
                 inc     hl
-                or      (hl)            ; h
+                ld      e, (hl)         ; h
+                or      e
                 jp      z, ao_skip      ; empty entry: no image
-                ld      a, (hl)         ; h
-                ld      (ao_h), a
-                dec     hl
-                ld      a, (hl)         ; w
-                ld      (ao_w), a
-                pop     hl              ; ybottom
-                ld      a, (ao_h)
-                ld      e, a
-                ld      d, 0
+ao_wh:          pop     hl              ; ybottom
+                ld      c, e
+                ld      b, 0
                 or      a
-                sbc     hl, de
+                sbc     hl, bc
                 inc     hl              ; ytop = ybottom - h + 1
                 push    hl
-                ld      a, (V_TBL)      ; list of this table: count, max, base
-                ld      hl, OPCOUNT
-                add     a, l
-                ld      l, a
-                ld      a, (hl)
-                ld      (ao_cnt), hl
-                ld      (ao_n), a
-                ld      c, a
-                ld      a, (V_TBL)
-                ld      hl, opl_max
-                add     a, l
-                ld      l, a
-                ld      a, (hl)
-                cp      c
-                jp      z, ao_full
-                ld      a, (V_TBL)
-                add     a, a
-                ld      hl, opl_base
-                add     a, l
-                ld      l, a
-                ld      a, (hl)
-                inc     hl
-                ld      h, (hl)
-                ld      l, a            ; HL = list base
-                ld      e, c
-                ld      d, 0
-                ex      de, hl
-                add     hl, hl
-                add     hl, hl
-                add     hl, hl
-                add     hl, de          ; HL = record
-                ld      (ao_rec), hl
-                pop     de              ; DE = ytop
-                ld      a, (V_TBL)
-                ld      b, a
-                ld      a, (V_BLIT)
-                add     a, a
-                add     a, a
-                or      b
-                ld      b, a
-                push    bc
+                push    de              ; w, h
                 ld      a, (V_MONOC)    ; mono colour: EGA number -> MZ colour of the art set
                 and     15
-                ld      c, a
                 ld      hl, mono_map_dungeon
+                ld      c, a
                 ld      a, (LEVEL_TYPE)
                 or      a
                 jp      z, ao_mm
@@ -628,67 +643,97 @@ ao_noshift:     ld      a, c
                 jp      z, ao_mm
                 ld      hl, mono_map_palace
 ao_mm:          ld      a, c
-                call    tab_get
-                pop     bc
-                rrca
-                rrca
-                rrca
-                rrca
-                and     0xf0
-                or      b
-                ld      hl, (ao_rec)
-                ld      (hl), a
-                inc     hl
-                ld      a, (AO_CH)
-                ld      (hl), a
-                inc     hl
-                ld      a, (ao_id)
-                ld      (hl), a
-                inc     hl
-                ld      a, (V_XH)
-                ld      (hl), a
-                inc     hl
-                ld      (hl), e
-                inc     hl
-                ld      (hl), d
-                inc     hl
-                ld      a, (ao_w)
-                ld      (hl), a
-                inc     hl
-                ld      a, (ao_h)
-                ld      (hl), a
-                ld      a, (V_TBL)      ; tag byte
-                add     a, a
-                ld      hl, opt_base
                 add     a, l
                 ld      l, a
+                jp      nc, ao_mm2
+                inc     h
+ao_mm2:         ld      a, (hl)
+                add     a, a
+                add     a, a
+                add     a, a
+                add     a, a            ; mono << 4
+                ld      b, a
+                ld      a, (V_BLIT)
+                add     a, a
+                add     a, a
+                or      b
+                ld      hl, V_TBL
+                or      (hl)
+                ld      b, a            ; B = flags (tbl | blit << 2 | mono << 4)
                 ld      a, (hl)
-                inc     hl
+                ld      e, a            ; E = tbl
+                ld      hl, OPCOUNT     ; list of this table: count, max, base
+                add     a, l
+                ld      l, a
+                ld      d, (hl)         ; D = count
+                ld      (ao_cnt), hl
+                ld      a, e
+                add     a, opl_max & 255
+                ld      l, a
+                ld      h, opl_max / 256        ; (opl_max, opl_base, opt_base: one page)
+                ld      a, d
+                cp      (hl)
+                jp      z, ao_full
+                ld      a, e            ; the tag byte
+                add     a, a
+                ld      e, a            ; E = tbl * 2
+                add     a, opt_base & 255
+                ld      l, a
+                ld      a, (hl)
+                inc     l
+                ld      h, (hl)
+                add     a, d
+                ld      l, a
+                jp      nc, ao_t1
+                inc     h
+ao_t1:          ld      a, (CUR_TAG)
+                ld      (hl), a
+                ld      a, e            ; the record: base + count * 8
+                add     a, opl_base & 255
+                ld      l, a
+                ld      h, opl_max / 256
+                ld      a, (hl)
+                inc     l
                 ld      h, (hl)
                 ld      l, a
-                ld      a, (ao_n)
-                ld      e, a
+                ld      e, d
                 ld      d, 0
-                add     hl, de
-                ld      a, (CUR_TAG)
+                ex      de, hl
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                add     hl, de          ; HL = record (8-byte aligned: inc l)
+                ld      (hl), b         ; flags
+                inc     l
+                ld      a, (AO_CH)
                 ld      (hl), a
+                inc     l
+                ld      a, (ao_id)
+                ld      (hl), a
+                inc     l
+                ld      a, (V_XH)
+                ld      (hl), a
+                inc     l
+                pop     de              ; D = w, E = h
+                pop     bc              ; ytop
+                ld      (hl), c
+                inc     l
+                ld      (hl), b
+                inc     l
+                ld      (hl), d
+                inc     l
+                ld      (hl), e
                 ld      hl, (ao_cnt)
                 inc     (hl)
                 ld      a, 1
                 or      a
                 ret
 ao_full:        pop     hl
-                xor     a
-                ret
-ao_skip:        pop     hl
+                pop     hl
                 xor     a
                 ret
 ao_id:          db      0
-ao_w:           db      0
-ao_h:           db      0
 ao_cnt:         dw      0
-ao_n:           db      0
-ao_rec:         dw      0
                 if ($ & 0xff) > 0xdf            ; the 33 bytes below are indexed without a page carry: one page
                 ds      0x100 - ($ & 0xff)
                 endif
@@ -743,6 +788,9 @@ de_done:        ld      hl, dir_buf
                 ret
 dir_buf:        ds      8
 ; per chtab (0 sword, 1 objects, 2 kid, 3-5 -, 6 environment, 7 wall): page, address
+                if ($ & 0xff) > 0xe8            ; (add_op indexes its 24 bytes without a page carry)
+                ds      0x100 - ($ & 0xff)
+                endif
 dir_tab:        db      0xff
                 dw      0
                 db      0xff
@@ -755,8 +803,52 @@ dir_tab:        db      0xff
                 db      0xff
                 dw      DIR_WALL
 
-; shift_variant: (AO_CH = chtab, C = id, AO_SHIFT = shift) -> C = variant id or 0
-shift_variant:  ld      hl, shift_tab
+; shift_variant: (AO_CH = chtab, C = id, AO_SHIFT = shift) -> C = variant id or 0 (keeps B, DE)
+; The wall marks (chtab 7, ids 11-17, shifts 1-7: the room draw's shifted pieces) first try the entry where
+; build_assets.py's order puts them (10 + (id - 11) * 7 + shift - 1); the entry is used only when its key is the one
+; looked for, else the whole table is scanned as before (M8a part 27: the scan was ~2,000 T for a wall mark)
+SV_WALL0        equ     10
+SV_WALLN        equ     SV_WALL0 + 7 * 7        ; the guess's entries end here (the programs check the table's size)
+shift_variant:  ld      a, (AO_CH)
+                cp      CH_WALL
+                jp      nz, sv_scan
+                ld      a, c
+                sub     11
+                cp      7
+                jp      nc, sv_scan
+                ld      l, a
+                add     a, a
+                add     a, a
+                add     a, a
+                sub     l               ; (id - 11) * 7
+                ld      hl, AO_SHIFT
+                add     a, (hl)
+                add     a, SV_WALL0 - 1
+                ld      l, a
+                ld      h, 0
+                add     hl, hl
+                add     hl, hl
+                ld      a, l
+                add     a, shift_tab & 255
+                ld      l, a
+                ld      a, h
+                adc     a, shift_tab / 256
+                ld      h, a            ; the guessed entry
+                ld      a, (hl)
+                cp      CH_WALL
+                jp      nz, sv_scan
+                inc     hl
+                ld      a, (hl)
+                cp      c
+                jp      nz, sv_scan
+                inc     hl
+                ld      a, (AO_SHIFT)
+                cp      (hl)
+                jp      nz, sv_scan
+                inc     hl
+                ld      c, (hl)
+                ret
+sv_scan:        ld      hl, shift_tab
 sv1:            ld      a, (hl)
                 cp      0xff
                 jp      z, sv_none
@@ -2840,11 +2932,6 @@ sb_off:         db      0
 sb_rec:         dw      0
 ; sb_yr: widen slot DE's extent by the record at sb_rec, then step sb_rec to the next record
 sb_yr:          ld      hl, (sb_rec)
-                push    hl
-                ld      bc, 8
-                add     hl, bc
-                ld      (sb_rec), hl
-                pop     hl
                 ld      bc, 4
                 add     hl, bc
                 ld      c, (hl)
@@ -2852,40 +2939,48 @@ sb_yr:          ld      hl, (sb_rec)
                 ld      b, (hl)         ; BC = ytop
                 inc     hl
                 inc     hl
-                ld      l, (hl)
+                ld      a, (hl)         ; h
+                inc     hl
+                ld      (sb_rec), hl
+                ld      l, a
                 ld      h, 0
                 add     hl, bc          ; HL = ytop + h
-; yr_merge: BC = ytop, HL = ybottom + 1 (16-bit signed), DE = slot: SL_Y0/SL_Y1 = min/max (clamped 0..200)
-yr_merge:       call    yr_clamp
+; yr_merge: BC = ytop, HL = ybottom + 1 (16-bit signed), DE = slot: SL_Y0/SL_Y1 = min/max (clamped 0..200); keeps
+; BC, DE (M8a part 27: the clamps inline)
+yr_merge:       ld      a, h            ; HL -> 0..200
+                or      a
+                jp      nz, yrm_h
                 ld      a, l
-                push    hl
-                ld      hl, SL_Y1
+                cp      201
+                jp      c, yrm_1
+                ld      a, 200
+                jp      yrm_1
+yrm_h:          rla                     ; negative: 0, else 200
+                ld      a, 0
+                jp      c, yrm_1
+                ld      a, 200
+yrm_1:          ld      hl, SL_Y1
                 add     hl, de
                 cp      (hl)
-                jp      c, yrm1
+                jp      c, yrm_2
                 ld      (hl), a
-yrm1:           pop     hl
-                ld      h, b
-                ld      l, c
-                call    yr_clamp
-                ld      a, l
-                ld      hl, SL_Y0
+yrm_2:          ld      a, b            ; BC -> 0..200
+                or      a
+                jp      nz, yrm_b
+                ld      a, c
+                cp      201
+                jp      c, yrm_3
+                ld      a, 200
+                jp      yrm_3
+yrm_b:          rla
+                ld      a, 0
+                jp      c, yrm_3
+                ld      a, 200
+yrm_3:          ld      hl, SL_Y0
                 add     hl, de
                 cp      (hl)
                 ret     nc
                 ld      (hl), a
-                ret
-yr_clamp:       bit     7, h            ; HL -> 0..200 in L
-                jp      nz, yrc0
-                ld      a, h
-                or      a
-                jp      nz, yrc1
-                ld      a, l
-                cp      201
-                ret     c
-yrc1:           ld      l, 200
-                ret
-yrc0:           ld      l, 0
                 ret
 
 ; ---------------------------------------------------------------- dirty rect

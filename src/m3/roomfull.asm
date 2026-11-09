@@ -23,7 +23,7 @@ ro_row:         ld      (DRAWN_ROW), a
                 xor     a
 ro_col:         ld      (DRAWN_COL), a
                 call    tile_tag
-                call    load_curr_left
+                call    load_curr_next
                 call    draw_tile
                 ld      a, (DRAWN_COL)
                 inc     a
@@ -46,7 +46,7 @@ ro_col:         ld      (DRAWN_COL), a
 ro_acol:        ld      (DRAWN_COL), a
                 add     a, 30
                 ld      (CUR_TAG), a
-                call    load_curr_left
+                call    load_curr_next
                 ld      hl, -1
                 ld      (DRAW_MAIN_Y), hl
                 ld      hl, 2
