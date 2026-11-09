@@ -5,8 +5,8 @@
                               the room change
   stages SCRIPT TICK          profile that tick alone (mz800emu's call profiler) and print the room change by stage
                               (inclusive frames): the op-list build (room_ops with slices_build), the cell buckets
-                              (bkt_build), the 15 cells (run_rect: the black fill, laying the pieces (rec_lay, of it
-                              lay_piece16 and the masked cmx_* rows; since M8a part 20 the masked rows' lmx_ent and
+                              (bkt_build), the 15 cells (run_rect; since M8a part 26 the room overlay's rf_cell, no
+                              scan: the black fill, laying the pieces (rec_lay, of it lay_piece16 and the masked cmx_* rows; since M8a part 20 the masked rows' lmx_ent and
                               the copy rows' lr_ent / lre_ent / lle_ent, a call a plane), the shadow write, the copy to VRAM (blq_*
                               inside the cells), the scan), the wall pattern table rows (pr_start), the overlay loads,
                               the hooks after the draw (flames_build; and by tracepoints the whole interval from the
@@ -71,9 +71,9 @@ STAGES = [
     ('the room draw (draw_room_full)', 'draw_room_full'),
     ('  op-list build (room_ops)', 'room_ops'),
     ('  cell buckets (bkt_build)', 'bkt_build'),
-    ('  15 cells (run_rect)', 'run_rect'),
+    ('  15 cells (run_rect; rf_cell since M8a part 26)', ('run_rect', 'rf_cell')),
     ('    black fill', 'fill_black'),
-    ('    laying the ops (rec_lay)', 'rec_lay'),
+    ('    laying the ops (rec_lay; rl_lay from the buckets since M8a part 26)', ('rec_lay', 'rl_lay')),
     ('      lay_piece16', 'lay_piece16'),
     ('      masked rows (lmx_ent planes; cmx_1/2/4 rows before M8a part 20)', ('lmx_ent', 'cmx_1', 'cmx_2', 'cmx_4')),
     ('      copy and mask rows (lr_ent, lre_ent, lle_ent; part 20)', ('lr_ent', 'lre_ent', 'lle_ent')),

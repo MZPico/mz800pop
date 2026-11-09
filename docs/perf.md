@@ -2724,7 +2724,7 @@ What could cut it:
 | a faster op-list build (room_ops / tile_gen; in the walkthrough's change draw_tile 7.2, draw_tile_bottom 2.8, wall patterns 1.9-3.1, prandom 1.1, mul8 1.2, get_tile 0.7) | **-3..-4** every change (estimate: a third of 9-12), and -0.1..-0.2 a tile regeneration in play | all | 3-5 days, medium (resident room.asm; tests/m3_test.py covers every room of every level) |
 | band cells (40 bytes x 48 rows instead of 8 x 64: shadow and VRAM rows contiguous, one seek a 40-byte plane row, a block copy) | **-6..-8** (estimate: shadow 11.7 -> ~7.5 at ~17 T a byte, copy 11.2 -> ~9, against more piece setups at the band edges) | all | needs the whole 8 KB compose area during the draw (the kid's image is fetched again) and its own lay / write / copy path (~300 bytes of overlay): 1-1.5 weeks, high; a prototype first |
 | the VRAM copy by POP / PUSH or the write modes (PLAN M8a list item 4) | -2..-4 (and ~-0.1 a tick in play) | all | 2-3 days, medium (pend_flush's copy-speed model changes) |
-| the black fill skipped where a back op covers the whole cell (run_rect's cover rule, checked per cell of the full draw) | -1..-1.5 | all | 1 day, low |
+| the black fill skipped where a back op covers the whole cell (run_rect's cover rule, checked per cell of the full draw) (**measured: no cell is ever covered; built instead: the full draw without the cover scan, -2.3..-3.5: M8a part 26**) | -1..-1.5 | all | 1 day, low |
 
 Not levers: the RAM-disk reads as such (INIR and LDIR are both 21 T a byte: a main-RAM piece cache would save only the
 seeks, ~1.8 frames), the overlay loads (0-0.3), the hooks (0.4).
@@ -2782,7 +2782,7 @@ pixel tests check it).
 | 7 | a faster op-list build | -3..-4 a room change; -0.1..-0.2 a tile regeneration in play (helps 1's remaining steps, gates' regenerating steps, chopper misses) | every room change | room.asm in main: likely +50..+100 | none | 3-5 days, medium, exact (m3 tests) |
 | 8 | band cells for the full room draw | -6..-8 a room change (estimate) | every room change | ~300 overlay (a second room overlay) | none | 1-1.5 weeks, high; a prototype first |
 | 9 | the VRAM copy by POP / PUSH or the write modes (**measured and dropped**: "Step 3 (the VRAM copy): measured and dropped"; PUSH waits on the GDG, banded LDI -2.5 a room change for ~680 bytes) | -2..-4 a room change, ~-0.1 a tick | everywhere | ~50-100 main | none | 2-3 days, medium |
-| 10 | the fill skipped under a covering back op in the full draw | -1..-1.5 a room change | every room change | room overlay (86 free) | none | 1 day, low, exact |
+| 10 | the fill skipped under a covering back op in the full draw (**measured: 0 of 4,740 cells covered; built instead: the full draw without the cover scan and the bucket ops' touch test, -2.3..-3.5: M8a part 26**) | -1..-1.5 a room change | every room change | room overlay (86 free) | none | 1 day, low, exact |
 | 11 | M3: a falling floor's three pieces looked up once a tick (directory entries and seeks kept for its chunks) | ~-0.1 a floor and chunk after 2 | falling floors | ~30 main | none | 1 day, low, exact |
 | 12 | kid logic trims (collision rows, tile lookups; **A', C, E built: M8a part 21**, the logic -0.10..-0.17 a tick) | -0.2..-0.3 a tick | every tick | main | none | 3-5 days, medium (tick-exact against kidsim) |
 | 13 | #8, the beam-wait scheduler | -0.05..-0.06 a tick | everywhere | +476 net: no | none | parked |
@@ -4060,3 +4060,90 @@ Faults found on the way (the emulator tests found them; the pixels stayed exact)
 After those, two runs stalled once each: a 1 MB l10r14_stand_a at tick 0, and one busy-rooms measurement. Both ran
 with 9-12 emulators on 8 cores, and neither repeated alone. A capped run of all 54 busy-room scripts at 1 MB (a scratch
 script: every tick within 400 frames) and the 99 final pixel runs did not stall.
+
+## M8a part 26: the full room draw without the cover scan (2026-11-09)
+
+Status: **built.** Candidate 10 of the speed roadmap ("the black fill skipped where a back op covers the whole cell")
+was measured first, gave nothing, and turned into a different cut of the same code: the full draw's cells skip
+run_rect's cover scan, and the bucket ops skip rec_lay's touch test.
+
+### Measure first: no cell is ever covered
+
+The full draw lays 15 cells of 8 bytes x 64 rows (run_ops). run_rect already applies its cover rule there: a first
+pass over the cell's back and mid ops (RR_MODE 1, rl_scan) looks for the last copy-mode op without a partial edge that
+covers the whole rect, and skips the fill and every op before it. Counted over every room of levels 1-14 (316 rooms,
+4,740 cells; popdata.room_oplist with the build/assets directories, a scratch script):
+
+| cover | cells | rows of cells |
+|---|---:|---|
+| one copy-mode op over the whole cell (run_rect's rule) | **0** | |
+| the union of the copy-mode ops (exact edges) | 0 | 5.0 % of the cell rows fully covered: ~0.75 cells' worth a room, ~0.14 frames of the 2.75-frame fill |
+| upper bound: any opaque pixel of any back or mid op (masked ops too) | 0 | 10.5 %: ~1.6 cells' worth (l10r01 3.5), ~0.3 frames, and only with per-pixel mask knowledge at run time |
+
+The pieces are at most a tile (4 bytes) wide and a cell straddles the tile rows (63 rows at y = 2 + 63 k against
+bands of 64), so no single piece covers one. A fill of only the uncovered row ranges would save ~0.14 frames a room
+change: below the 0.5 the roadmap asks for. **The fill stays.** What the measurement showed instead: **the scan runs
+for every op of every cell and never finds a cover.** M8a part 20's breakdown already had "the scan 2.5" frames a room
+change.
+
+### What changed (src/m3/roomfull.asm; the room overlay, so the M3 test programs run the same code)
+
+1. **rf_cell** replaces run_ops' `call run_rect`: COMPOSE_A, rect_bounds, then room.asm's rr_fill (the black fill,
+   the back and mid lists) and rr_sw (the shadow write, the fore list, the blit). This is run_rect without its scan pass
+   and without rc_hook. rc_run returns at once while bkt_on is set anyway. RR_SHONLY is 0 in a full draw. Laying
+   every op over black is exactly what run_rect does when the scan finds no cover. **The pixels cannot differ, whatever
+   the room**: the rule never fired, and skipping it is the run_rect path for "no cover".
+2. **rr_bkt calls rl_lay, not rec_lay.** A bucket holds the ops whose clipped rect meets the cell (bkt_build's column
+   and band ranges are rec_lay's touch test), and lay_piece16 clips every piece to the rect anyway. Only rf_cell's lay
+   pass reaches rr_bkt now, in RR_MODE 0. An overflowed bucket (0xff) still scans through rr_tbl and rec_lay.
+
+Nothing after the draw reads the scan's results (rr_cnt, rr_last, rr_lastrec, RR_PTRS): flames_build runs its own
+scan. tools/roadmap.py stages now counts rf_cell under "15 cells" and rl_lay under "laying the ops".
+
+### Memory (main 71f7da3 / this)
+
+| area | change |
+|---|---|
+| room overlay (W1) | 980 -> **995 bytes (29 free)**: rf_cell 15 bytes (its call replaces run_ops' call of run_rect) |
+| RAM disk page 7 | the overlays after the room overlay 15 bytes later (the release's and the cheat build's packs fit as before) |
+| main, low, block 2 | unchanged (784 / 45 / 14 free) |
+
+### The room change (tools/roadmap.py stages, one tick, inclusive frames; main 71f7da3 / this)
+
+| room (tick) | 512 KB | 1 MB | 16 MB | 15 cells (1 MB) | laying (rec_lay + rl_lay, 1 MB) |
+|---|---|---|---|---|---|
+| l01r01 (25) | 80.90 / **78.38** (-2.52) | 80.03 / **77.34** (-2.69) | 80.03 / **77.34** (-2.69) | 64.06 / 61.54 | 37.38 / 35.38 |
+| l01r07 (22) | 82.01 / **79.75** (-2.26) | 82.01 / **79.75** (-2.26) | 82.17 / **79.90** (-2.27) | 65.17 / 62.90 | 38.57 / 36.80 |
+| l03r16 (19) | 86.00 / **83.67** (-2.33) | 86.85 / **84.51** (-2.34) | 86.13 / **83.63** (-2.50) | 68.49 / 65.99 | 41.80 / 39.80 |
+| l04r04 (23) | 73.70 / **71.40** (-2.30) | 72.64 / **70.36** (-2.28) | 72.64 / **70.36** (-2.28) | 56.83 / 54.55 | 30.27 / 28.52 |
+| l05r24 (3) | 90.68 / **87.76** (-2.92) | 90.53 / **87.54** (-2.99) | 90.53 / **87.54** (-2.99) | 70.91 / 67.89 | 44.06 / 41.66 |
+| l10r01 (3) | 94.75 / **91.49** (-3.26) | 95.43 / **91.93** (-3.50) | 95.43 / **91.93** (-3.50) | 77.04 / 73.54 | 50.08 / 47.30 |
+
+(The rooms of tools/roadmap.py `enter`, as in part 20.) The gain grows with the op count: the scan visited every
+bucket op once more. On l01r07, change 1 alone was -1.49 and change 2 -0.77. The fill (2.75), the shadow write and the
+copy are unchanged. The RAM-disk reads of the tick are 15 bytes more (the larger overlay's load).
+
+### perfcheck (one run per size; main 71f7da3 = the baselines; lowered where beaten, in this commit)
+
+| Stretch | 512 KB base / new | 1 MB base / new | 16 MB base / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.73 / 4.73 | 4.51 / 4.51 | 4.44 / 4.44 |
+| level door step (walkthrough 203-207) | 8.56 / 8.56 | 7.90 / 7.90 | 7.90 / 7.90 |
+| room change (walkthrough 89) | 87.93 / **85.70** | 88.25 / **85.71** | 87.26 / **85.27** |
+| walkthrough 190-260 | 5.92 / **5.91** | 5.77 / 5.77 | 5.42 / 5.42 |
+| gate (gate_push 200-260) | 4.04 / 4.04 | 4.04 / 4.04 | 4.04 / 4.04 |
+| traps (traps_b1 0-300) | 5.00 / **4.99** | 4.80 / **4.79** | 4.78 / **4.77** |
+| fight (fight1 60-160, guard on) | 6.35 / 6.35 | 5.63 / 5.67 | 5.42 / 5.42 |
+| choppers (frm_button 20-120) | 6.43 / 6.43 | 6.18 / 6.18 | 5.55 / 5.55 |
+
+Only the full room draw changed: the play stretches are equal. The 1 MB fight's +0.04 is the same beam-phase noise as
+in part 25 (no code it runs changed), and its baseline stays.
+
+### Same pixels, same logic
+
+- **tests/m3_test.py**, every room of levels 1-14 (the full room draw against the Python reference, the op lists
+  too): 0 differing pixels.
+- **tests/m3_anim_test.py**, levels 1, 4, 10 and 13: 0 differing.
+- **tests/m4_game.py --every 1** at 512 KB, 1 MB and 16 MB on walk_level1, run_rooms, level12_exit_level13,
+  level13_exit and level6_shadow_exit: 0 state diffs and 0 differing pixels on each of the 15 runs.
+- `make ci-build`, `make cheats`, `make pace`. The full regression on the runners: see the PR.
