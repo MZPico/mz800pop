@@ -13,7 +13,8 @@ writes a mounted image back on eject) with the RAM disk filled with a pattern (t
      for the same events (the tracker of tests/m7_sound.py; the presentation's bank A build/assets/sound_pres.bin), music
      54 (the Master System title theme, looped: M7 step 11) starts with the fade-in's last pass and plays exactly twice:
      f stops it (snd_halt) between the interrupt that played its 2nd pass's last frame and the one that would start a
-     3rd (titleref.music_stop_tick), silence until step g;
+     3rd (titleref.music_stop_tick), silence until step g; music 55 of g fades out (psg.asm's fade, MFADE_FRAMES) to
+     silence at the last pass of g's fade-out;
      build/sound/pres/title_a-g.wav is what the emulator played.
   2. keys: SPACE at step a starts level 1 (the handoff ACT_PLAY level 1, 60:719, 3 hit points; the launched game at
      level_ready and TICKS ticks later equals a direct level 1 start (tests/m4_game.py setup, the real game's options:
@@ -93,7 +94,7 @@ def title_run(dsk):
         times = boot(e, dsk)
         F0 = frames(e)
         tr = m7_sound.Tracker(e, PS, 'silent', bank)
-        tr.addr = {PS['spi_done']: 'act', PS['snh_di']: 'halt', PS['snd_arm']: 'arm', PS['snd_start']: 'start', PS['sf_x']: 'fill'}
+        tr.addr = {PS['spi_done']: 'act', PS['snh_di']: 'halt', PS['snd_arm']: 'arm', PS['snd_start']: 'start', PS['sf_x']: 'fill', PS['mf_go']: 'fade'}
         mine = {PS['ts_step']: 'step', PS['tf_pass']: 'pass', PS['tw_col']: 'col', PS['tfo_pass']: 'opass'}
         e.call('bp_clear')
         tr.bps()                        # (tracepoints, or breakpoints without tracing: tests/m7_sound.py Tracker)
@@ -161,6 +162,11 @@ def title_run(dsk):
           'boundary), %d frames before g' % (n, T.TITLE_PASSES, want_stop, T.TITLE_PASSES * n, j0 - stop),
           want_stop == stop and stop in halts and not [h for h in halts if want_stop < h < j0]
           and tr.wraps.get(54) == T.TITLE_PASSES and 54 not in dict(tr.lengths), (halts, tr.wraps, tr.lengths))
+    fo = TL[('opass', 0, 4)]                         # (g's fade-out's last pass: the text gone)
+    want = [(55, (fo - sndsim.MFADE_TICKS) * 5 // 6, fo * 5 // 6)]
+    got = [(sid, a - F0, b - F0) for a, (sid, b) in zip(tr.fades, tr.faded)]
+    check('music 55 fades out over %d frames from frame %d: silent (stopped) at g\'s fade-out\'s last pass, frame %d (got %s)' % (
+          sndsim.MFADE_FRAMES, want[0][1], want[0][2], got), got == want and len(tr.fades) == 1, (got, tr.fades))
     check('the PSG state at every interrupt that played a group equals sndsim\'s (%d samples, %.0f s)' % (tr.samples, time.time() - t0),
           tr.bad == 0 and tr.samples > 1000, tr.first)
     w = os.path.join(BUILD, 'sound', 'pres', 'title_a-g.wav')

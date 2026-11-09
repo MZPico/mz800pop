@@ -1094,3 +1094,11 @@ piece used AND/XOR semantics.
    ends 60 ticks before SDLPoP's (a-f 1442 ticks instead of 1502), ~1.2 s of silence on the logo before g. f's two
    waits (TITLE_F_MUSIC 463, TITLE_F_REST 74) come from tools/titleref.py (the piece's frames from assets/sms) through
    tools/build_assets.py's title.inc; tests/m7_title.py checks the stop frame, f's 537 ticks (the documented exception).
+71. The presentation's music fades out (2026-11-09, docs/m7-design.md §19.1; the user's report: the story's music went on
+   after g's text and was cut by pv_scene, Jaffar's piece was cut at pv_scene's end): psg.asm's fade (PRES only, the game
+   byte-identical): an offset on every attenuation the player writes, +1 every 3 frames, silent and stopped after 45
+   frames (0.9 s, 54 ticks; MFADE_PER / MFADE_FRAMES, the same in tools/sndsim.py); OP_MFEND / MFWAIT / OP_MFADEM
+   schedule it by the clock (a delay the ISR counts) to end silent at a screen's end, no screen's length changed. Faded: g (with its fade-out), pv_scene (by its
+   fade-out), i (Jaffar's piece again from i's fade-in, out at i's end), j, k (with m's fade-out), time_expired.
+   Unchanged: a-f and the ending (they stop on a pass boundary), the level cutscenes (the piece decays itself), keys
+   (an immediate stop). tests/m7_title.py and m7_story.py check every fade's start and silent frame.

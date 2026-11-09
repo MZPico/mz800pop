@@ -27,6 +27,7 @@ import m7_cut as C
 import m7_title as MT
 from m4_game import encode, write_pack, SCRIPT, SCRIPT_PTR
 import cutsim
+import sndsim
 import titleref as T
 PS = C.PS; BS = C.BS; G = C.G; HO = C.HO; EV = C.EV
 check = C.check
@@ -130,12 +131,28 @@ def part_title(dsk):
             go(e); pc = e.call('get_registers')['PC']; tr.event(pc)
             if pc == PS['title']: break
         check('after m\'s fade-out (screen black) the title again (step 9 puts the demo here)', e.vram_planes() == BLACK)
-        C.psg_report(tr, 'the title from h to m (music 55 on, 50, 54, 42)')
-        check('   the music: g\'s piece (55) on through h\'s black and fade-in, Jaffar\'s piece (50) from pv_scene\'s first cue, the title theme (54) at j, '
+        C.psg_report(tr, 'the title from g to m (music 55, 50, 50 again, 54, 42)')
+        check('   the music: g\'s piece (55), Jaffar\'s piece (50) from pv_scene\'s first cue and again with i\'s fade-in, the title theme (54) at j, '
               'the credits (42) at k; the cues 4, 51, 53, 52 start nothing; banks A at the title\'s start, B at h, C before j: %s' % tr.banks,
-              all(s in tr.starts for s in (50, 54, 42)) and not any(s in tr.starts for s in (4, 51, 53, 52)) and tr.starts.get(55) == 1 and
+              tr.starts.get(50) == 2 and all(s in tr.starts for s in (54, 42)) and not any(s in tr.starts for s in (4, 51, 53, 52)) and tr.starts.get(55) == 1 and
               [b for _, b in tr.banks] == ['PRS_SOUND', 'PRS_SND_B', 'PRS_SND_C'], (tr.starts, tr.banks))
-        check('   Jaffar\'s piece looped %s times through pv_scene and i (24.4 s a loop)' % tr.wraps.get(50), tr.wraps.get(50, 0) >= 1, tr.wraps)
+        check('   Jaffar\'s piece looped %s times in pv_scene (24.4 s a loop)' % tr.wraps.get(50), tr.wraps.get(50, 0) >= 1, tr.wraps)
+        # the fade-outs (psg.asm mf_start, MFADE_FRAMES): each ends silent (the stream stopped) at its screen's end
+        fo = 16                                       # (a fade_out_2's last pass: the screen black)
+        want = [(55, (th - 20 + fo - sndsim.MFADE_TICKS) * 5 // 6, (th - 20 + fo) * 5 // 6),
+                (50, None, (Tpv - 4) * 5 // 6),
+                (50, (mus_end - sndsim.MFADE_TICKS) * 5 // 6, mus_end * 5 // 6),
+                (54, (Tk - sndsim.MFADE_TICKS) * 5 // 6, Tk * 5 // 6),
+                (42, (Tm + fo - sndsim.MFADE_TICKS) * 5 // 6, (Tm + fo) * 5 // 6)]
+        got = [(sid, a - F0, b - F0) for a, (sid, b) in zip(tr.fades, tr.faded)]
+        ok = len(got) == len(tr.fades) == len(want)
+        for (ws, wa, wb), (gs, ga, gb) in zip(want, got):
+            if ws != gs or gb != ga + sndsim.MFADE_FRAMES: ok = False
+            if wa is None: ok = ok and gb <= wb   # (pv_scene: from frame 360's end; silent by the fade-out's last pass)
+            elif (ga, gb) != (wa, wb): ok = False
+        print('   fades (id, start frame, silent at; from the title\'s clock start): %s' % got)
+        check('   the music fades out over %d frames, silent at each screen\'s end: g with its fade-out, pv_scene by its fade-out, '
+              'i at music 52\'s DOS end, j at k, k with m\'s fade-out (expected %s)' % (sndsim.MFADE_FRAMES, want), ok, got)
         C.write_wav(tr, 'title_h-i', f1=fj); C.write_wav(tr, 'title_j-m', f0=fj)
         print('   the whole run took %.0f s of host time' % (time.time() - t0))
     print('   title ticks: g %d, h %d, pv_scene %d-%d, i %d, j %d, k %d, m %d (%.1f s at 60 a second)' % (tg, th, T0, Tpv, Ti, Tj, Tk, Tm, (Tm + 20) / 60))
@@ -167,6 +184,10 @@ def part_expired(dsk):
         check('   the end (music 36 over, tick %d = its length): the screen black, SPACE pressed at frames 20-30 ignored' % cs.t,
               m.get('end_black') and m['end_tick'] == cs.t, (m.get('end_black'), m['end_tick']))
         C.psg_report(tr, 'time_expired')
+        ws = (cutsim.sound_ticks60(36) - sndsim.MFADE_TICKS) * 5 // 6; we = cutsim.sound_ticks60(36) * 5 // 6
+        got = [(sid, a - m['F0'], b - m['F0']) for a, (sid, b) in zip(tr.fades, tr.faded)]
+        check('   music 36 fades out over its last %d ticks: start frame %d, silent at %d (the end); got %s' % (sndsim.MFADE_TICKS, ws, we, got),
+              got == [(36, ws, we)], got)
         C.write_wav(tr, 'time_expired')
         M5.run_to(e, PS['ts_step'], 2000)
         check('   then the title, step a', chr(e.mem(PS['t_step'], 1)[0]) == 'a')

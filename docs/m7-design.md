@@ -1453,12 +1453,13 @@ command; the tones rescaled by 1.0000006), build/sound/sms/index.txt:
 | Screen | SMS piece (frames) | PRES id(s) | Loop | Bank |
 |---|---|---|---|---|
 | Title a-f (MAIN .. logo) | 01 title (570 = 11.40 s) | 54 | whole; stopped in f after exactly 2 plays (1140 frames), f 60 ticks shorter (§15) | A |
-| Story text g, into h's black and fade-in | 11 hourglass (985) | 55 | from frame 25 (0.50 s intro, 19.20 s loop) | A, B (same address) |
-| pv_scene h from its first cue (frame 2), "Marry Jaffar" i | 05 story_jaffar (1220 = 24.40 s) | 50 | whole | B |
-| Main picture j | 01 | 54 | whole | C |
-| Credits k | 03 story_credits (501 = 10.02 s) | PM_CREDITS 42 | one-shot, cut by OP_MSTOP at m (k lasts 440 ticks = 367 frames) | C |
-| Level cutscenes 2/6, 4, 8, 9, 12 | 07 cutscene (432 = 8.64 s) | 27, 35, 40 | one-shot: the level starts when it ends | A |
-| Time-out | 11 | 36 | as g | A |
+| Story text g | 11 hourglass (985) | 55 | from frame 25 (0.50 s intro, 19.20 s loop); faded out with g's fade-out (§19.1) | A |
+| pv_scene h from its first cue (frame 2) | 05 story_jaffar (1220 = 24.40 s) | 50 | whole; faded out by pv_scene's fade-out | B |
+| "Marry Jaffar" i | 05 | 50 | again from its start with i's fade-in; faded out at i's end | B |
+| Main picture j | 01 | 54 | whole; faded out at j's end | C |
+| Credits k | 03 story_credits (501 = 10.02 s) | PM_CREDITS 42 | one-shot; faded out with m's fade-out (k lasts 440 ticks = 367 frames) | C |
+| Level cutscenes 2/6, 4, 8, 9, 12 | 07 cutscene (432 = 8.64 s) | 27, 35, 40 | one-shot: the level starts when it ends (it decays to silence itself) | A |
+| Time-out | 11 | 36 | as g; faded out at its end | A |
 | Ending: embrace, hail, TITLE_MAIN | 01 | 26 | whole; cut at step t after 3 plays (2052 ticks from the embrace's start) | A |
 
 The pv_scene cues 4, 51, 53, 52 and the hail's 56 start nothing: Jaffar's piece / the title theme loop on. The cues'
@@ -1468,8 +1469,8 @@ k 80 + 360, the embrace 840 (26), the hail 16 + 900, the wipe + TITLE_MAIN 240.
 
 **Bank reloads** (load_bank: the entry to SBANK_TMP, then 0x2880 bytes to the torch cache; op_loadb mutes for the floppy read
 as OP_LOAD does, the stream pauses, FRAMES too): bank B at h (before PRS_CROOM; g's hourglass stream sits at the same bank
-address 228 in A and B, so it plays on through h's black wait and the fade-in until the cue 50 at frame 2 starts Jaffar's
-piece); bank C after i (OP_MSTOP first: the DOS is silent from i's end, so nothing is cut); bank A again at the next title
+address 228 in A and B, so it played on through h's black wait and the fade-in until the cue 50 at frame 2 started
+Jaffar's piece; since the fades of §19.1 it is silent from g's fade-out, the shared address stays); bank C after i (OP_MSTOP first: the DOS is silent from i's end, so nothing is cut); bank A again at the next title
 start, and at p_cutscene unless it is there (bank_cur). Three reloads instead of one because 01 + 11 + 05 (12.2 KB exact,
 10.2 KB _env) do not fit the 10 KB torch cache with the index (228 B): all pieces stay exact. Sizes with all effects:
 A 10,121 B (247 free), B 9,938 (430; without the effects 4 and 51, pv_scene's no-op cues), C 7,631 (2,737).
@@ -1503,3 +1504,47 @@ the model rounds up while the clock rounds down (floor(5 T / 6)), so the level s
 model) and, as the emulator played them (the tests' PSG samples through sndsim.render): build/sound/pres/title_a-g.wav
 (tests/m7_title.py), title_h-i.wav, title_j-m.wav, time_expired.wav, ending.wav (tests/m7_story.py), cutscene_<level>_<min>.wav
 (tests/m7_cut.py).
+
+### 19.1 The music fade-outs (2026-11-09)
+
+The user's report: the story's music (55) went on after g's text was gone and was cut when pv_scene started; Jaffar's piece
+was cut at pv_scene's end (OP_LOAD's psg_mute; it came back half-muted in i); every piece cut at a screen's end should fade
+out instead. Code: src/m4/psg.asm (the fade, PRES only: `if defined PSG_BANK_PAGE`, the game's binary is byte-identical),
+src/pres/pres.asm (OP_MFADE, OP_MFADEM, OP_MFEND, the macro MFWAIT, the step table g-m), src/pres/cut.asm (s_pv's end, s_exp),
+tools/sndsim.py (Player.fade, MFADE_*), tests/m7_sound.py (the tracker's 'fade' event at mf_go: fades / faded),
+tests/m7_title.py, tests/m7_story.py.
+
+**The fade.** mf_start (OP_MFADE) sets the offset mf_off to 0 and arms mf_cnt = MFADE_PER (3). In the ISR, before the
+envelopes: every MFADE_PER interrupts mf_off goes up by one and the four channels are written again as min(15, ENV's
+attenuation + mf_off); every attenuation the player writes meanwhile (an envelope step, a 1cc1aaaa command) goes through
+mf_att (+ mf_off, at most 15), while ENV keeps the stream's own value, so the stream's volume changes go on under the
+fade. When the offset would reach 15 the stream stops as at its end (SP_WAIT 0, psg_mute): MFADE_FRAMES = 45 interrupts =
+0.9 s = MFADE_TICKS 54 after mf_start, 2 dB a step. snd_halt (so snd_start, irq_init) cancels it; the screen's own
+OP_MSTOP after the fade then clears MF_LEFT as before. The sound-off option patches the fade's two new writes (spo_4,
+spo_5) as the others. Cost: PRES +256 bytes; the ISR +29 T an active interrupt without a fade and ~90 T per attenuation
+written (mf_att), by hand count.
+
+**Timing.** No screen changes its length: the waits stay as they were, and the fade is scheduled by the clock instead.
+OP_MFEND t computes the frame the clock reaches t ticks after its current target (t_adv's arithmetic, the clock itself
+untouched) and arms the fade with a delay (psg.asm mf_delay: mf_cnt = MFADE_PER + delay, at most 255) so that it ends,
+silent, exactly at that frame; the ISR counts the delay, so drawing done meanwhile does not move it (j decodes k's
+screen in ~75 of its 100 frames, so its OP_MFEND comes before the decoding).
+`MFWAIT t, late` = OP_MFEND t + late, OP_WAIT t: the fade ends `late` ticks after the wait's end: 16 = MF_FO when a
+fade_out_2 follows (its last pass, the screen black); a wait longer than MF_SPLIT (200 ticks) is split (OP_WAIT t - 200,
+OP_MFEND 200 + late, OP_WAIT 200: the delay byte holds at most 251 frames; the split keeps the end frame, t_adv keeps
+the fractions). OP_MFADEM schedules it to end at mus_end (before an OP_WAITM; split the same way);
+OP_MFADE starts it at once (pv_scene, between two of its frames). The fades (tests/m7_story.py checks the frames):
+
+| Screen | Piece | The fade | Silent at |
+|---|---|---|---|
+| g | 55 | 38 ticks before g's fade-out (MFWAIT 600, MF_FO) | its last pass (h's loads follow: OP_MSTOP) |
+| pv_scene | 50 | after frame 360 (scene tick 2493) | 4 frames before its fade-out's last pass in the emulator (scene tick 2558; OP_MSTOP before the loads) |
+| i | 50 (again, from i's fade-in) | 54 ticks before music 52's DOS end (OP_MFADEM) | i's end |
+| j | 54 | 54 ticks before j's end (OP_MFEND 120 before k's screen is decoded, then OP_WAIT 120) | k's start (its music) |
+| k | 42 | 38 ticks before m's fade-out (MFWAIT 360, MF_FO) | its last pass |
+| time_expired | 36 | 54 ticks before its end (scene tick 818, the screen already black) | the end (tick 872) |
+
+Unchanged: the title a-f (the theme stops on its 2nd pass's end, §15), the ending (3 plays of the title theme end at 2052
+exactly, the pass boundary), the level cutscenes (SMS 7 decays to silence by itself; only its last 1-2 frames, silent,
+fall after the level start). A key (the title, the story, pv_scene, a level's cutscene) still stops the music at once
+(snd_halt): the game starts right away, and a fade could not run across the floppy loads (interrupts off).

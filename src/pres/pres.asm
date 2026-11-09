@@ -11,7 +11,7 @@
 ;                             Fame: D7), no key ends it, then the title
 ; Music (M7 step 11, docs/m7-design.md 19): the Master System soundtrack's pieces from three banks (tools/presbank.py;
 ;   each a POP800.PRS entry copied to the torch cache, load_bank): A for the title a-g, the cutscenes, time_expired and the
-;   ending, B from h (pv_scene, i), C from j; the pieces loop (psg.asm's loop command) and are cut at their screen's end;
+;   ending, B from h (pv_scene, i), C from j; the pieces loop (psg.asm's loop command) and fade out at their screen's end;
 ;   the DOS cue lengths (the ticks model) still time the screens (cutsim PRES_TICKS60 where a piece decides a wait).
 ; The title (M7 step 6):
 ;   - art: POP800.PRS entries PRS_T_* (tools/mkgamedisk.py title_entries: the images of build/assets/title.pack in PZ
@@ -143,6 +143,10 @@ OP_KEYS         equ     34              ; byte: cut_mode (2 no keys, 3 a key end
 OP_MUSE         equ     35              ; word: the music starting now lasts so many ticks (mus_end, OP_WAITM)
 OP_MSTOP        equ     36              ; the music stops (snd_halt): a piece cut at its screen's end
 OP_LOADB        equ     37              ; byte: a sound bank entry (PRS_SOUND, PRS_SND_B/C) to the torch cache unless it is there
+OP_MFADE        equ     38              ; the music fades out now (psg.asm mf_start): silent and stopped MFADE_FRAMES (45)
+                                        ; frames later
+OP_MFADEM       equ     39              ; the fade scheduled to end when the music started last ends (mus_end; OP_WAITM)
+OP_MFEND        equ     40              ; word: the fade scheduled to end so many ticks after the clock's target (MFWAIT)
 ; save.asm's variables: load_saved writes the time, the level and the hit points straight into the handoff block
 level_number    equ     ho + HO_LEVEL
 REM_MIN         equ     ho + HO_REM_MIN
@@ -170,6 +174,8 @@ pr_opt:         ld      a, (ho + HO_OPTIONS)
                 ld      (spo_1), hl
                 ld      (spo_2), hl
                 ld      (spo_3), hl
+                ld      (spo_4), hl             ; (the fade's writes)
+                ld      (spo_5), hl
 pr_snd:         call    video_init
                 ld      a, (ho + HO_ACTION)
                 cp      ACT_TITLE
@@ -278,7 +284,7 @@ ip_next:        ld      hl, (t_pc)
 op_tab:         dw      op_loop, op_step, op_music, op_wait, op_draw, op_restore, op_wipe, op_fadein, op_fadeout, op_sync
                 dw      op_csnd, op_chg, op_cload, op_csave, op_cset, op_cseq, op_cplay, op_cframes, op_cif6, op_cend
                 dw      op_cft, op_cuntil, op_cflash, op_chgn, op_csand, op_cfadein, op_cfadeout, op_waitm, op_cret, op_cshow
-                dw      title, op_load, op_cscene, op_expend, op_keys, op_muse, snd_halt, op_loadb
+                dw      title, op_load, op_cscene, op_expend, op_keys, op_muse, snd_halt, op_loadb, mf_start, op_mfadem, op_mfend
 ; the operations' arguments: A = the next byte, DE = the next word
 op_byte:        ld      hl, (t_pc)
                 ld      a, (hl)
@@ -335,6 +341,61 @@ op_waitm:       ld      hl, (mus_end)
                 ex      de, hl
                 call    t_adv
                 jp      t_wait
+; op_mfend: DE = ticks: the music's fade is scheduled (psg.asm mf_delay) to end at the frame the clock reaches DE
+; ticks after its target (t_adv's count, the clock itself unchanged): it starts MFADE_FRAMES before (at once if that
+; has passed). The ISR counts the delay: the drawing done meanwhile does not move it.
+op_mfend:       call    op_word
+mfe_de:         ld      hl, (ct_tick)
+                push    hl
+                ld      hl, (t_target)
+                push    hl
+                ld      a, (t_frac)
+                push    af
+                call    t_adv
+                ld      hl, (t_target)  ; the end frame
+                pop     af
+                ld      (t_frac), a
+                pop     de
+                ld      (t_target), de
+                pop     de
+                ld      (ct_tick), de
+                ld      de, (FRAMES)
+                or      a
+                sbc     hl, de
+                ld      de, -MFADE_FRAMES
+                add     hl, de          ; the delay: frames until the fade must start
+                bit     7, h
+                jp      nz, mf_start    ; (passed: at once)
+                ld      a, h
+                or      a
+                ld      a, l
+                jr      nz, mfe_max
+                cp      255 - MFADE_PER
+                jp      c, mf_delay
+mfe_max:        ld      a, 255 - MFADE_PER - 1  ; (too far ahead: earlier, ending before the screen's end; MFWAIT
+                jp      mf_delay                ; splits its waits so that it never comes here)
+; op_mfadem: the fade scheduled to end at mus_end (the end of the OP_WAITM that follows; more than MF_SPLIT ticks
+; ahead: first a wait until MF_SPLIT before it, as MFWAIT)
+op_mfadem:      ld      hl, (mus_end)
+                ld      de, (ct_tick)
+                or      a
+                sbc     hl, de
+                ex      de, hl
+                jr      nc, omf_1
+                ld      de, 0
+omf_1:          ld      hl, MF_SPLIT
+                or      a
+                sbc     hl, de
+                jr      nc, mfe_de
+                ex      de, hl          ; DE = MF_SPLIT - left
+                ld      hl, 0
+                or      a
+                sbc     hl, de
+                ex      de, hl          ; = left - MF_SPLIT
+                call    t_adv
+                call    t_wait
+                ld      de, MF_SPLIT
+                jr      mfe_de
 ; op_cret: back to the steps after the scene (cut.asm's code is no longer needed: it may be overwritten)
 op_cret:        call    pal_off
                 ld      hl, (t_ret)
@@ -1046,6 +1107,27 @@ isr:            push    af
                 include "../m4/save.asm"        ; load_saved (Ctrl+L); its save_game is not used here
 
 ; ---------------------------------------------------------------- the title's steps (docs/m7-design.md §1.2; SDLPoP ticks)
+; MFWAIT t, late: OP_WAIT of t ticks with the music's fade scheduled to end (silent) `late` ticks after the wait's end
+; (OP_MFEND: the waits' total unchanged; a wait longer than MF_SPLIT is split, as the delay is at most 251 frames).
+; MF_FO: the ticks from a fade_out_2's start to its last pass (the screen black): a fade that ends with the fade-out
+; that follows the wait.
+MF_SPLIT        equ     200
+MFWAIT          macro   t, late
+                if (t) > MF_SPLIT
+                db      OP_WAIT
+                dw      (t) - MF_SPLIT
+                db      OP_MFEND
+                dw      MF_SPLIT + (late)
+                db      OP_WAIT
+                dw      MF_SPLIT
+                else
+                db      OP_MFEND
+                dw      (t) + (late)
+                db      OP_WAIT
+                dw      t
+                endif
+                endm
+MF_FO           equ     16
 title_steps:    db      OP_DRAW, SLOT_MAIN, TGT_P1      ; (load_title_images: the screen of step a in page 1)
                 db      OP_SYNC
                 db      OP_FADEIN, MUSIC_TITLE          ; fade_in_2 (EGA: 5 passes), music 54 with the last
@@ -1065,26 +1147,28 @@ title_steps:    db      OP_DRAW, SLOT_MAIN, TGT_P1      ; (load_title_images: th
                 db      OP_MSTOP, OP_WAIT               ;   theme's 2nd pass ends (stopped between two interrupts: on
                 dw      TITLE_F_REST                    ;   the pass boundary), then silence (a deviation: SDLPoP waits
                                                         ;   until music 54 ends, 1 s later; tools/titleref.py)
-                db      OP_STEP, 'g', OP_MUSIC, 55, OP_WIPE, OP_WAIT
-                dw      600                             ; g: frame + "In the Sultan's absence", music 55
-                db      OP_FADEOUT                      ; fade_out_2
-                db      OP_STEP, 'h', OP_LOADB, PRS_SND_B, OP_CSCENE    ; h: bank B (g's piece goes on), pv_scene (cut.asm s_pv:
-                                                                ; waits for music 55's DOS end first, as load_intro)
+                db      OP_STEP, 'g', OP_MUSIC, 55, OP_WIPE
+                MFWAIT  600, MF_FO                      ; g: frame + "In the Sultan's absence", music 55, faded out to
+                db      OP_FADEOUT, OP_MSTOP            ;   silence at fade_out_2's last pass (the text gone)
+                db      OP_STEP, 'h', OP_LOADB, PRS_SND_B, OP_CSCENE    ; h: bank B, pv_scene (cut.asm s_pv: waits for
+                                                                ; music 55's DOS end first, as load_intro; silent until its cue 50)
                 db      OP_LOAD, PRS_T_FRAME, OP_LOAD, PRS_T_MARRY, OP_DRAW, SLOT_FRAME, TGT_P1, OP_DRAW, SLOT_MARRY, TGT_P1
                 db      OP_WAIT
-                dw      TITLE_I_LOAD                    ; (their decoding: the screen stays black, music 52 goes on)
-                db      OP_FADEIN, 0xff                 ; fade_in_2
-                db      OP_STEP, 'i', OP_WAITM          ; i: frame + "Marry Jaffar", until music 52's DOS end (Jaffar's piece loops)
-                db      OP_MSTOP, OP_LOADB, PRS_SND_C   ; (the DOS is silent from here: bank C)
+                dw      TITLE_I_LOAD                    ; (their decoding: the screen stays black, silent)
+                db      OP_FADEIN, 50                   ; fade_in_2, Jaffar's piece again (pv_scene's faded out at its end)
+                db      OP_STEP, 'i', OP_MFADEM, OP_WAITM       ; i: frame + "Marry Jaffar", until music 52's DOS end, the
+                db      OP_MSTOP, OP_LOADB, PRS_SND_C   ;   piece faded out over its last 54 ticks (the DOS is silent from here: bank C)
                 db      OP_LOAD, PRS_T_MAIN, OP_LOAD, PRS_T_LOGO, OP_LOAD, PRS_T_CRED
                 db      OP_DRAW, SLOT_MAIN, TGT_P1, OP_DRAW, SLOT_POP, TGT_P1, OP_DRAW, SLOT_MECHNER, TGT_P1, OP_WAIT
                 dw      TITLE_J_LOAD                    ; (SDLPoP draws j's screen during i's wait: the floppy would stop 52)
-                db      OP_STEP, 'j', OP_MUSIC, MUSIC_TITLE, OP_WIPE, OP_DRAW, SLOT_FRAME, TGT_P1, OP_DRAW, SLOT_CREDITS, TGT_P1, OP_WAIT
-                dw      120                             ; j: main + logo + copyright (the wipe), the title theme; then k's screen in page 1
-                db      OP_STEP, 'k', OP_MUSIC, PM_CREDITS, OP_WIPE, OP_WAIT
-                dw      360                             ; k: frame + credits, the credits' piece (cut at m)
+                db      OP_STEP, 'j', OP_MUSIC, MUSIC_TITLE, OP_WIPE, OP_MFEND  ; j: main + logo + copyright (the wipe), the
+                dw      120                             ;   title theme, faded out to j's end (scheduled before k's screen is
+                db      OP_DRAW, SLOT_FRAME, TGT_P1, OP_DRAW, SLOT_CREDITS, TGT_P1, OP_WAIT     ; decoded into page 1: ~75
+                dw      120                             ;   of the wait's 100 frames)
+                db      OP_STEP, 'k', OP_MUSIC, PM_CREDITS, OP_WIPE
+                MFWAIT  360, MF_FO                      ; k: frame + credits, the credits' piece (faded out with m's fade-out)
                 ; l: no Hall of Fame (D7); m: the demo (step 9)
-                db      OP_STEP, 'm', OP_MSTOP, OP_FADEOUT      ; fade_out_2 (EGA: 5 passes), then (until step 9) the title again
+                db      OP_STEP, 'm', OP_FADEOUT, OP_MSTOP      ; fade_out_2 (EGA: 5 passes), then (until step 9) the title again
                 db      OP_TITLE
 TITLE_I_LOAD    equ     110                             ; ticks for the decoding of FRAME + MARRY (the emulator: tests/m7_title.py)
 TITLE_J_LOAD    equ     130                             ; ticks for MAIN + logo + copyright

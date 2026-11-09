@@ -105,7 +105,7 @@ def tracker(e):
     player is stopped (PRES's start); its breakpoints are added by scene_run. The model's bank follows PRES's bank
     loads (tc_bank: bank_cur; M7 step 11: the stream playing goes on, at the same address in the new bank)"""
     tr = m7_sound.Tracker(e, PS, 'silent', bank())
-    tr.addr = {PS['spi_done']: 'act', PS['snh_di']: 'halt', PS['snd_arm']: 'arm', PS['snd_start']: 'start', PS['sf_x']: 'fill',
+    tr.addr = {PS['spi_done']: 'act', PS['snh_di']: 'halt', PS['snd_arm']: 'arm', PS['snd_start']: 'start', PS['sf_x']: 'fill', PS['mf_go']: 'fade',
                PS['tc_mute']: 'mute', PS['tc_bank']: 'bank'}
     tr.banks = []
     def mute(f, m, R, P):                             # (do_load: psg_mute, the stream pauses: sndsim's chip muted too)
