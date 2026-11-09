@@ -204,10 +204,19 @@ def env_h(level_type, img):
     d = open(os.path.join(A, ('palace' if level_type else 'dungeon') + '.dir'), 'rb').read()
     return d[img * 8 + 4]
 
-def mob_ops(sim):
-    """Falling floors as game.asm draws them (SDLPoP draw_mob + the loose floor object): mid-table ops."""
-    ops = []; room = sim.drawn_room; L, R, U, D = sim.links(room)
-    for m in sim.mobs[:6]:
+def mob_objs(sim):
+    """The falling floors as SDLPoP's draw_mobs puts them into the objtable, as game.asm draws them (sprite.asm
+    mobs_visible: at most 6 visible ones): dicts with type 0x80, tile (obj_tilepos), y (ypos), the three mid-table ops
+    of draw_objtable_item's loose floor case, and marks: the tiles draw_mob marks with set_redraw2 (the tile right of
+    the floor in its row and, when it reaches into the row above, there too; a tilepos < 0 is redraw_frames_above's
+    column, -(col + 1)). Their draw_other_overlay draws the right tile's base and bottom over the floor (seg007.c
+    draw_mob, seg008.c redraw_needed / draw_other_overlay / draw_tile2)."""
+    out = []; room = sim.drawn_room; L, R, U, D = sim.links(room)
+    def tilepos(col, row):                          # get_tilepos
+        if row < 0: return -(col + 1)
+        if row >= 3 or col >= 10 or col < 0: return 30
+        return row * 10 + col
+    for m in sim.mobs:
         y = m['y']
         if m['room'] == room:
             if y >= 210: continue
@@ -222,11 +231,21 @@ def mob_ops(sim):
         else: continue
         top = yb - 16
         if top < -16 or top >= 192: continue
-        x = m['xh'] * 8; t = sim.level.type
-        ops.append((6, 70, x, yb - 3 - env_h(t, 70) + 1, B_TRANSP))
-        ops.append((6, 74, x, yb - env_h(t, 74) + 1, 0))
-        ops.append((6, 72, x + 32, yb - 1 - env_h(t, 72) + 1, B_TRANSP))
-    return ops
+        if len(out) == 6: break
+        x = m['xh'] * 8; t = sim.level.type; col = m['xh'] >> 2
+        row = sim.y_to_row_mod4(yb)
+        ops = [(6, 70, x, yb - 3 - env_h(t, 70) + 1, B_TRANSP), (6, 74, x, yb - env_h(t, 74) + 1, 0),
+               (6, 72, x + 32, yb - 1 - env_h(t, 72) + 1, B_TRANSP)]
+        marks = []
+        for r in sorted({row, sim.y_to_row_mod4(yb - 18)}, key=lambda r: r != row):
+            if r == row and r < 0 and yb >= 192: continue   # (the % 4 wraps: people2.asm mp_mark leaves it out)
+            mt = tilepos(col + 1, r)
+            if mt == 30: continue
+            if mt < 0: mt = -(min(-mt - 1, 9) + 1)  # (set_redraw2: column 10 of the row above becomes 9)
+            marks.append(mt)
+        ot = tilepos(col, row)
+        out.append(dict(type=0x80, tile=30 if ot < 0 else ot, y=yb, ops=ops, marks=marks))
+    return out
 
 def kid_clip(sim):
     """(top row, right x in pixels) of the exit stairs clip (game.asm kid_clip), or None"""
@@ -354,12 +373,13 @@ def people_objs(sim, kp, mirror_tile=30):
             if sid != 0xFF: add(3, tile, oy + dy, SWORDS, sid + 1, screen_x(ox) + fwd(dx), oy + dy, (ct, cr, cl))
     return objs
 
-def mid_sequence(sim, rr, objs):
-    """SDLPoP redraw_needed_tiles for the objects and the overlays (redraw_at_char2 of both characters): the midtable
-    ops in drawing order, and the fore-table ops of the row above. Objects of a tile come after the tile's overlay, in
-    y order (objtable scanned last to first, bubble-sorted; the shadow last); draw_other_overlay's second case draws
-    the objects of the tile to the left again. Overlays at or before the first character's tile are left out (they
-    only re-lay the room under nothing)."""
+def mid_sequence(sim, rr, objs, mobs=()):
+    """SDLPoP redraw_needed_tiles for the objects and the overlays (redraw_at_char2 of both characters, draw_mob's
+    set_redraw2 of the falling floors): the midtable ops in drawing order, and the fore-table ops of the row above.
+    Objects of a tile come after the tile's overlay, in the objtable's order (the falling floors first, draw_mobs
+    before draw_people), scanned last to first and bubble-sorted (compare_curr_objs: the shadow last; two falling
+    floors by y down, otherwise by y up); draw_other_overlay's second case draws the objects of the tile to the left
+    again. Overlays at or before the first object's tile are left out (they only re-lay the room under nothing)."""
     room = sim.drawn_room
     marks = {}; first = None
     for kid in (True, False):
@@ -373,11 +393,26 @@ def mid_sequence(sim, rr, objs):
         for t in tiles:
             if t == 30: continue
             if marks.get(t) != 'other': marks[t] = kind      # (redraw_frames2 wins over the floor overlay)
+    for m in mobs:
+        o = tile_order(m['tile'])
+        first = o if first is None else min(first, o)
+        for t in m['marks']: marks[t] = 'other'
+    table = list(mobs) + list(objs)
     def at(t):
-        sel = [o for o in reversed(objs) if o['tile'] == t]
-        sel.sort(key=lambda o: (o['type'] == 1, o['y']))
+        sel = [o for o in reversed(table) if o['tile'] == t]
+        def swap(a, b):                                # compare_curr_objs
+            if a['type'] == 1: return True
+            if b['type'] == 1: return False
+            if a['type'] == 0x80 and b['type'] == 0x80: return a['y'] < b['y']
+            return a['y'] > b['y']
+        done = False
+        while not done:
+            done = True
+            for i in range(len(sel) - 1):
+                if swap(sel[i], sel[i + 1]): sel[i], sel[i + 1] = sel[i + 1], sel[i]; done = False
         out = []
         for o in sel:
+            if o['type'] == 0x80: out.extend(o['ops']); continue
             k = 100 + objs.index(o); rr.sets[k] = ObjImg(o['img'])
             out.append((k, None, o['x'], o['ytop'], B_TRANSP))
             if o['xor']:
@@ -574,8 +609,7 @@ def reference(sim, rr, kp, kidset):
     room = sim.drawn_room
     rr.draw_room(room)
     rr.sets[2] = kidset
-    rr.ops['mid'].extend(mob_ops(sim))
-    mid, fore = mid_sequence(sim, rr, people_objs(sim, kp, getattr(sim, 'mirror_tile', 30)))
+    mid, fore = mid_sequence(sim, rr, people_objs(sim, kp, getattr(sim, 'mirror_tile', 30)), mob_objs(sim))
     rr.ops['mid'].extend(mid); rr.ops['fore'].extend(fore)
     im = paint(rr)
     px = im.load()

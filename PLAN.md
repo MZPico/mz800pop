@@ -1112,3 +1112,12 @@ piece used AND/XOR semantics.
    -0.1..-0.2 in play. Main +115 bytes (669 free). With it, a guard in obj_chunk: the lc_sv mark is cleared when
    tc_try takes the chunk (low code +6, 39 free). Next: G2 / G4 gates, R2 (the room cache), B1; for the room change
    the room cache on 16 MB.
+73. The falling floors' drawing order (2026-11-09, docs/perf.md "The falling floors' drawing order"; the user's report:
+   a floor that has just come loose is drawn over the tile to its right): as in SDLPoP's draw_mob, a falling floor
+   is an object at its tile in the redraw order, and the tile to its right gets draw_other_overlay, whose base and
+   bottom pieces cover the floor's right part. Both the game (people2.asm mob_place / mob_until / mob_pch;
+   people_place and people_chunk place the floors among the people) and the reference (tests/m4_game.py mob_objs,
+   mid_sequence) had drawn the floors under everything. The cost: +0.3..+1.1 frames on ticks with a falling floor on
+   the screen, nothing on the others. Memory: main +354 bytes (315 free; overlay.asm's ov_order moved there), block 2 +1 (13 free, the cheat build 0). Checked:
+   m4_game --every 1 at 3 sizes, one scene per loose floor of levels 1-14 plus the loose-floor scenes and the usual
+   walks, traps and fights.

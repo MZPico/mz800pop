@@ -4306,3 +4306,73 @@ beam-phase noise of parts 25 and 26: its stretch builds no room and regenerates 
     l03r16 / l08r23 / l10r10 walk_a and stand_a (tools/busyrooms.py find). All 0.
 - **tests/m4_test.py**: 0 differing ticks.
 - `make cheats`, `make pace`. The full regression on the runners: see the PR.
+## The falling floors' drawing order (2026-11-09)
+
+Status: **built** (a drawing fix, not a speed step). The user's report: a loose floor that has just come loose is drawn
+in front of the floor tile to its right (level 1 room 1, the first loose floor); in the original it slides under
+that tile's front edge.
+
+### What SDLPoP does
+
+- seg007.c draw_mob: the falling floor goes into the objtable at its tile (obj_tilepos = column xh / 4, row
+  y_to_row_mod4(ypos)), and the tile to its right (same row; also in the row of ypos - 18 when that differs; a row
+  of -1 is redraw_frames_above's column, column 10 taken as 9) gets set_redraw2 and set_redraw_fore.
+- seg008.c redraw_needed_tiles reaches that right tile after the floor's tile (rows 2, 1, 0, columns left to
+  right). redraw_needed -> draw_other_overlay: the tile to its left (the floor's own cell, empty since remove_loose)
+  is empty, so draw_tile2 runs with ptr_add_table = add_midtable: the right tile's base and bottom pieces go into the
+  midtable after the floor's three pieces. They cover the floor's right part (loose_fram_right, drawn at x + 4).
+- The floor is an object among the people in that order (draw_objtable_items_at_tile; compare_curr_objs: a floor and
+  a person by y up, two floors by y down, ties in reverse objtable order).
+
+The game (sprite.asm obj_chunk: mob_lay before people_chunk) and the reference (tests/m4_game.py: the floors' ops
+before mid_sequence) both drew the floors under everything and never drew the right tile again. The pixel tests
+passed because the two agreed.
+
+### What changed
+
+- **Reference** (tests/m4_game.py): mob_objs makes each visible floor an objtable entry (tile, y, its three ops,
+  its set_redraw2 marks); mid_sequence marks those tiles for draw_other_overlay, counts the floors' tiles for the
+  "first object" rule and sorts each tile's objects with SDLPoP's bubble sort.
+- **Game**: sprite.asm draw_objects calls mobs_visible before people_place. people2.asm mob_place, called from
+  people_place before ov_gen_all, stores each floor's tile order in MOBR byte 3, lowers ov_first and marks the
+  right tiles in ov_mark, so ov_gen_all generates their ops. mob_until, called in the people's selection sort before
+  each person and at the end, puts the floors into PP_DL as slots 7..12 when their key is smaller (by tile, then y
+  down; equal keys the later floor first). people_chunk jumps to mob_pch for such a slot: the overlay ops before
+  its tile's objects, then lay_mob if the floor's rect meets the chunk. obj_chunk no longer calls mob_lay.
+- **One SDLPoP quirk left out, in both:** for a floor at ypos >= 192 (falling out of the screen's bottom),
+  y_to_row_mod4's % 4 wraps to -1. SDLPoP then lays the room above's floor bottom again at the top of the screen,
+  far from the floor, and keeps those few pixels until the room is drawn again. A floor coming in from above
+  (ypos - 18 in the row above) does get that overlay, and its rect now covers at least rows 0-2 so the game shows it.
+- Before/after on walk_level1 ticks 86-88 (level 1 room 1, the kid riding the first loose floor): the kid's and the
+  floor's silhouette now match SDLPoP's screenshots (POP800_SHOTS); before, the floor's right part and the kid's
+  leg were drawn over the right tile's front.
+
+### Memory
+
+| area | change |
+|---|---|
+| main | +354 bytes (669 -> **315 free**, after M8a part 27): mob_place, mp_row, mp_mark, mob_until, mob_pch, mob_meet; -48 for the old mob_lay; ov_order moved here from block 2 (10) |
+| block 2 | +1 (14 -> **13 free**; the cheat build 3 -> 0): the calls of mob_place and mob_until and people_chunk's jump to mob_pch +11, ov_order gone -10 (without the move the cheat build overflowed) |
+| low code | +4 (39 -> **35 free**) |
+| low RAM | PP_DL 0x07C8 grows to 0x07D5 (count + 13 slots; 0x07D0-0x07DF was unused) |
+
+### Speed
+
+tools/loosescenes.py measure (1 MB, the five scenes of `find`, main 2ef0f88 -> this, median frames a tick per phase):
+ticks with a falling floor on the screen cost +0.3..+1.1 frames (mob1 fall 8.42 -> 8.89, mob2+ multi 10.58 -> 11.65,
+rel fallrun 14.21 -> 15.21, land fallrun 10.68 -> 11.95). The cost is the right tiles' overlay ops, generated once a
+tick and laid in every chunk, and the torch cache that a chunk skips while overlay ops exist. Ticks without a
+falling floor are unchanged (phase "none" +0.00 in every scene).
+
+perfcheck (no falling floors in its stretches): 512 KB level door step 8.56 -> 8.75 (+2.2%, one frame more in five
+ticks: the beam phase, deterministic), fight +0.04, walkthrough 190-260 +0.05; 1 MB and 16 MB within +0.6% (fight
++0.03). All three sizes pass; the baselines are not lowered.
+
+### Same pixels
+
+- tests/m4_game.py --every 1 at 512 KB, 1 MB and 16 MB on one scene per loose floor of levels 1-14 (168 of 172
+  floors; kidsim-found, the kid starting near the floor; the other 4 are on level 1, and walk_level1 covers room 1's)
+  and on tools/loosescenes.py's fall, fallrun, multi (to its death at tick 47), ride and shake scenes, walk_level1,
+  run_rooms, traps_b1, fight1, fight_drop, level2_fight and level2_drop. The only differences are seven floor scenes
+  (l10r11p20, l13r01p22, l13r12p00/01/02, l13r17p22/23) that differ the same way, pixel for pixel, on main's build:
+  they are not from this change.

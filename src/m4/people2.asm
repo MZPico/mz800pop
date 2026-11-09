@@ -366,42 +366,262 @@ st_tab:         dw      SPR_A
 st_chg:         db      0
 st_res:         db      0
 
-; ---------------------------------------------------------------- falling floors in a compose chunk (M8a part 18)
-; mob_lay (sprite.asm obj_chunk): lay the falling floors drawn this tick (MOBR) whose rect (OMOBR, the same index:
-; their three pieces lie inside it) meets the compose rect CR*; the others lay nothing here (lay_piece16 clipped
-; them away, after a directory lookup and its setup: ~0.35 frames a floor and chunk).
-; mob_meet (tcache.asm tc_try): A = 1 (NZ) when one of them meets the compose rect, else Z.
-mob_meet:       ld      c, 1
-                db      0x21                    ; (ld hl, nn: skips the ld c, 0)
-mob_lay:        ld      c, 0
-                ld      a, (MOBR_N)
+; ---------------------------------------------------------------- falling floors among the objects
+; SDLPoP draw_mob (seg007.c) puts a falling floor into the objtable at its tile (its column, y_to_row_mod4(ypos)) and
+; marks the tile right of it, in that row and in the row of ypos - 18, for draw_other_overlay (set_redraw2): that tile's
+; base and bottom are drawn again after the floor (seg008.c redraw_needed, draw_tile2), over its right part. The floor
+; is drawn in redraw order among the people (compare_curr_objs: a floor and a person by y up, two floors by y down).
+; mob_place (overlay.asm people_place, before ov_gen_all): per floor drawn this tick (MOBR) its tile in redraw order
+; + 1 into its byte 3 (0: tile 30; bit 7 clear: not in PP_DL yet), ov_first lowered to it, the right tiles marked
+mob_place:      ld      a, (MOBR_N)
                 or      a
                 ret     z
                 ld      b, a
                 ld      hl, MOBR
-ml_l:           push    bc
+mp_l:           push    bc
+                ld      a, (hl)                 ; xb = col * 4
+                rrca
+                rrca
+                and     0x3f
+                ld      c, a
+                inc     c                       ; the column right of it
+                inc     hl
+                ld      e, (hl)
+                inc     hl
+                ld      d, (hl)                 ; DE = ypos (-1 .. 207)
+                inc     hl
+                push    hl
+                push    de
+                push    bc
+                call    mp_row                  ; its row
+                pop     bc
+                ld      (mp_r0), a
+                push    bc
+                call    mp_mark
+                pop     bc
+                pop     de
+                push    bc
+                ld      hl, -18                 ; the row of ypos - 18
+                add     hl, de
+                ex      de, hl
+                call    mp_row
+                pop     bc
+                ld      hl, mp_r0
+                cp      (hl)
+                push    bc
+                call    nz, mp_mark
+                pop     bc
+                dec     c                       ; its own tile: obj_tilepos
+                ld      a, (mp_r0)
+                ld      b, a
+                cp      3                       ; (row -1: tile 30)
+                ld      a, 0
+                jr      nc, mp_o
+                ld      a, c
+                cp      10
+                ld      a, 0
+                jr      nc, mp_o
+                call    ov_order
+                inc     a
+mp_o:           pop     hl
+                ld      (hl), a                 ; (byte 3)
+                inc     hl
+                ld      b, a
+                ld      a, (ov_first)
+                cp      b
+                jr      c, mp_n
+                ld      a, b
+                ld      (ov_first), a
+mp_n:           pop     bc
+                djnz    mp_l
+                ret
+; ov_order: B = row 0..2, C = col 0..9 -> A = (2 - row) * 10 + col (overlay.asm's, moved here: block 2 is full)
+ov_order:       ld      a, 2
+                sub     b
+                ld      e, a
+                add     a, a
+                add     a, a
+                add     a, e
+                add     a, a
+                add     a, c
+                ret
+; mp_row: DE = y (> -60) -> A = SDLPoP y_to_row_mod4(y) = (y + 60) / 63 % 4 - 1 (0xff = -1), but 0xfe where the
+; % 4 wraps (y >= 192: a floor near the screen's bottom, whose row SDLPoP takes as the row above the room)
+mp_row:         ld      hl, 60
+                add     hl, de
+                ld      bc, -63
+                ld      a, -1
+mr_l:           inc     a
+                add     hl, bc
+                jr      c, mr_l
+                dec     a
+                cp      3
+                ret     nz
+                ld      a, 0xfe
+                ret
+; mp_mark: A = row (0xff = the row above), C = column: SDLPoP set_redraw2(get_tilepos(C, A)) as ov_mark's other
+; overlay (the row above: redraw_frames_above, column 10 taken as 9). Not for the wrapped row 0xfe: there SDLPoP lays
+; the room above's floor bottom again at the top of the screen, far from the floor and outside its rect (a few
+; pixels of the screen's top rows that SDLPoP keeps until the room is drawn again; tests/m4_game.py mob_objs)
+mp_mark:        cp      0xfe
+                ret     z
+                cp      0xff
+                jr      z, mm_up
+                ld      b, a
+                ld      a, c
+                cp      10
+                ret     nc
+                call    ov_order
+                jr      mm_set
+mm_up:          ld      a, c
+                cp      10
+                jr      c, mm_u1
+                ld      a, 9
+mm_u1:          add     a, 30
+mm_set:         ld      e, a
+                ld      d, 0
+                ld      hl, ov_mark
+                add     hl, de
+                ld      a, 2
+                ld      (hl), a
+                ld      (ov_any), a
+                ret
+mp_r0:          db      0
+; mob_until (people_place's drawing order, before each person and at the end): DE = the person's key ((order + 1)
+; << 10 | (y + 256) & 0x3ff; 0xffff: the end): the falling floors not in PP_DL yet whose key is smaller go into it
+; first, as slots 7 + their index, by tile and then by y down; BC, DE kept
+mob_until:      push    bc
+                ld      (mu_bound), de
+mu_l:           ld      hl, 0xffff
+                ld      (mu_best), hl
+                ld      a, (MOBR_N)
+                or      a
+                jr      z, mu_x
+                ld      b, a
+                ld      ix, MOBR
+                ld      c, 7
+mu_i:           bit     7, (ix+3)
+                jr      nz, mu_n
+                ld      a, (ix+3)               ; the sort key: (order + 1) << 10 | (767 - y)
+                add     a, a
+                add     a, a
+                ld      d, a
+                ld      e, 0
+                ld      hl, 767
+                ld      a, l
+                sub     (ix+1)
+                ld      l, a
+                ld      a, h
+                sbc     a, (ix+2)
+                ld      h, a
+                add     hl, de
+                ld      de, (mu_best)
+                or      a
+                sbc     hl, de
+                jr      z, mu_t                 ; (equal keys: the later floor first, as SDLPoP's objtable scan)
+                jr      nc, mu_n
+mu_t:           add     hl, de
+                ld      (mu_best), hl
+                ld      a, c
+                ld      (mu_slot), a
+                ld      (mu_ptr), ix
+mu_n:           inc     ix
+                inc     ix
+                inc     ix
+                inc     ix
+                inc     c
+                djnz    mu_i
+                ld      hl, (mu_best)
+                ld      a, h
+                and     l
+                inc     a
+                jr      z, mu_x                 ; (none left)
+                ld      ix, (mu_ptr)
+                ld      a, (ix+3)               ; its key as a person's: (order + 1) << 10 | (y + 256)
+                add     a, a
+                add     a, a
+                ld      d, a
+                ld      e, 0
+                ld      l, (ix+1)
+                ld      h, (ix+2)
+                inc     h
+                add     hl, de
+                ld      de, (mu_bound)
+                or      a
+                sbc     hl, de
+                jr      nc, mu_x                ; (after the person)
+                set     7, (ix+3)
+                ld      hl, PP_DL
+                inc     (hl)
+                ld      e, (hl)
+                ld      d, 0
+                add     hl, de
+                ld      a, (mu_slot)
+                ld      (hl), a
+                jp      mu_l
+mu_x:           ld      de, (mu_bound)
+                pop     bc
+                ret
+mu_bound:       dw      0
+mu_best:        dw      0
+mu_ptr:         dw      0
+mu_slot:        db      0
+; mob_pch (overlay.asm people_chunk, jumped to with A = slot 7 + i, the loop's BC and HL on the stack): the overlay ops
+; drawn before the objects of its tile, then the floor if its rect (OMOBR, the same index: its three pieces lie
+; inside it) meets the compose rect CR* (else lay_piece16 would clip it away after a directory lookup and its
+; setup: ~0.35 frames a floor and chunk)
+mob_pch:        sub     7
+                add     a, a
+                add     a, a
+                ld      e, a
+                ld      d, 0
+                ld      hl, MOBR
+                add     hl, de
+                push    hl
+                inc     hl
+                inc     hl
+                inc     hl
+                ld      a, (hl)
+                and     0x7f
+                jr      z, mpc1                 ; (tile 30: before all)
+                dec     a
+                ld      e, a
+                ld      hl, ov_mark
+                add     hl, de
+                ld      a, (hl)
+mpc1:           call    pc_ops
+                pop     hl
                 push    hl
                 ld      de, OMOBR - MOBR
                 add     hl, de
                 call    okt_meet
                 pop     hl
-                pop     bc
-                jr      z, ml_n
-                and     c                       ; (A = 1) mob_meet: found
-                ret     nz
-                push    bc
-                push    hl
+                jr      z, mpc2
                 ld      b, (hl)                 ; xb
                 inc     hl
                 ld      e, (hl)
                 inc     hl
                 ld      d, (hl)                 ; ybottom
                 call    lay_mob
+mpc2:           pop     bc
+                pop     hl
+                jp      pch_n
+; mob_meet (tcache.asm tc_try, frmlow2.asm): A = 1 (NZ) when a falling floor drawn this tick meets the compose rect,
+; else Z
+mob_meet:       ld      a, (MOBR_N)
+                or      a
+                ret     z
+                ld      b, a
+                ld      hl, OMOBR
+mm_l:           push    bc
+                push    hl
+                call    okt_meet
                 pop     hl
                 pop     bc
-ml_n:           inc     hl
+                ret     nz
                 inc     hl
                 inc     hl
                 inc     hl
-                djnz    ml_l
+                inc     hl
+                djnz    mm_l
                 ret
