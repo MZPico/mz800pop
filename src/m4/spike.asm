@@ -120,7 +120,9 @@ sr_1:           call    own_regen
 ; neighbour), so 5 of the 10 countdown ticks of a floor stepped on (frames 4, 6, 7, 9, 10) draw nothing. A picture change
 ; regenerates the tiles that draw it as spike_redraw does (no pre-drawn pictures): its own tile and its right
 ; neighbour, our column 0 for the left room's column 9, its tile for the above room's row 2, nothing for the below
-; room's row 0 (tools/movecheck.py loose: every loose floor of levels 1-14 on every screen that shows it)
+; room's row 0 (tools/movecheck.py loose: every loose floor of levels 1-14 on every screen that shows it). Since M8a
+; part 28 our room's floor (VS_KIND 0) first goes to the loose-floor overlay (src/m4/loosestep.asm: its records patched,
+; one 8 x 17 rect laid, no regeneration); D = the old picture for it
 loose_redraw:   ld      a, c
                 call    loose_pic
                 ld      b, a
@@ -128,9 +130,15 @@ loose_redraw:   ld      a, c
                 call    loose_pic
                 cp      b
                 ret     z
+                ld      d, a
                 ld      a, (VS_KIND)
                 cp      3
                 ret     z
+                or      a
+                jr      nz, sr_1
+                call    loose_fast              ; (our room's: its records patched, one small rect: M8a part 28,
+                ret     nc                      ; src/m4/loosestep.asm)
+                xor     a
                 jr      sr_1
 
 ; ---------------------------------------------------------------- pre-drawn pictures: the resident part (M8a part 15)

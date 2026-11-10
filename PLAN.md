@@ -1121,3 +1121,10 @@ piece used AND/XOR semantics.
    the screen, nothing on the others. Memory: main +354 bytes (315 free; overlay.asm's ov_order moved there), block 2 +1 (13 free, the cheat build 0). Checked:
    m4_game --every 1 at 3 sizes, one scene per loose floor of levels 1-14 plus the loose-floor scenes and the usual
    walks, traps and fights.
+74. M8a part 28: loose floors' shakes patched in place (2026-11-10, docs/perf.md "M8a part 28"): a loose floor's
+   picture step in its own room patches its records (its left and bottom pieces, the right neighbour's right piece)
+   and lays one 8 x 17 rect, in a new W1 overlay (src/m4/loosestep.asm), instead of regenerating two tiles. A visible
+   shake step -1.0 frames a floor at every size, the 8-floor knock 26.9 -> 23.9, perfcheck's normal tick 4.51 ->
+   4.28 (1 MB); on the 168 loose-floor scenes the shake ticks 5.92 -> 5.42. Measured and left out: L2's picture
+   slots (+-0.01 over the patch on the 168 scenes), the torch cache per chunk (+0.11 on torch rooms' falling ticks),
+   the right tiles' ops cached (~-0.12), M3 (~-0.05). Memory: main +17 (298 free), overlay 373 bytes in page 7.
