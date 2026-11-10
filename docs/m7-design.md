@@ -826,6 +826,61 @@ at every interrupt and the stream start once; before the fix 174-465 of 210-504 
 loop through the Z80 player; the driver's snd_again items: the playing loop goes on, another id or a short effect
 starts).
 
+### 12.2 The effects' ring-outs (2026-11-11)
+
+The user's choice after listening to the candidates (today's speaker-made effects, all of them re-made from the
+digitized samples, the Master System's, ring-outs on today's): today's effects with a ring-out. tools/sndconv.py
+ring_out: after an effect's last audible frame its channels decay from their attenuation to silence over the rest of
+the digitized sample's length (at most TAIL_MAX 40 frames), one 2 dB step every p frames, i.e. one attenuation command
+with the player's envelope period p per channel (encode fit, tol 0: the frames before it stay exact); tones and noise
+hold. The first version gave every effect one, and the user's report followed at once: "the sound of steps is now
+terrible: it should be just tapping, and it is like a tone; the same for gates". A tap's 1-2 frames of a low pulse
+(periodic noise clocked by channel 2) or a short tone, held over the sample's rest, became a buzz or a beep. So the
+ring-out is chosen per effect (SPEC `tail`: True every sounding channel, 'noise' the noise channel only, the tones stop
+with the stream), from the sample's character (its level per frame and spectral flatness: does it ring or crash on?):
+
+| Ring-out | Effects | Why |
+|---|---|---|
+| all channels | 2 tile_crashing, 3 button_pressed, 6 gate_closing_fast, 19 draw_sword (noise); 10 sword_vs_sword, 14 leveldoor_closing, 45 jump_through_mirror (tones) | the sample crashes on (noise) or rings (a tonal sample 20-35 frames long) |
+| noise only | 16 medium_land, 21 loose_shake_2, 46 chomped, 48 spiked | the crash goes on, a held tone would hum |
+| none, a tap or click | 0 fell_to_death, 4 gate_closing, 5 gate_opening, 7 gate_stop, 8 bumped, 9 grab, 12 guard_hurt, 13 kid_hurt, 17 soft_land, 23 footstep, 38 blink, 47 chomper, 49 spikes | a 1-3 frame click, a low pulse (4, 5, 8, 9, 17) or a voice: held it buzzes |
+| none, reaches its sample | 1, 11, 18, 20, 22, 44, 51 | the stream is as long as the sample already |
+| none, loops | 15 leveldoor_sliding | §12.1 |
+
+The footstep (23) is a noise tap now, made from its sample as the five without speaker data (mode 'noise': 3 frames,
+the rate and level per frame; 17 bytes): the sample is noise (flatness 0.44 in its first frame), the speaker's one
+61 Hz note was a 1-frame low pulse, a click that the first ring-out turned into a 6-frame buzz. The gates' ticks (4, 5)
+stay 1-frame 101 Hz pulses: their samples are tonal thuds (flatness 0.00-0.10), the click is right without a ring-out.
+11 effects have a ring-out (1-23 frames): effects 924 -> 954 bytes (+30; in-game music and index unchanged).
+A/B per effect: the DOS sample, before the ring-outs, the first ring-outs, today (the user's folder
+pop800-snd/fx_tail/fix, rendered by the session's scripts through tools/sndsim.py).
+
+**Placement.** The bank ended 1 byte before the button pictures (page 1 0xE918), so it has a second part: sndconv
+lays the streams out in id order from the index up to BANK_END 0xE918 and puts those that no longer fit at SB_HI
+0xFEE4 (build/assets/sound_hi.bin, written by the boot's records, tools/mkgamedisk.py, and the harness, tests/m4_game.py
+setup, as sound.bin is; sndsim.load_bank reads both). The index holds page-1 addresses, so the player is unchanged.
+Today: 0xE000-0xE8FF (2,304 bytes) and 0xFEE4-0xFF18 (53 bytes: 49, 51). 0xFEE4-0xFFFF is free at every RAM-disk
+size: pages 0-7 are laid out alike for 512 KB, 1 MB and 16 MB; the chopper / spike slot before it ends at 0xFEE3
+(src/m4/frames.asm fs_sdir 0xFC5C + 648); the button pictures end at 0xFC5B; PRES's scratch in page 1 is 0x0000-0x7CFF
+only; no overlay image, frame store table, cheat or launcher record is in page 1 there; the boot's RAM-disk probe
+uses offsets 0-1 of each page and restores them. sndconv asserts both parts' ends, tests/m7_sound.py fx_tails checks
+both against the boot's records and the runtime scratch.
+
+**The rules.** The sound model, the queue and the 'N' lines are unchanged; the game's code too (block 2, main: 0
+bytes). An effect is still copied whole at its start (every stream < 254 bytes), so snd_again restarts it when it is
+asked for again and snd_start's halt cuts the ring-out of an effect that another one interrupts: the new effect
+sounds exactly as alone from its first frame (fx_tails: every effect started at every frame of every other one, 12,160
+starts in sndsim; part A's overlaps through the Z80). fx_tails also checks that only SPEC's tail effects ring out and
+that no ring-out holds a low pulse. No effect plays longer than its sample (or its old stream), so
+at 12 ticks a second (4.17 frames a tick or more on the MZ-800) the ticks model outlasts it: in the hybrid mode
+play_next_sound decides as before; the live waits (the death timer, the level end) may see a ring-out play on a few
+frames, as SDLPoP sees the samples. In the live test mode (3) the ring-outs hold the player longer: tests/m7_sound.py's
+looping-piece scene leaves the gate sound 6 and the music 25 out of its test bank so that its tick-5 request still
+starts. PRES's banks carry the same effects (bank A 220 bytes free, B 403, C 2,710). Floppy: unchanged (POP800.D1 239
+blocks with the second record and the 30 bytes). perfcheck: the level door step 7.73 -> 7.91 (+2.3%; +1.6% with #52 alone,
+within the 5% guard), the rest within 0.2%. Listening:
+build/sound/effects/<id>_<name>_psg.wav (`tools/sndsim.py --wav`).
+
 ## 13. As built: step 4, the music (2026-10-31)
 
 Code: tools/midi2psg.py (the arrangement; its helper renders SDLPoP's OPL playback), tools/sndconv.py (the new stream

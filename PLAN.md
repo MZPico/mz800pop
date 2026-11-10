@@ -1135,3 +1135,10 @@ piece used AND/XOR semantics.
    build_assets.title_sky). Assets only: every program (game, overlays, PRES, boot) byte-identical, no resident or
    RAM-disk change; the floppy +3 blocks (POP800.D2 +1, PR2 +2: 206 free, the duel's 40 kept), PRES's title-art room
    1,239 -> 759 bytes. The references carry the same rules (popdata, titleref through title_image, the kid pack).
+76. The effects' ring-outs (2026-11-11, docs/m7-design.md 12.2; the user's choice from the listening samples: today's
+   effects, the digitized ones, the Master System's and ring-outs): after an effect's last frame its channels decay to
+   silence over the rest of the digitized sample's length (one envelope command per channel), chosen per effect after
+   the user's report that steps and gates buzzed: 11 effects that crash or ring (4 of them the noise only), none for
+   the taps, clicks and thumps; the footstep a noise tap from its sample. +30 bytes; the bank's second part at page 1
+   0xFEE4 (free at every RAM-disk size; sndconv and tests/m7_sound.py check the layout). No game code, the sound model
+   and the 'N' lines unchanged; an interrupting effect sounds as alone.

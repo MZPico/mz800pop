@@ -80,6 +80,13 @@ def load_bank(path=BANK, base=SC.SB_ADDR):
     """Bank of a bank file (sndconv's layout; the presentation's banks have base 0): a stream whose last byte is not
     the end 0x00 is followed by 0xE8 lo hi, the loop command (its loop point hi:lo as a bank address)"""
     b = open(path, 'rb').read() if isinstance(path, str) else path; ent = Bank()
+    if isinstance(path, str) and base == SC.SB_ADDR:     # the game's bank: its second part at SB_HI (sndconv.py)
+        hp = os.path.join(os.path.dirname(path), os.path.basename(path).replace('.bin', '_hi.bin'))
+        if os.path.exists(hp):
+            hb = open(hp, 'rb').read()
+            if hb:
+                assert len(b) <= SC.SB_HI - SC.SB_ADDR, ('sound.bin reaches its second part', len(b))
+                b = b + bytes(SC.SB_HI - SC.SB_ADDR - len(b)) + hb
     for sid in range(SC.NIDS):
         src, n = struct.unpack_from('<HH', b, sid * 4)
         if not n: continue
