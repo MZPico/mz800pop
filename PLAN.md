@@ -1128,3 +1128,10 @@ piece used AND/XOR semantics.
    4.28 (1 MB); on the 168 loose-floor scenes the shake ticks 5.92 -> 5.42. Measured and left out: L2's picture
    slots (+-0.01 over the patch on the 168 scenes), the torch cache per chunk (+0.11 on torch rooms' falling ticks),
    the right tiles' ops cached (~-0.12), M3 (~-0.05). Memory: main +17 (298 free), overlay 373 bytes in page 7.
+75. Three recolours for the MZ-800 (2026-11-10, docs/research/graphics-sources.md "MZ-specific recolours"; the user's
+   choices from mock-ups): the kid's feet bare skin (popdata.KID_FEET = (6, 6), the shade's colour still open), the
+   palace floor tops a red/black checker ("F3", popdata.palace_env_post; seamless between tiles over every palace room,
+   the raised plate's own right piece excepted), the title's sky inside the arch window a red/green checker ("T2w",
+   build_assets.title_sky). Assets only: every program (game, overlays, PRES, boot) byte-identical, no resident or
+   RAM-disk change; the floppy +3 blocks (POP800.D2 +1, PR2 +2: 206 free, the duel's 40 kept), PRES's title-art room
+   1,239 -> 759 bytes. The references carry the same rules (popdata, titleref through title_image, the kid pack).

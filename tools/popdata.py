@@ -184,13 +184,30 @@ def palace_wall_post(id1, w, h, rows, eg):
                 if not adj: out[y][x] = _chk(6, 8)(x, y)
             elif e == 15: out[y][x] = _chk(6, 7)(x, y)
     return out
+# F3 (2026-11-10, PLAN status 74): the palace floor tops (EGA red 4, only floor pieces carry it) -> a red 2 / black 0
+# 1-pixel checker (dark maroon) instead of solid red. The checker's phase counts from the image's bottom row, so that
+# the pieces of one tile row meet without a seam: every piece is drawn at x = 0 mod 8 and with its bottom at an even
+# offset from the row's draw_main_y, but for these ids (odd offsets: the pressed plate's floor 35/36, the level door's
+# floor 99 and 144). Seamless over every palace room (the PR's floorcheck); a raised plate's right piece (42 one row
+# up) and a shaking loose floor move with their texture, as a shifted piece should.
+PALACE_FLOOR_ODD = frozenset((35, 36, 99, 144))
 def palace_env_post(id1, w, h, rows, eg):
-    if id1 != 1: return rows
     out = [row[:] for row in rows]
-    for y in range(2, min(45, h)):
-        for x in range(9, min(20, w)):
-            if eg[y][x] == 7: out[y][x] = _chk(2, 6)(x, y)
+    if id1 == 1:
+        for y in range(2, min(45, h)):
+            for x in range(9, min(20, w)):
+                if eg[y][x] == 7: out[y][x] = _chk(2, 6)(x, y)
+    ph = h - 1 + (id1 in PALACE_FLOOR_ODD)
+    for y in range(h):
+        for x in range(w):
+            if eg[y][x] == 4: out[y][x] = 2 if (x + ph - y) & 1 else 0
     return out
+# The kid's feet (2026-11-10, PLAN status 74): KID.DAT's pixel values 13 (the foot) and 14 (its shade) are the feet's own
+# palette entries (bare skin in the VGA art); their EGA colours (white 15, light grey 7) gave him white shoes. Both
+# now take these MZ colours (foot, shade): skin yellow 6 for both ("K1a flat skin"); other candidates 6/8 (grey shade;
+# 6/0 is the same on the MZ: a sprite's black is drawn as 8, build_assets.planar_from_rows). Used by
+# build_assets.ega_set: the kid pack, and so the game, the cutscenes and their reference renders.
+KID_FEET = (6, 6)
 def kid_post(id1, w, h, rows, eg):
     """The kid's art uses the hair's palette entry (EGA red) for a few shadowed limb pixels (the far hand when he
     starts to run, an arm or leg in some poses): red patches there look wrong on the MZ-800. Red clusters away
