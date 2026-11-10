@@ -5,7 +5,7 @@ VRAM must equal the Python room render with the kid composited the way the Z80 p
 build/m4_<script>.gif of the run. With --gui the emulator window is opened instead and left running on the
 joystick / cursor keys (joystick 1 = NUM_KEYPAD).
 A script with a '# draw after death' line is followed after the kid's death until it ends (the others stop 8 ticks
-after it, as the logic tests do). Every tick also checks the flash the Z80 showed (FL_SHOWN) against SDLPoP's
+after it, as the logic tests do, unless the level restarts in them: Ctrl+A or the button after the death). Every tick also checks the flash the Z80 showed (FL_SHOWN) against SDLPoP's
 flash_if_hurt.
 The tick ends are taken by a tracepoint (tools/emu.py Hits) that captures the state memory and the CRC-32s of the VRAM
 planes without stopping the emulator; a checked screen compares the planes' hashes with the hashes of the reference
@@ -323,7 +323,7 @@ def add_obj(objs, typ, tile, y, pk, pid, x, yb, clip, mirror, xor=0):
     top, right, left = clip
     vis = lambda xx, yy: ytop + yy >= top and left <= x + xx < right and ytop + yy < 192
     clipped = lambda dx: [[(c if vis(xx + dx, yy) else -1) for xx, c in enumerate(row)] for yy, row in enumerate(rows)]
-    objs.append(dict(type=typ, tile=tile, y=y, img=(w, h, clipped(0)), x=x, ytop=ytop, xor=xor,
+    objs.append(dict(type=typ, tile=tile, y=y, img=(w, h, clipped(0)), x=x, ytop=ytop, xor=xor, mirror=mirror,
                      img2=(w, h, clipped(xor)) if xor else None))
 
 def people_objs(sim, kp, mirror_tile=30):
@@ -346,6 +346,7 @@ def people_objs(sim, kp, mirror_tile=30):
                         screen_x(ox + 1) - screen_x(ox) if blink_shadow(sim) else 0)
     for kid in (True, False):
         if not char_present(sim, kid): continue
+        n0 = len(objs)
         C = sim.Kid if kid else sim.Guard
         tile = obj_tile(sim, C)
         ct, cr = sim.clip_char(C)                       # (loads C again: load_fram_det_col, load_frame_to_obj, ...)
@@ -372,7 +373,41 @@ def people_objs(sim, kp, mirror_tile=30):
                 (C.charid == kidsim.CHARID_GUARD and C.alive < 0)) and sword_frame:
             sid, dx, dy = SWORD_TBL[sword_frame]
             if sid != 0xFF: add(3, tile, oy + dy, SWORDS, sid + 1, screen_x(ox) + fwd(dx), oy + dy, (ct, cr, cl))
+        for o in objs[n0:]: o['own'] = 0 if kid else 2  # (whose dirty rect: the mirror image's is the kid's)
     return objs
+
+def people_rects(sim, objs, mobs):
+    """The characters' dirty rects as the game lays them (overlay.asm pp_put's SD_CR, pp_group, pp_rects): per
+    character the bounding box, in whole byte columns, of his objects this tick and last tick (the last drawn tick, in
+    the same room), one box when the kid's and the guard's meet; then the falling floors' rects, this tick's and last
+    tick's. (x0, y0, x1, y1) in pixels, x in bytes * 8."""
+    def ru(a, b):
+        if a is None: return b
+        if b is None: return a
+        return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+    now = {0: None, 2: None}
+    for o in objs:
+        w, h, _ = o['img']; wb = (w + 7) >> 3      # (the kernel's byte box: wb + 1 bytes (gfx.asm SD_OW); a flipped
+        x = o['x'] + w - wb * 8 if o['mirror'] else o['x']   # image's box ends at its right edge)
+        xb = x >> 3; xe = xb + wb + 1 + (1 if o['xor'] else 0)
+        r = (max(xb, 0) * 8, max(o['ytop'], 0), min(xe, 40) * 8, min(o['ytop'] + h, 192))
+        if r[0] < r[2] and r[1] < r[3]: now[o.get('own', 0)] = ru(now[o.get('own', 0)], r)
+    fl = []                                         # the falling floors' (sprite.asm mobs_visible): 8 bytes from xh,
+    for m in mobs:                                  # rows ybottom - 16 .. ybottom, at least rows 0-2 at the top
+        yb = m['y']; x0 = m['ops'][0][2]
+        if yb + 16 < 0 or yb >= 192: continue
+        y0 = yb - 16
+        r = (x0, 0, min(x0 + 64, 320), max(yb + 1, 3)) if y0 < 0 else (x0, y0, min(x0 + 64, 320), min(yb + 1, 192))
+        fl.append(r)
+    last = getattr(sim, 'pp_last', None)
+    u = dict(now); fl_all = list(fl)
+    if last and last[0] == sim.tick - 1 and last[1] == sim.drawn_room:
+        for k in u: u[k] = ru(u[k], last[2][k])
+        fl_all += last[3]
+    sim.pp_last = (sim.tick, sim.drawn_room, now, fl)
+    a, b = u[0], u[2]
+    if a and b and a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]: return [ru(a, b)] + fl_all
+    return [r for r in (a, b) if r] + fl_all
 
 def mid_sequence(sim, rr, objs, mobs=()):
     """SDLPoP redraw_needed_tiles for the objects and the overlays (redraw_at_char2 of both characters, draw_mob's
@@ -610,10 +645,20 @@ def reference(sim, rr, kp, kidset):
     room = sim.drawn_room
     rr.draw_room(room)
     rr.sets[2] = kidset
-    mid, fore = mid_sequence(sim, rr, people_objs(sim, kp, getattr(sim, 'mirror_tile', 30)), mob_objs(sim))
-    rr.ops['mid'].extend(mid); rr.ops['fore'].extend(fore)
+    objs = people_objs(sim, kp, getattr(sim, 'mirror_tile', 30))
+    mobs = mob_objs(sim)
+    rects = people_rects(sim, objs, mobs)
+    mid, fore = mid_sequence(sim, rr, objs, mobs)
+    rr.ops['mid'].extend(mid)
+    if fore:        # the row above's fore copies (redraw_needed_above): laid only inside the characters' dirty rects,
+        base = paint(rr).load()     # as the game lays its overlay ops (docs/perf.md "Known pixel mismatches": SDLPoP
+    rr.ops['fore'].extend(fore)     # lays them whole and keeps them until the room is drawn again)
     im = paint(rr)
     px = im.load()
+    if fore:
+        for yy in range(192):
+            for xx in range(320):
+                if not any(r[0] <= xx < r[2] and r[1] <= yy < r[3] for r in rects): px[xx, yy] = base[xx, yy]
     if sim.upside_down:                            # SDLPoP flip_screen: the 192 playfield rows upside down
         rows = [[px[xx, yy] for xx in range(320)] for yy in range(192)]
         for yy in range(192):
@@ -668,6 +713,7 @@ def run_script(e, sp, args, every, kp, kidset, fast):
         ref = fx_step(sim, x, y, sh, k)
         if ref is None or sim.game_over:        # (M5 scenes: a restart tick has no state; game over: the end)
             if sim.game_over: break
+            stop = None                         # (a restart, the button after a death too: followed on the new start)
             continue
         ref = tick_end_line(sim, ref)           # (the room checksum: the game's level at tick_done, M8a part 19)
         got = z80_state(m, int(ref.split()[0]), LEVEL_ADDR)

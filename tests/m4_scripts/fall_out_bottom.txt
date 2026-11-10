@@ -1,0 +1,46 @@
+# Falling out of the bottom of level 13 (docs/perf.md "Known pixel mismatches"): the kid walks off room 12's loose
+# floors and falls through rooms 9 and 4 out of the level. In the last tick he bumps into room 0, which
+# xpos_in_drawn_room takes as room_BL (with no room below: the left room's below, here 0): x - 140. The falling
+# floors' drawing order's per-floor scene l13r12p02.
+# level 13
+# start 12:0:0
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1

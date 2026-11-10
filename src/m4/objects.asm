@@ -19,7 +19,7 @@ TROBS_N         equ     OV + 11
 MOBS_N          equ     OV + 12
 PT_I            equ     OV + 13
 TROB_P          equ     OV + 14         ; 16-bit: current trob entry
-WANT_RESTART    equ     OV + 16
+                                        ; OV + 16: free (WANT_RESTART until the button restart moved to the tick's start)
 O_T1            equ     OV + 17         ; scratch
 O_T2            equ     OV + 18
 O_T3            equ     OV + 19

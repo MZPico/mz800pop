@@ -3,7 +3,9 @@
 ; ---------------------------------------------------------------- tiles that changed
 ; The tiles that affect the room on screen: its own 30 (entries 0..29), column 9 of the room on its left
 ; (30..32: torches and the left neighbour of column 0), row 2 of the room above (33..42: drawn at the top),
-; row 0 of the room below (43..52: the row below row 2).
+; row 0 of the room below (43..52: the row below row 2), column 9 of the room below-left (53: SDLPoP room_BL, whose
+; gate top our (2, 0) draws when it can see its bottom-left: draw_tile_anim_topright; seg007.c
+; get_trob_right_above_pos_in_drawn_room's room_BL case).
 ; vs_entry: VS_IDX -> VS_ROOM (0 none), VS_POS, VS_TAG (the tile to redraw, 0xff none), VS_KIND (0..3)
 vs_entry:       ld      a, (VS_IDX)
                 cp      30
@@ -43,6 +45,8 @@ vse2:           cp      43
                 ld      (VS_ROOM), a
                 ret
 vse3:           sub     43
+                cp      10
+                jr      z, vse_bl
                 ld      (VS_POS), a
                 ld      b, 0xff
                 cp      9
@@ -51,11 +55,21 @@ vse3:           sub     43
                 ld      b, a            ; row 2, column + 1
 vse4:           ld      a, b
                 ld      (VS_TAG), a
+                ld      a, (VS_LINKS+3) ; below
+vse6:           ld      (VS_ROOM), a
                 ld      a, 3
                 ld      (VS_KIND), a
-                ld      a, (VS_LINKS+3) ; below
-                ld      (VS_ROOM), a
                 ret
+vse_bl:         ld      hl, 20 * 256 + 9        ; (entry 53) VS_POS 9, VS_TAG 20 (our (2, 0)), kind 3 as a below room's
+                ld      (VS_POS), hl
+                ld      a, (VS_LINKS)           ; room_BL (seg008.c load_room_links): the below room's left; with no
+                call    links_of                ; room below, the left room's below
+                ld      c, e
+                ld      a, (VS_LINKS+3)
+                or      a
+                call    nz, links_of
+                ld      a, c
+                jr      vse6
 vs_links:       ld      a, (SHOWN_ROOM)
                 or      a
                 jr      z, vsl0
@@ -73,7 +87,7 @@ vsl0:           ld      hl, 0
                 ld      (VS_LINKS), hl
                 ld      (VS_LINKS+2), hl
                 ret
-; vs_check: the 53 entries' tile addresses (fg; bg = fg + 720; 0 = no room) for the room on screen,
+; vs_check: the 54 entries' tile addresses (fg; bg = fg + 720; 0 = no room) for the room on screen,
 ; rebuilt when SHOWN_ROOM changes (load_level sets vs_built to 0xff)
 vs_check:       ld      a, (SHOWN_ROOM)
                 ld      hl, vs_built
@@ -124,7 +138,7 @@ vb_btn:         ld      hl, (VS_PTR)
 vb_n:           ld      hl, VS_IDX
                 inc     (hl)
                 ld      a, (hl)
-                cp      53
+                cp      54
                 jr      nz, vb_l
                 ld      hl, (VS_PTR)
                 ld      (hl), 0xff
@@ -165,9 +179,9 @@ vg1:            push    bc
 ; compare walk the entries as runs of consecutive tile bytes (vs_runs: first entry, count; a run without a room is
 ; skipped by both).
 VS_BTNMAX       equ     8
-VS_BTN          equ     VIEW_SNAP + 106         ; VS_BTNMAX x (entry, pressed), then 0xff
-vs_ptrs         equ     VS_BTN + 2 * VS_BTNMAX + 1      ; 53 x the entry's tile byte address (0: no room), to 0xF5F4
-vs_runs:        db      0, 30, 30, 1, 31, 1, 32, 1, 33, 10, 43, 10
+VS_BTN          equ     VIEW_SNAP + 108         ; VS_BTNMAX x (entry, pressed), then 0xff
+vs_ptrs         equ     VS_BTN + 2 * VS_BTNMAX + 1      ; 54 x the entry's tile byte address (0: no room), to 0xF5F8
+vs_runs:        db      0, 30, 30, 1, 31, 1, 32, 1, 33, 10, 43, 10, 53, 1
 ; vs_run: the next run of vs_runs at (vr_pp): DE = its first tile byte, BC = DE + 720 (its modifier), HL = its
 ; snapshot entry, B' = its length; Z: no room there
 vs_run:         ld      hl, (vr_pp)
@@ -214,7 +228,7 @@ vs_press:       add     a, a
 view_snapshot:  call    vs_check
                 ld      hl, vs_runs
                 ld      (vr_pp), hl
-                ld      a, 6
+                ld      a, 7
 vsn_r:          ld      (vs_n), a
                 call    vs_run
                 jr      z, vsn_rn
@@ -272,7 +286,7 @@ vrd_b:          ld      a, (hl)                 ; differ, so that the compare re
                 jr      vrd_b
 vrd_c:          ld      hl, vs_runs
                 ld      (vr_pp), hl
-                ld      a, 6
+                ld      a, 7
 vrd_r:          ld      (vs_n), a
                 call    vs_run
                 jr      z, vrd_rn

@@ -310,7 +310,7 @@ new file mode 100644
 index 0000000..d4b24b2
 --- /dev/null
 +++ b/src/pop800_trace.c
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,352 @@
 +// pop-800 oracle hooks: scripted controls and a per-tick kid-state trace (enabled by environment variables).
 +//   POP800_SCRIPT=<file>  one tick per line: "<x> <y> <shift>" with x,y in -1/0/1 (screen left/right, up/down), shift 0/1
 +//                         (the game exits when the script is exhausted)
@@ -402,6 +402,9 @@ index 0000000..d4b24b2
 +	}
 +	/* optional 4th field: keys pressed this tick, bit 0 = Ctrl+A (restart the level, as process_key does) */
 +	if ((keys & 1) && current_level != 15) { stop_sounds(); is_restart_level = 1; }
++	/* the button after death: process_key turns a held Shift into Ctrl+A (Kid.alive > 6); it runs in do_paused before this
++	   hook sets the scripted controls, so the script's button is taken here */
++	if (sh && rem_min != 0 && Kid.alive > 6 && current_level != 15) { stop_sounds(); is_restart_level = 1; }
 +	if (keys >> 3) pop800_key_code(keys >> 3);
 +	if (!notraps_done) {
 +		notraps_done = 1;

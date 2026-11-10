@@ -9,7 +9,8 @@
 ;   0 a gate of our room at column c < 9: the bars tile is VS_TAG + 1 (our (row, c + 1)), the top tile the one above it
 ;     (our (row - 1, c + 1), or the above row's column c + 1 = tag 31 + c for row 0);
 ;   1 a gate in the left room's column 9: the bars tile is VS_TAG (our column 0), the top tile the one above it;
-;   3 a gate in the below room's row 0: only its top shows, drawn by our (2, c + 1) = VS_TAG (0xff for c = 9: nothing).
+;   3 a gate in the below room's row 0: only its top shows, drawn by our (2, c + 1) = VS_TAG (0xff for c = 9: nothing);
+;     the below-left room's column 9 (entry 53) the same way, drawn by our (2, 0).
 gate_redraw:    call    gate_fast               ; (the gate overlay: a one-row step as a moving part)
                 ret     nc
                 call    dr_reset
