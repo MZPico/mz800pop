@@ -28,7 +28,7 @@ Renders build/sound/scene_<script>_<mode>.wav from the emulator's PSG states (to
 The events and the ISR's cost come from tracepoints and the emulator's PSG write log, the emulation does not stop for
 them (Tracker; POP800_EMU_TRACE=0: a breakpoint stop at each, the old way).
 usage: m7_sound.py [--quick] [script.txt ...]"""
-import collections, os, subprocess, sys, tempfile, time
+import collections, os, re, subprocess, sys, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
 from emu import Emu, Snap
@@ -330,6 +330,79 @@ def check_lengths(tr, what):
         if abs((L - 1) - want) > 1: bad.append((sid, L - 1, round(want, 2)))
     check('A: %s: the %d music pieces last their MIDI length within 1 frame' % (what, n), not bad and n, bad)
 
+def fx_tails(bank):
+    """the effects' ring-outs (tools/sndconv.py ring_out, 2026-11-11), without the emulator:
+    - every effect stream is shorter than the ring, so snd_start copies it whole and snd_again (MF_LEFT = 0) restarts
+      it: a ring-out is never 'still being copied'; the looping level door (15) has none
+    - no effect plays longer than its digitized sample (the old stream's length when that was longer; TAIL_MIN frames
+      more for the blink 38, which has none): the ticks model (its length at 12 ticks a second) outlasts it at any tick of 4.17 frames or more
+    - an effect started during another's ring-out (at each of its frames) sounds exactly as when started alone: nothing
+      of the interrupted one is heard (the envelopes and the PSG start muted; a muted channel's old divider is inaudible)
+    - the bank's two parts (sndconv BANK_END, SB_HI) overlap no other RAM-disk content of page 1: the boot's records
+      (tools/mkgamedisk.py ramdisk_writes) and the runtime scratch (as tests/m5_boot.py RUNTIME_SCRATCH lists it)"""
+    fx = [i for i in sorted(bank) if i not in sndconv.MUSIC]
+    long = [(i, len(bank[i])) for i in fx if len(bank[i]) >= sndconv.RING]
+    check('effects: every stream is copied whole at its start (< %d bytes)' % sndconv.RING, not long, long)
+    txt = open(os.path.join(BUILD, 'assets', 'sound.txt')).read().splitlines()
+    check('effects: the looping level door (15) has no ring-out (it loops)',
+          15 in bank.loops and 'ring-out' not in [l for l in txt if l.startswith('15 ')][0], bank.loops)
+    rung = sorted(int(l[:2]) for l in txt if re.search(r', ring-out [0-9]+ frames', l) and not l.startswith('#'))
+    want = sorted(i for i in fx if sndconv.SPEC.get(i, {}).get('tail'))
+    held = []                           # (a ring-out never holds a low pulse: periodic noise clocked by channel 2)
+    for i in rung:
+        st = sndsim.sound_states(i, bank)
+        if any(x[6] < 15 and x[8] == 0 and x[7] == 3 for x in st[-2:]): held.append(i)
+    # (exactly SPEC's tail effects: each of them has sample left after its stream today, so ring_out gives every one
+    # a ring-out; one that lost it, e.g. a regression in ring_out, fails here as well as an extra one)
+    check('effects: ring-outs exactly where SPEC asks (%d; none for %s: the taps, clicks and thumps, and those that reach '
+          'their sample), none holds a low pulse' % (len(want), sorted(set(fx) - set(want) - set(bank.loops))),
+          rung == want and not held, (rung, want, held))
+    over = []
+    for i in fx:
+        if i in bank.loops: continue
+        n = sndsim.sound_frames(bank, i); d = sndconv.digi(i); sp = sndconv.SPEC[i]
+        base = len(sndconv.frames_from_digi(i, sp) if sp.get('src') == 'digi' else sndconv.frames_from_speaker(i, sp))
+        lim = max(base, int(round(len(d[1]) / float(d[0]) / sndconv.FRAME)) if d else base + sndconv.TAIL_MIN)
+        if n > lim: over.append((i, n, lim))
+    check('effects: none plays longer than its sample (or its old length; + %d frames without a sample)' % sndconv.TAIL_MIN,
+          not over, over)
+    def audible(st):                    # (what is heard: a muted channel's divider is left from before, and inaudible;
+        # but noise at rate 3 is clocked by channel 2's divider, so that divider is heard whenever the noise is)
+        return tuple(x for c in range(3) for x in ((st[2 * c], st[2 * c + 1]) if st[2 * c] < 15 else (15,))) + \
+            ((st[6], st[7], st[8]) + ((st[5],) if st[7] == 3 else ()) if st[6] < 15 else (15,))
+    bad = []; pairs = 0
+    for a in fx:
+        if a in bank.loops: continue
+        na = sndsim.sound_frames(bank, a)
+        for b in fx:
+            alone = sndsim.sound_states(b, bank, 3 * sndsim.sound_frames(bank, b) if b in bank.loops else None)
+            for k in range(1, na):
+                p = sndsim.Player(bank); p.start(a)
+                for _ in range(k): p.isr(); p.fill()
+                p.again(b); got = []; pairs += 1
+                while p.playing() and len(got) < len(alone):
+                    p.isr(); p.fill()
+                    if p.playing(): got.append(p.psg.state())
+                if [audible(x) for x in got] != [audible(x) for x in alone]: bad.append((a, k, b)); break
+    check('effects: one started during another\'s ring-out plays as alone (%d starts)' % pairs, not bad, bad[:5])
+    import mkgamedisk
+    hi = open(os.path.join(BUILD, 'assets', 'sound_hi.bin'), 'rb').read()
+    lo = open(os.path.join(BUILD, 'assets', 'sound.bin'), 'rb').read()
+    parts = [(sndconv.SB_ADDR, len(lo)), (sndconv.SB_HI, len(hi))]
+    others = [(a, len(d)) for pg, a, d in mkgamedisk.ramdisk_writes() if pg == sndconv.SB_PAGE and a not in (sndconv.SB_ADDR, sndconv.SB_HI)]
+    # the runtime scratch (as tests/m5_boot.py RUNTIME_SCRATCH, which reads sys.argv at import): the button pictures
+    # (src/m4/btnstep.asm BC_BASE, 4 slots of 1,233 bytes) and the frames overlay's chopper / spike slots (fs_bdir 960,
+    # fs_sdir 648 bytes each)
+    others.append((syms(os.path.join(BUILD, 'ovl_btn.sym'))['BC_BASE'], 4 * 1233))
+    F = syms(os.path.join(BUILD, 'ovl_frm.sym')); img = open(os.path.join(BUILD, 'ovl_frm.bin'), 'rb').read()
+    for tab, n, size in (('fs_bdir', 'FRM_NB', 960), ('fs_sdir', 'FRM_NS', 648)):
+        for k in range(F[n]):
+            o = F[tab] - F['ovl_entry'] + 3 * k
+            if img[o] == sndconv.SB_PAGE: others.append((img[o + 1] | img[o + 2] << 8, size))
+    clash = [(hex(a), hex(b)) for a, n in parts for b, m in others if a < b + m and b < a + n]
+    check('the bank (0x%04X+%d, 0x%04X+%d) overlaps nothing else in page %d' % (parts[0] + parts[1] + (sndconv.SB_PAGE,)),
+          not clash and sndconv.SB_ADDR + len(lo) <= sndconv.BANK_END and sndconv.SB_HI + len(hi) <= sndconv.SB_HI_END, clash)
+
 def door_hybrid(bank):
     """the level door's opening in the release's hybrid mode (no emulator: sndsim's player on the bank, the ticks
     model of sound.asm snd_next): animate_leveldoor asks for 15 at each of the 42 ticks before the door is open (not
@@ -487,6 +560,7 @@ def main():
         assert not (0x1000 <= a < 0x2000 or 0x8000 <= a < 0xA000), hex(a)
     check('the ISR player\'s code and data are outside 0x1000-0x1FFF and 0x8000-0x9FFF', True)
     door_hybrid(bank)
+    fx_tails(bank)
     with Emu() as e:
         part_a(e, bank, quick)
         print('B. game scenes')
@@ -502,9 +576,12 @@ def main():
             # (the long streaming piece: Jaffar's piece of the presentation (5,331 bytes, bank B's id 50), looping;
             # started at tick 5, so that it wraps before the script ends also when the ticks are short: the frame
             # store of a 16 MB RAM disk, M8a part 9; at tick 40 it wrapped with a few frames to spare until M8a part 28's
-            # faster loose-floor shakes left it short)
+            # faster loose-floor shakes left it short. The test bank leaves out the level start's gate sound 6 and the
+            # level 1 music 25 (not interruptible): since the effects' ring-outs 6 still plays at tick 5 in the live
+            # mode, and 25 follows it, so the request would be dropped)
             pres = sndsim.load_bank(os.path.join(BUILD, 'assets', 'sound_pres_b.bin'), 0)
-            tb = dict(bank); tb[41] = pres[50]; tbb = sndconv.make_bank(tb, {**bank.loops, 41: pres.loops[50]})
+            tb = dict(bank); tb[41] = pres[50]; del tb[6], tb[25]
+            tbb = sndconv.make_bank(tb, {**bank.loops, 41: pres.loops[50]})
             tr = part_b(e, sndsim.load_bank(tbb), rr, 'live', 400, inject=(5, 41), test_bank=tbb, tag='_loop')
             check('B: the looping piece wrapped through the room draws (%d loops)' % tr.sim.p.loops, tr.sim.p.loops >= 1, tr.sim.p.loops)
     print('FAILED: %s' % FAILS if FAILS else 'all ok')

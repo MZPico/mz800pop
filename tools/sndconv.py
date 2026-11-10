@@ -26,9 +26,11 @@ Stream format (one stream per sound id; the player, src/m4/psg.asm, reads it thr
   Every interrupt while a stream plays: first the envelopes step (per channel with attenuation < 15: its counter
   counts down from p; at 0 the attenuation goes up by one and is written, the counter restarts at p), then, when the
   wait has run out, the next group. A stream of n frames has its end byte n frames after its first group.
-  Effects use the envelopes only as holds (p = 0: every attenuation change is a command); music (tools/midi2psg.py)
+  Effects use the envelopes as holds (p = 0: every attenuation change is a command) and for their ring-outs (ring_out:
+  one command with a period per channel); music (tools/midi2psg.py)
   uses them for the notes' decays.
-Bank (build/assets/sound.bin, written to RAM-disk page SB_PAGE at SB_ADDR by the boot and the harness):
+Bank (build/assets/sound.bin, written to RAM-disk page SB_PAGE at SB_ADDR by the boot and the harness, and the streams
+that no longer fit before BANK_END in build/assets/sound_hi.bin at SB_HI, the same page):
   index: NIDS entries of 4 bytes (u16 RAM-disk address of the stream, u16 length; length 0 = no stream), then the
   streams: the effects and the in-game music. The presentation's banks (the same layout with addresses from 0, the
   effects and the Master System pieces, M7 step 11) are tools/presbank.py's: build/assets/sound_pres*.bin.
@@ -47,6 +49,10 @@ CPU = 3546895                   # Hz; the PSG is clocked at CPU / 16 (mz800emu),
 FRAME = 0.02                    # the player's step: one VBLN interrupt (50 Hz)
 SB_PAGE, SB_ADDR = 1, 0xE000    # the bank in the RAM disk (src/m4/psg.asm SB_PAGE, SB_ADDR)
 BANK_END = 0xE918               # the button pictures follow it (src/m4/btnstep.asm BC_BASE, docs/memory.md)
+SB_HI, SB_HI_END = 0xFEE4, 0x10000  # the bank's second part (2026-11-11, the effects' ring-outs): page 1's free tail after
+                                # M8a part 15's chopper / spike slot 0xFC5C-0xFEE3 (src/m4/frames.asm fs_sdir); every
+                                # RAM-disk size has pages 0-7 alike, PRES's scratch is page 1 0x0000-0x7CFF only
+                                # (docs/memory.md); build/assets/sound_hi.bin, written as sound.bin is
 MUS_BUF, RING = 0xFE02, 254     # the player's ring buffer (0xFE02-0xFEFF; it holds at most RING - 1 bytes)
 NIDS = 57
 TONE_MIN = CPU / (32 * 1023)    # 108.3 Hz: the lowest tone
@@ -73,6 +79,10 @@ UNUSED = {31, 34, 42}
 #   att        attenuation (2 dB steps, 0 loudest) of every line; env: per-frame added attenuation (last entry repeats)
 #   src='digi' made from the digitized sample: mode 'tone' (pitch from the autocorrelation in prange Hz), 'noise'
 #              (rate from the zero crossings) or 'mix' (tone at tonef Hz + noise 3 steps quieter); level from the RMS
+#   tail       the ring-out (ring_out, 2026-11-11): True every sounding channel, 'noise' the noise channel only (the
+#              tones stop with the stream: a thump's hum would hold), absent none. Given where the sample rings or
+#              crashes on; never for the taps and clicks (footstep, the gates' ticks, bumps, the low pulses), whose
+#              held pulse or tone turned a click into a buzz (the user's report of the first ring-outs)
 #   loop       the stream loops (its end byte dropped, the loop command to its start follows it in the bank) until a
 #              stop or another sound: the level door's sliding (15), which animate_leveldoor asks for every tick of the
 #              opening and stops when the door is open; the ticks model holds it for its digitized length (20 ticks),
@@ -85,45 +95,46 @@ SPEC = {
     0: dict(why='random notes 24-1068 Hz (72 ms) -> white noise, rate following the notes'),
     1: dict(src='digi', mode='tone', prange=(250, 500), why='no speaker data: the digitized scream (1.09 s): its pitch '
             '(~367 Hz) and loudness per frame'),
-    2: dict(env=[0] * 11 + [1, 2, 3, 4], why='random notes 51-1139 Hz (302 ms) -> noise following the notes, faded '
+    2: dict(tail=True, env=[0] * 11 + [1, 2, 3, 4], why='random notes 51-1139 Hz (302 ms) -> noise following the notes, faded '
             'over the last 4 frames'),
-    3: dict(why='random notes (42 ms) -> 2 frames of noise'),
+    3: dict(tail=True, why='random notes (42 ms) -> 2 frames of noise'),
     4: dict(why='one 101 Hz note (14 ms) -> 1 frame of a 101 Hz pulse (periodic noise clocked by channel 2)'),
     5: dict(att=4, why='one 101 Hz note (7 ms) -> 1 frame, 4 dB quieter than 4 (the speaker note is half as long)'),
-    6: dict(why='random notes 252-1861 Hz (128 ms) -> 6 frames of noise'),
+    6: dict(tail=True, why='random notes 252-1861 Hz (128 ms) -> 6 frames of noise'),
     7: dict(why='one 4999 Hz note (14 ms) -> 1 frame tone'),
     8: dict(why='one 49 Hz note (42 ms) -> 2 frames of a 49 Hz pulse'),
     9: dict(why='one 61 Hz note (14 ms) -> 1 frame of a 61 Hz pulse'),
-    10: dict(env=[0, 2, 5], frames=3, why='one 2999 Hz note (42 ms) -> 3 frames tone with a decay (the clang)'),
+    10: dict(tail=True, env=[0, 2, 5], frames=3, why='one 2999 Hz note (42 ms) -> 3 frames tone with a decay (the clang)'),
     11: dict(src='digi', mode='noise', why='no speaker data: the digitized swish (106 ms) -> noise, rate and level '
              'per frame'),
     12: dict(voices=2, att=3, why='two interleaved falling lines 230->70 / 730->570 Hz (62 ms) -> two tones (the low '
              'line as a pulse below 108 Hz)'),
     13: dict(voices=2, att=3, why='two interleaved falling lines 980->820 / 480->320 Hz (51 ms) -> two tones'),
-    14: dict(voices=2, att=3, why='rising octave pairs 208/416 -> 400/800 Hz, then a 97 ms rest (184 ms) -> two '
+    14: dict(tail=True, voices=2, att=3, why='rising octave pairs 208/416 -> 400/800 Hz, then a 97 ms rest (184 ms) -> two '
              'tones, then silence (the stream keeps the length)'),
     15: dict(loop=True, why='18 notes 39->31->39 Hz (250 ms) -> a 31-39 Hz pulse following the notes, looping until '
              'stopped (the door\'s opening ends with stop_sounds; DOS restarts it every tick it has ended)'),
-    16: dict(voices=3, noise=[1], att=3, why='three interleaved lines: 121->201 and 101->181 Hz rising, one random '
+    16: dict(tail='noise', voices=3, noise=[1], att=3, why='three interleaved lines: 121->201 and 101->181 Hz rising, one random '
              '(60 ms) -> two tones + noise'),
     17: dict(att=3, why='one 49 Hz note (42 ms) -> 2 frames of a 49 Hz pulse, 2 dB quieter than the bump'),
     18: dict(why='six rising sweeps (10 notes each, 138->256 Hz) with rests (1.46 s) -> tone sweeps and rests'),
-    19: dict(src='digi', mode='noise', why='no speaker data: the digitized blade (254 ms) -> bright noise, level per '
+    19: dict(tail=True, src='digi', mode='noise', why='no speaker data: the digitized blade (254 ms) -> bright noise, level per '
              'frame'),
     20: dict(src='digi', mode='noise', why='no speaker data: the digitized rattle (121 ms) -> noise'),
-    21: dict(src='digi', mode='mix', tonef=733, why='no speaker data: the digitized rattle (95 ms, a clink at 733 Hz) -> '
+    21: dict(tail='noise', src='digi', mode='mix', tonef=733, why='no speaker data: the digitized rattle (95 ms, a clink at 733 Hz) -> '
              'tone + noise'),
     22: dict(src='digi', mode='mix', tonef=524, why='no speaker data: the digitized rattle (106 ms, 524 Hz) -> tone + '
              'noise'),
-    23: dict(att=4, why='one 61 Hz note (14 ms) -> 1 frame of a 61 Hz pulse, 4 dB quieter (every step)'),
+    23: dict(src='digi', mode='noise', why='the digitized step (121 ms) -> a noise tap, rate and level per frame (the '
+             'speaker\'s one 61 Hz note, a 1-frame pulse, until 2026-11-11: with a ring-out it buzzed)'),
     38: dict(why='2500, 2000, 1500, 1000 Hz (56 ms) -> 3 frames of falling tone'),
     44: dict(why='19 notes of 20 ms each, 33-3132 Hz -> one tone per frame (pulses below 108 Hz)'),
-    45: dict(voices=2, att=3, why='two interleaved lines: 1758-2536 Hz jittering, 1002->2152 Hz rising (167 ms) -> '
+    45: dict(tail=True, voices=2, att=3, why='two interleaved lines: 1758-2536 Hz jittering, 1002->2152 Hz rising (167 ms) -> '
              'two tones'),
-    46: dict(voices=3, noise=[1], att=3, why='three interleaved lines: 501->581 Hz, random, 999->919 Hz (68 ms) -> two '
+    46: dict(tail='noise', voices=3, noise=[1], att=3, why='three interleaved lines: 501->581 Hz, random, 999->919 Hz (68 ms) -> two '
              'tones + noise'),
     47: dict(voices=2, att=3, why='4000 / 750 Hz alternating (107 ms) -> two tones'),
-    48: dict(voices=3, noise=[1], att=3, why='three interleaved lines: 499 Hz falling to 0, random, 999->... falling '
+    48: dict(tail='noise', voices=3, noise=[1], att=3, why='three interleaved lines: 499 Hz falling to 0, random, 999->... falling '
              '(151 ms) -> two falling tones + noise (inaudible >15 kHz notes = silence)'),
     49: dict(voices=4, chmap={0: 0, 1: 1, 3: 2}, att=3, why='four interleaved lines 4300->5200, 2700->1800, '
              '2800->3700, 1200->300 Hz (56 ms) -> three tones (the third line, which crosses the first, dropped)'),
@@ -272,6 +283,38 @@ def frames_from_digi(sid, spec):
     return out
 
 
+TAIL_MIN, TAIL_MAX = 3, 40      # the ring-out's frames: the digitized sample's rest after the stream, within these
+
+def ring_out(sid, frames, noise_only=False):
+    """the effect's ring-out (2026-11-11): after its last audible frame the sound decays to silence over the rest of the
+    digitized sample's length (at most TAIL_MAX frames; none when the stream reaches it already; TAIL_MIN frames for the
+    one effect without a sample, the blink 38), each sounding channel from its own
+    attenuation one 2 dB step every p frames (p = tail / steps, at least 1): exactly the player's envelope (an
+    attenuation command with period p), so a tail costs one command per channel. Tones and noise hold; noise_only: the
+    tones stop at the stream's last frame, the noise channel alone decays. The stream keeps at least its old length (a
+    rest at its end stays). Only for the effects whose SPEC asks for it (tail). -> (frames, tail frames)"""
+    n0 = len(frames); fr = list(frames)
+    while len(fr) > 1 and fr[-1].att == [15] * 4: fr.pop()
+    if fr[-1].att == [15] * 4: return frames, 0
+    d = digi(sid)
+    dlen = int(round(len(d[1]) / float(d[0]) / FRAME)) if d else len(fr)
+    tail = min(TAIL_MAX, dlen - len(fr)) if d else TAIL_MIN
+    if tail <= 0: return frames, 0      # (the stream reaches the sample's end already: the digitized ones, 18, 44, 51)
+    last = fr[-1]; n1 = len(fr)
+    if noise_only:
+        if last.att[3] >= 15: return frames, 0
+        last = State(); last.tone = list(fr[-1].tone); last.noise = fr[-1].noise; last.att = [15, 15, 15, fr[-1].att[3]]
+    per = [max(1, int(round(tail / float(15 - a)))) if a < 15 else 0 for a in last.att]
+    for k in range(1, tail + 1):
+        st = State(); st.tone = list(last.tone); st.noise = last.noise
+        st.att = [15 if a >= 15 else min(15, a + k // per[c]) for c, a in enumerate(last.att)]
+        fr.append(st)
+        if st.att == [15] * 4: break
+    while len(fr) > 1 and fr[-1].att == [15] * 4: fr.pop()
+    used = len(fr) - n1
+    while len(fr) < n0: fr.append(State())
+    return fr, used
+
 def encode(frames, tol=0, fit=False):
     """the stream of a list of frame States (the format above): only the registers that change are written; the
     attenuation follows the envelope model of the player. Effects (fit False): every attenuation change is a command
@@ -362,31 +405,43 @@ def build(verbose=True):
         fr = frames_from_digi(sid, spec) if spec.get('src') == 'digi' else frames_from_speaker(sid, spec)
         if spec.get('loop') and len(fr) > 1 and fr[-1].key() == fr[0].key():
             fr = fr[:-1]                # (the loop's seam: the last frame is the first one again)
-        data = encode(fr)
+        tail = 0
+        if spec.get('tail') and not spec.get('loop'):
+            fr, tail = ring_out(sid, fr, noise_only=spec['tail'] == 'noise')
+        data = encode(fr, fit=bool(tail))
         assert len(data) < RING, (sid, len(data))
         if spec.get('loop'):
             assert data[-1] == 0 and 0 < data[-2] < 0x80, sid       # (the end byte after the last wait)
             data = data[:-1]; loops[sid] = 0
         streams[sid] = data
-        notes[sid] = spec['why']
+        notes[sid] = spec['why'] + (', ring-out %d frames' % tail if tail else '')
         info[sid] = dict(kind='effect', frames=len(fr), bytes=len(data) + (3 if sid in loops else 0))
     assert SB_ADDR & 0xFF == 0 and 4 * (NIDS - 1) < 256          # (psg.asm: the index entry at SB_ADDR + 4 id)
     banks = {}
     for fn, music, base in (('sound.bin', MUSIC_GAME, SB_ADDR),):
-        bank = bytearray(NIDS * 4); addr = base + len(bank)
+        # the streams in id order from the index on, up to BANK_END; the ones that no longer fit go to the second part
+        # at SB_HI (in id order); an index entry is a page-1 address, so the player reads either part alike
+        bank = bytearray(NIDS * 4); addr = base + len(bank); hi = bytearray(); full = False
         for sid in range(NIDS):
             if sid not in streams or (sid in MUSIC and sid not in music): continue
             data = streams[sid]
-            struct.pack_into('<HH', bank, sid * 4, addr, len(data))
-            if sid in loops: data = data + bytes([0xE8]) + struct.pack('<H', addr + loops[sid])
-            bank += data; addr += len(data)
+            n = len(data) + (3 if sid in loops else 0)
+            if full or addr + n > BANK_END:
+                full = True; at = SB_HI + len(hi)
+            else: at = addr
+            struct.pack_into('<HH', bank, sid * 4, at, len(data))
+            if sid in loops: data = data + bytes([0xE8]) + struct.pack('<H', at + loops[sid])
+            if at == addr: bank += data; addr += len(data)
+            else: hi += data
         assert base + len(bank) <= BANK_END, ('the bank overlaps the button pictures', base + len(bank))
+        assert SB_HI + len(hi) <= SB_HI_END, ('the bank\'s second part does not fit page 1', SB_HI + len(hi))
         os.makedirs(OUT, exist_ok=True)
         open(os.path.join(OUT, fn), 'wb').write(bytes(bank)); banks[fn] = bank
+        open(os.path.join(OUT, 'sound_hi.bin'), 'wb').write(bytes(hi)); banks['sound_hi.bin'] = hi
     eff = sum(i['bytes'] for i in info.values() if i['kind'] == 'effect')
     mg = sum(info[s]['bytes'] for s in MUSIC_GAME); mp = sum(info[s]['bytes'] for s in MUSIC_PRES)
-    lines = ['# generated by tools/sndconv.py: the PSG sound bank (RAM-disk page %d 0x%04X, %d bytes; the presentation\'s '
-             'banks: tools/presbank.py)' % (SB_PAGE, SB_ADDR, len(banks['sound.bin'])),
+    lines = ['# generated by tools/sndconv.py: the PSG sound bank (RAM-disk page %d 0x%04X, %d bytes, and 0x%04X, %d bytes; '
+             'the presentation\'s banks: tools/presbank.py)' % (SB_PAGE, SB_ADDR, len(banks['sound.bin']), SB_HI, len(banks['sound_hi.bin'])),
              '# id name kind frames bytes: how it was made']
     for sid in range(NIDS):
         i = info.get(sid)
@@ -395,8 +450,9 @@ def build(verbose=True):
     lines.append('# effects %d bytes, in-game music %d bytes, index %d bytes: sound.bin %d; the MIDI presentation music '
                  '(%d bytes) is not in a bank: PRES plays the Master System pieces (tools/presbank.py)' % (eff, mg, NIDS * 4, len(banks['sound.bin']), mp))
     open(os.path.join(OUT, 'sound.txt'), 'w').write('\n'.join(lines) + '\n')
-    if verbose: print('sound bank: %d bytes (effects %d, in-game music %d, index %d) -> build/assets/sound.bin '
-                      '(the presentation\'s banks: tools/presbank.py)' % (len(banks['sound.bin']), eff, mg, NIDS * 4))
+    if verbose: print('sound bank: %d + %d bytes (effects %d, in-game music %d, index %d) -> build/assets/sound.bin, '
+                      'sound_hi.bin (the presentation\'s banks: tools/presbank.py)' % (
+                          len(banks['sound.bin']), len(banks['sound_hi.bin']), eff, mg, NIDS * 4))
     return bytes(banks['sound.bin'])
 
 

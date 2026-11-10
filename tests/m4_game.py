@@ -20,7 +20,7 @@ from m4_test import z80_state, tick_end_line, KV, KV_SNAP, TR_SNAP, norm, guard_
 from emu import Emu, Hits, PALETTE, image_planes, planes_crc
 from popdata import Level, RoomRenderer, B_TRANSP, B_NOTRANSP, B_OR, B_BLACK, B_MONO, MZ, EGA2MZ, T
 import build_assets as BA
-import kidsim
+import kidsim, sndconv
 A = os.path.join(ROOT, 'build', 'assets')
 LEVEL_TYPE = RV + 20
 SCRIPT = 0xF000; SCRIPT_PTR = 0x0876; TICKS = 0x0872; SPR = 0x0b20   # SCRIPT: RAM-disk page 5 (game.asm RD_SCRIPT)
@@ -143,6 +143,7 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     ovl = open(os.path.join(ROOT, 'build', 'm4ovl.bin'), 'rb').read()   # code overlays (src/m4/ovl.asm): table + images
     write_pack(e, ovl, S['OVL_RD_PAGE'], S['OVL_RD_TAB'])
     write_pack(e, rd('sound.bin'), S['SB_PAGE'], S['SB_ADDR'])     # the PSG sound bank (tools/sndconv.py, src/m4/psg.asm)
+    if rd('sound_hi.bin'): write_pack(e, rd('sound_hi.bin'), S['SB_PAGE'], sndconv.SB_HI)    # ... and its second part
     write_pack(e, rd('fstore_masks.bin'), S['FS_MPAGE'], S['FS_MADDR'])    # the frame store's keys (tools/fstore.py)
     write_pack(e, rd('fstore_gmasks.bin'), S['FS_MPAGE'], S['FS_GMADDR'])  # ... and the guard sets'
     write_pack(e, open(os.path.join(ROOT, 'build', 'ovl_fill.bin'), 'rb').read(), S['OVL_FILL_PAGE'], S['OVL_FILL_RD'])  # the fill overlay
