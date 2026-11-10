@@ -142,7 +142,7 @@ class Player:
     def load(self, sid, fill=True):
         """snd_start's part after the halt: the index entry, the envelopes off, the ring empty, the first fill"""
         if sid not in self.bank: return False
-        self.src = self.bank[sid]; self.pos = 0; self.left = len(self.src)
+        self.src = self.bank[sid]; self.pos = 0; self.left = len(self.src); self.sid = sid
         self.loop = getattr(self.bank, 'loops', {}).get(sid); self.loops = 0
         self.env = [[15, 0, 0] for _ in range(4)]
         self.r = self.w = self.LO; self.avail = 0; self.ring = {}
@@ -152,6 +152,11 @@ class Player:
     def start(self, sid):
         self.halt()
         if self.load(sid): self.arm()
+    def again(self, sid):
+        """snd_next's start (src/m4/sndobj.asm snd_again): the stream still being copied (left != 0: a looping one,
+        or a long one mid-way) goes on when it is sid's own; otherwise start(sid)"""
+        if self.left and getattr(self, 'sid', None) == sid: return False
+        self.start(sid); return True
     def playing(self): return self.wait != 0
     def rd(self):
         if self.avail <= 0: raise Underrun()
@@ -213,7 +218,7 @@ class Sim:
         return q if intr and PRIO[q] <= PRIO[current] else -1
     def next(self):
         q = self.next_sound; p = self.playing(); st = self.decide(q, p, self.current, self.int15)
-        if st >= 0: self.current = st; self.p.start(st)
+        if st >= 0: self.current = st; self.p.again(st)
         self.next_sound = -1
         self.lines.append((self.frame, q, st, p))
         return st
@@ -323,6 +328,17 @@ def sound_states(sid, bank=None, frames=None):
         out.append(s.p.psg.state())
     return out
 
+def sound_frames(bank, sid):
+    """the frames of one pass of sid's stream: the sum of its waits (a one-shot: its length to the end byte)"""
+    s = bank[sid]; i = n = 0
+    while i < len(s):
+        b = s[i]; i += 1
+        if b == 0: break
+        if b < 0x80: n += b
+        elif b & 0x10: i += (b & 15) != 15
+        elif b < 0xE0: i += 1
+    return n
+
 def consumed(stream, loop=None, frames=None):
     """bytes of the stream read through each interrupt (the player alone, refilled after every frame; a looping
     stream for `frames` frames)"""
@@ -345,7 +361,7 @@ def render_all():
     for sid in sorted(bank):
         name = '%02d_%s' % (sid, SC.NAMES[sid])
         kind = 'music' if sid in SC.MUSIC else 'effects'
-        psg = render(sound_states(sid, bank))
+        psg = render(sound_states(sid, bank, 4 * sound_frames(bank, sid) if sid in bank.loops else None))
         write_wav(os.path.join(OUTDIR, kind, name + '_psg.wav'), psg)
         sp = speaker(sid)
         if sp is not None: write_wav(os.path.join(OUTDIR, kind, name + '_pcspk.wav'), sp)

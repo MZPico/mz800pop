@@ -10,7 +10,8 @@
 ;             clock is charged as the ticks model counts it (END_OVER here, the charge in ovl_level.asm)
 ;   2 ticks   every wait asks the ticks model (the harness's '# sound ticks' scripts: kidsim's 'ticks' mode)
 ;   3 live    every wait and play_next_sound ask the player (tests/m7_sound.py)
-; snd_next starts the sound on the PSG player (psg.asm snd_start); snd_stop stops and mutes it.
+; snd_next starts the sound on the PSG player (psg.asm snd_start; sndobj.asm snd_again: a stream the player still copies
+; goes on when the same id is started again); snd_stop stops and mutes it.
 ; The harness compares the 'N' line (queued started playing stops) every tick: m4test's snd_snap takes it at the end
 ; of snd_next (the game's snd_snap is a ret).
 ; Also here: the sound parts of the kid code (called from kid.asm, kid2.asm, guard.asm, evres.asm, which keep only
@@ -124,7 +125,8 @@ snn2:           ld      a, c
                 ld      a, (hl)
                 ld      (SND_LEFT), a
                 ld      a, b
-                call    snd_start               ; (psg.asm: the player starts it; keeps BC, DE)
+                call    snd_again               ; (sndobj.asm: the player starts it unless it plays it already; keeps
+                                                ; BC, DE)
 snn_x:          ld      a, 0xff
                 ld      (SND_NEXT), a
                 jp      snd_snap                ; (m4test: the 'N' trace snapshot; the game: ret)

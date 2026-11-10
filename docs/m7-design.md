@@ -735,7 +735,7 @@ the boot, LN_LAUNCH and LN_PRS_LOAD), tools/sndsim.py (Python player + SN76489 m
   | 12 | guard_hurt | 3 | 18 | two interleaved falling lines 230->70 / 730->570 Hz (62 ms) -> two tones (the low line as a pulse below 108 Hz) |
   | 13 | kid_hurt | 3 | 18 | two interleaved falling lines 980->820 / 480->320 Hz (51 ms) -> two tones |
   | 14 | leveldoor_closing | 9 | 26 | rising octave pairs 208/416 -> 400/800 Hz, then a 97 ms rest -> two tones, then silence (the stream keeps the length) |
-  | 15 | leveldoor_sliding | 13 | 42 | 18 notes 39->31->39 Hz (250 ms) -> a 31-39 Hz pulse following the notes |
+  | 15 | leveldoor_sliding | 12 | 42 | 18 notes 39->31->39 Hz (250 ms) -> a 31-39 Hz pulse following the notes, looping until stopped (§12.1; was 13 frames, 42 bytes, one-shot) |
   | 16 | medium_land | 3 | 20 | three interleaved lines: 121->201 and 101->181 Hz rising, one random (60 ms) -> two tones + noise |
   | 17 | soft_land | 2 | 6 | one 49 Hz note (42 ms) -> 2 frames of a 49 Hz pulse, 2 dB quieter than the bump |
   | 18 | drink | 73 | 82 | six rising sweeps (10 notes each, 138->256 Hz) with rests (1.46 s) -> tone sweeps and rests |
@@ -794,6 +794,37 @@ the boot, LN_LAUNCH and LN_PRS_LOAD), tools/sndsim.py (Python player + SN76489 m
   - The death text's blink (38, not queued) can call snd_start directly; the pause (step 10) calls snd_halt.
   - To check on the real machine: the PSG's READY / WAIT at OTIR speed (docs/research/mz800-hardware.md), the
     periodic noise's LFSR length (the low pulses' pitch), the mixing level.
+
+### 12.1 The level door's sliding loops (2026-11-10)
+
+The user's report: the level door's opening sound is interrupted. animate_leveldoor (seg007.c:464) asks for 15 at each
+of the opening's 42 ticks with sound_interruptible[15] = 0, so play_next_sound starts it again only when it has ended,
+and stop_sounds silences it when the door is open (curr_modifier 43). In SDLPoP the digitized sample (1.61 s) ends
+within a tick of the ticks model's 20 (12/s), so it is restarted at once: one grinding from start to open; the DOS
+speaker's 250 ms pattern is restarted every 3 ticks. In the release's hybrid mode play_next_sound asks the ticks model,
+which holds 15 for 20 ticks (17 with the sword drawn): ~120 frames at the MZ-800's ~6 frames a tick, while the stream was
+the 13-frame speaker pattern, so the door was silent for ~107 of every ~120 frames (3 short bursts in 5 s).
+
+The fix: 15's stream loops (tools/sndconv.py SPEC `loop`: the end byte dropped, the loop command
+0xE8 to its start follows it, as the presentation's music, §19), so it plays until the opening's stop_sounds or another
+sound starts (the closing door's 15 is cut by 14 two ticks later; every level change and restart stops it too). Its
+13th frame, the first one again, is dropped at the seam: a 12-frame cycle, 42 bytes with the loop command, and the bank
+1 byte smaller (2,327: it must end before the button pictures at page 1 0xE918, now asserted by sndconv). The ticks
+model, the queue and the 'N' lines are unchanged (silent and ticks modes: the same logic and trace). The ticks
+model's restarts (ticks 20 and 40; in the harness's silent mode every tick) no longer restart the player:
+snd_next's start is src/m4/sndobj.asm snd_again (main code, 51 bytes: block 2 is full, 0 free in the cheat build),
+which leaves the player alone when it is still copying a stream (MF_LEFT != 0) and MF_SRC lies inside the id's own
+stream (the index entry read back), and calls snd_start otherwise; an effect is copied whole at its start, so a short
+effect asked for again is restarted as before; a long piece asked for again mid-way would go on (no such request
+happens in the game). sndsim Player.again models it. Without it the silent harness restarted the looping stream every
+tick, refilling the whole 253-byte ring: perfcheck's level door step +5.7% (7.73 -> 8.17 frames a tick); with it
++1.6% (7.85: the player plays the door now). PRES's banks hold one pass of it with the end byte (PRES never plays 15;
+each bank 3 bytes smaller).
+In the hybrid and live modes the death timer and the level end, which ask the player, now see 15 for the whole opening,
+as SDLPoP does. Test: tests/m7_sound.py door_hybrid (sndsim: the opening at 5-12 frames a tick, the PSG must be heard
+at every interrupt and the stream start once; before the fix 174-465 of 210-504 frames were silent) and part A (the
+loop through the Z80 player; the driver's snd_again items: the playing loop goes on, another id or a short effect
+starts).
 
 ## 13. As built: step 4, the music (2026-10-31)
 

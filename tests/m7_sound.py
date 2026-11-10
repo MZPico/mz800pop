@@ -254,7 +254,13 @@ d1:             ld      a, (hl)
                 jr      z, d_go
                 cp      0xfe
                 jr      z, d_halt
+                bit     7, a
+                jr      nz, d_again
                 call    snd_start
+                jr      d_go
+d_again:        and     0x7f                    ; (0x80 + id: snd_next's start, sndobj.asm snd_again: A = B = id)
+                ld      b, a
+                call    snd_again
                 jr      d_go
 d_halt:         call    snd_halt
 d_go:           pop     bc
@@ -281,14 +287,14 @@ list:
 """
 
 def driver_bin(S, items):
-    """the driver assembled against the game's symbols; items [(id or 0xFE = snd_halt, frames to wait (0: until the
-    stream ends))]; a wait above 255 frames continues in 0xFD items (wait only). Returns (bytes, its symbols)."""
+    """the driver assembled against the game's symbols; items [(id, 0x80 + id = snd_again (snd_next's start) or
+    0xFE = snd_halt, frames to wait (0: until the stream ends))]; a wait above 255 frames continues in 0xFD items (wait only). Returns (bytes, its symbols)."""
     d = tempfile.mkdtemp()
     out = []
     for a, n in items:
         out.append((a, min(n, 255))); n -= min(n, 255)
         while n > 0: out.append((0xFD, min(n, 255))); n -= min(n, 255)
-    src = ''.join('%-15s equ 0x%04x\n' % (k, S[k]) for k in ('snd_start', 'snd_halt', 'snd_fill', 'SP_WAIT'))
+    src = ''.join('%-15s equ 0x%04x\n' % (k, S[k]) for k in ('snd_start', 'snd_again', 'snd_halt', 'snd_fill', 'SP_WAIT'))
     src += DRIVER + ''.join('                db      %d, %d\n' % it for it in out) + '                db      0xff, 0xff\n'
     open(os.path.join(d, 'drv.asm'), 'w').write(src)
     subprocess.run(['pasmo', '--bin', os.path.join(d, 'drv.asm'), os.path.join(d, 'drv.bin'), os.path.join(d, 'drv.sym')],
@@ -324,12 +330,44 @@ def check_lengths(tr, what):
         if abs((L - 1) - want) > 1: bad.append((sid, L - 1, round(want, 2)))
     check('A: %s: the %d music pieces last their MIDI length within 1 frame' % (what, n), not bad and n, bad)
 
+def door_hybrid(bank):
+    """the level door's opening in the release's hybrid mode (no emulator: sndsim's player on the bank, the ticks
+    model of sound.asm snd_next): animate_leveldoor asks for 15 at each of the 42 ticks before the door is open (not
+    interruptible), play_next_sound starts it when the ticks model's length (SND_T12/SND_T10: 20 / 17 ticks) has run
+    out (the player goes on with the stream it plays: snd_again), stop_sounds at tick 43 (the door open). At any tick
+    length the MZ-800 runs (5-12 frames), the sound must be heard at every interrupt from the first start to the stop,
+    and the stream started once: the door's grinding is uninterrupted. (Before the fix the 13-frame one-shot stream
+    fell silent for the rest of every 20 ticks: ~107 of every ~120 frames.)"""
+    t12, t10 = kidsim.KidSim.sound_ticks_tables()
+    bad = []
+    for ticks in (t12[15], t10[15]):
+        for fpt in (5, 6, 7, 8, 12):
+            p = sndsim.Player(bank); left = 0; silent = 0; starts = 0
+            for t in range(43):
+                if left: left -= 1                      # (snd_model: counted down at the tick's start)
+                if t == 42: p.halt(); break             # (curr_modifier 43: stop_sounds)
+                if not left: starts += p.again(15); left = ticks       # (sndobj.asm snd_again: a restart goes on)
+                for f in range(fpt):
+                    p.isr(); p.fill()
+                    st = p.psg.state()
+                    if all(st[k] >= 15 for k in (0, 2, 4, 6)): silent += 1
+            if silent or starts != 1: bad.append(dict(ticks=ticks, frames_a_tick=fpt, silent=silent, starts=starts))
+    check('the level door\'s sliding (15) is heard at every interrupt of the opening and started once (hybrid mode, 5-12 frames a tick)',
+          not bad, bad)
+
 def part_a(e, bank, quick):
     print('A. direct: every stream of the bank, overlaps, a stop')
     ids = sorted(bank)
     if quick: ids = [i for i in ids if i not in sndconv.MUSIC] + [24, 41]
-    items = [(i, 0) for i in ids]
+    items = []
+    for i in ids:                       # (a looping effect, the level door's sliding: 3 passes and a bit, then halted)
+        items += [(i, 0)] if i not in bank.loops else [(i, 3 * sndsim.sound_frames(bank, i) + 2), (0xFE, 1)]
     items += [(2, 5), (18, 3), (0xFE, 4), (41, 30), (47, 2), (0xFE, 2), (31, 3), (12, 0), (39, 40), (0xFE, 3)]
+    # snd_again (snd_next's start): the level door's looping 15 asked for again goes on (no start), another id (2)
+    # starts, 15 again then starts anew, a short effect (23) asked for again while it plays is restarted (copied whole)
+    again = [(0x80 | 15, 20), (0x80 | 15, 20), (0x80 | 2, 3), (0x80 | 15, 10), (0xFE, 2), (0x80 | 23, 1), (0x80 | 23, 0)]
+    items += again
+
     S = setup(e, 1)
     e.call('bp_clear'); e.call('bp_add', addr=S['level_ready']); e.run(400)
     drv, D = driver_bin(S, items)
@@ -374,6 +412,12 @@ def part_a(e, bank, quick):
     want = set(ids)
     check('A: every stream of the bank was started (%d ids)' % len(want), want <= set(tr.starts), sorted(want - set(tr.starts)))
     check_lengths(tr, 'the game\'s bank')
+    for i in sorted(bank.loops):
+        check('A: effect %d loops through the loop command (the model wrapped %s)' % (i, tr.wraps.get(i)), tr.wraps.get(i, 0) >= 3, tr.wraps)
+    if 15 in bank.loops:                # (the snd_again items: 15 started twice of three, 23 twice, 2 once, plus the
+        want = {15: 1 + 2, 2: 1 + 1 + 1, 23: 1 + 2}     # loop test's 15 and 2 (5), 23 (to its end) and every id once)
+        got = {i: tr.starts.get(i, 0) for i in want}
+        check('A: snd_again: the playing loop goes on, another id or a short effect starts (starts %s)' % got, got == want, (got, want))
     if not quick:                       # the presentation's pieces (M7 step 11: the Master System pieces, tools/presbank.py,
         import presbank                 # the looping ones through the loop command) through the same player, one at a time
         banks = {fn: sndsim.load_bank(os.path.join(BUILD, 'assets', fn), 0) for fn, *_ in presbank.BANKS}
@@ -442,6 +486,7 @@ def main():
     for a in [S[k] for k in ('snd_isr', 'psg_mute', 'sp_rd', 'spi_reti', 'SP_WAIT', 'ENV', 'MUS_BUF')] + [S['MUS_BUF'] + 253, S['ENV'] + 11]:
         assert not (0x1000 <= a < 0x2000 or 0x8000 <= a < 0xA000), hex(a)
     check('the ISR player\'s code and data are outside 0x1000-0x1FFF and 0x8000-0x9FFF', True)
+    door_hybrid(bank)
     with Emu() as e:
         part_a(e, bank, quick)
         print('B. game scenes')
@@ -459,7 +504,7 @@ def main():
             # store of a 16 MB RAM disk, M8a part 9; at tick 40 it wrapped with a few frames to spare until M8a part 28's
             # faster loose-floor shakes left it short)
             pres = sndsim.load_bank(os.path.join(BUILD, 'assets', 'sound_pres_b.bin'), 0)
-            tb = dict(bank); tb[41] = pres[50]; tbb = sndconv.make_bank(tb, {41: pres.loops[50]})
+            tb = dict(bank); tb[41] = pres[50]; tbb = sndconv.make_bank(tb, {**bank.loops, 41: pres.loops[50]})
             tr = part_b(e, sndsim.load_bank(tbb), rr, 'live', 400, inject=(5, 41), test_bank=tbb, tag='_loop')
             check('B: the looping piece wrapped through the room draws (%d loops)' % tr.sim.p.loops, tr.sim.p.loops >= 1, tr.sim.p.loops)
     print('FAILED: %s' % FAILS if FAILS else 'all ok')
