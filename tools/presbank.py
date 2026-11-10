@@ -20,9 +20,11 @@ Three banks (each <= SBANK_MAX = 10 KB, the torch cache page 6 0x0000-0x287F; sn
 whose entry is empty starts nothing in PRES: cut.asm play_next_sound):
   A sound_pres.bin    hourglass (55 g, 36 time_expired), title (54, 26 the embrace), cutscene (27, 35, 40), effects
                       the title a-g, the level cutscenes, time_expired, the ending (POP800.PRS entry PRS_SOUND)
-  B sound_pres_b.bin  hourglass (55: the same address as in A, so g's stream goes on through h's black and fade-in
-                      after the reload), jaffar (50: pv_scene's first cue), effects but 4 and 51 (pv_scene's cues
-                      4, 51, 53, 52 start nothing: the loop goes on)   (PRS_SND_B, loaded at h)
+  B sound_pres_b.bin  jaffar (50: pv_scene's first cue), vizier (the Grand Vizier, SMS 8, looping: Jaffar's cues 53
+                      and 52 in pv_scene, 52 again with i's fade-in), effects but 4 and 51 (pv_scene's cues 4 and 51
+                      start nothing: the piece goes on)   (PRS_SND_B, loaded at h; until 2026-11-11 it also held the
+                      hourglass piece at bank A's address, a leftover of g's music playing on through h, silent since
+                      g's fade-out, docs/m7-design.md 19.1)
   C sound_pres_c.bin  title (54: j), credits (PM_CREDITS 42: k), effects   (PRS_SND_C, loaded between i and j)
 Writes build/assets/sound_pres.txt (the layout) and with --wav build/sound/pres/model_<piece>.wav (the model: the
 piece and one loop more, tools/sndsim.py render).
@@ -42,12 +44,12 @@ PM_CREDITS = 42                     # pres.asm: k's music (an id without a DOS s
 
 # name: (VGM, loop: None one-shot, 'vgm' the VGM's loop point, 0 the whole piece)
 PIECES = {'title': ('01_title', 0), 'hourglass': ('11_hourglass', 'vgm'), 'jaffar': ('05_story_jaffar', 0),
-          'credits': ('03_story_credits', None), 'cutscene': ('07_cutscene', None)}
-FRAMES = {'title': 570, 'hourglass': 985, 'jaffar': 1220, 'credits': 501, 'cutscene': 432}   # (index.txt; asserted)
+          'credits': ('03_story_credits', None), 'cutscene': ('07_cutscene', None), 'vizier': ('08_grand_vizier', 0)}
+FRAMES = {'title': 570, 'hourglass': 985, 'jaffar': 1220, 'credits': 501, 'cutscene': 432, 'vizier': 620}   # (index.txt)
 # the banks: (file, PRS entry name, [pieces in bank order], {id: piece}, effects left out)
 BANKS = [('sound_pres.bin', 'PRS_SOUND', ['hourglass', 'title', 'cutscene'],
           {55: 'hourglass', 36: 'hourglass', 54: 'title', 26: 'title', 27: 'cutscene', 35: 'cutscene', 40: 'cutscene'}, set()),
-         ('sound_pres_b.bin', 'PRS_SND_B', ['hourglass', 'jaffar'], {55: 'hourglass', 50: 'jaffar'}, {4, 51}),
+         ('sound_pres_b.bin', 'PRS_SND_B', ['jaffar', 'vizier'], {50: 'jaffar', 53: 'vizier', 52: 'vizier'}, {4, 51}),
          ('sound_pres_c.bin', 'PRS_SND_C', ['title', 'credits'], {54: 'title', PM_CREDITS: 'credits'}, set())]
 SHARED = ('hourglass',)             # at the same address in every bank that has it (A -> B: the stream goes on)
 

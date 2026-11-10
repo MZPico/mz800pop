@@ -1155,7 +1155,8 @@ title_steps:    db      OP_DRAW, SLOT_MAIN, TGT_P1      ; (load_title_images: th
                 db      OP_LOAD, PRS_T_FRAME, OP_LOAD, PRS_T_MARRY, OP_DRAW, SLOT_FRAME, TGT_P1, OP_DRAW, SLOT_MARRY, TGT_P1
                 db      OP_WAIT
                 dw      TITLE_I_LOAD                    ; (their decoding: the screen stays black, silent)
-                db      OP_FADEIN, 50                   ; fade_in_2, Jaffar's piece again (pv_scene's faded out at its end)
+                db      OP_FADEIN, 52                   ; fade_in_2, the Grand Vizier again (DOS 52's screen; pv_scene's
+                                                        ;   faded out at its end)
                 db      OP_STEP, 'i', OP_MFADEM, OP_WAITM       ; i: frame + "Marry Jaffar", until music 52's DOS end, the
                 db      OP_MSTOP, OP_LOADB, PRS_SND_C   ;   piece faded out over its last 54 ticks (the DOS is silent from here: bank C)
                 db      OP_LOAD, PRS_T_MAIN, OP_LOAD, PRS_T_LOGO, OP_LOAD, PRS_T_CRED

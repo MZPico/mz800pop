@@ -43,5 +43,14 @@
   "loop_offset": null,
   "bytes": 2046,
   "md5": "985b56fa887fd0e122de968f0d5f6134"
+ },
+ "vizier": {
+  "file": "08_grand_vizier.psg",
+  "sms_song": 8,
+  "frames": 620,
+  "loop_frame": 0,
+  "loop_offset": 0,
+  "bytes": 3253,
+  "md5": "163a80bfb37830f79c18c72711beb37e"
  }
 }
