@@ -418,6 +418,63 @@ def loose():
     print('loose: %s screens, %d modifier pairs, %d differ' % (dict(seen), n, bad), flush=True)
     return bad
 
+def loosepics():
+    """M8a part 28 (src/m4/loosestep.asm): a loose floor's picture step in its own room patches its records in place and
+    re-lays one rect. For every loose floor of levels 1-14 and every pair of its pictures (frames 0, 1, 3: 41 / 43 / 42,
+    69 / 73 / 71, 70 / 74 / 72): the shadow changes only inside x 32c .. 32c + 64 (to 320), rows 63r + 49 .. 63r + 65,
+    and so do the changed fore ops; the wipe and mid lists stay; and the new op lists are the old ones with, in its own
+    tile's slice, every back record of the old left piece and every back and fore record of the old bottom piece (a
+    floor whose tile is drawn twice has two of each), and in the right neighbour's (c < 9) every back record of the old
+    right piece, given the new image with the bottom row kept"""
+    from popdata import LOOSE_FRAM_LEFT, LOOSE_FRAM_BOTTOM, LOOSE_FRAM_RIGHT
+    n = bad = 0
+    for lv, room, i, r, c in own_tiles(T.loose):
+        L = Level(lv); m0 = L.bg[i]
+        x0, x1, y0, y1 = 32 * c, min(32 * c + 64, 320), 63 * r + 49, 63 * r + 66
+        R = {}
+        for f in (0, 1, 3):
+            L.bg[i] = f; rr = TaggedRenderer(L); rr.draw_room(room); R[f] = (shadow(rr), rr.ops, rr.by_tile, rr)
+        L.bg[i] = m0
+        for a in R:
+            for b in R:
+                if a == b: continue
+                n += 1; errs = []
+                old, oo, ot, rr = R[a]; new, no, nt, _ = R[b]
+                pred = [row[:] for row in old]
+                for y in range(y0, y1):
+                    for x in range(x0, x1): pred[y][x] = new[y][x]
+                d = diff(pred, new)
+                if d: errs.append('%d pixels outside the rect' % d)
+                for op in (Counter(oo['fore']) - Counter(no['fore'])) + (Counter(no['fore']) - Counter(oo['fore'])):
+                    w, h, _ = rr.sets[op[0]].get(op[1])
+                    if not (op[2] >= 8 * x0 // 8 and op[2] + w <= x1 and op[3] >= y0 and op[3] + h <= y1):
+                        errs.append('fore op %s outside' % (op,))
+                for lst in ('wipe0', 'wipe1', 'mid'):
+                    if oo[lst] != no[lst]: errs.append(lst + ' ops change')
+                def patched(ops, oid, nid):
+                    ops = list(ops); found = 0
+                    for k, op in enumerate(ops):
+                        if op[0] == CH_ENV and op[1] == oid:
+                            ho = rr.sets[CH_ENV].get(oid)[1]; hn = rr.sets[CH_ENV].get(nid)[1]
+                            ops[k] = (op[0], nid, op[2], op[3] + ho - hn, op[4]); found += 1
+                    if not found: errs.append('no record %d' % oid)
+                    return tuple(ops)
+                pl = [(LOOSE_FRAM_LEFT[a], LOOSE_FRAM_LEFT[b]), (LOOSE_FRAM_BOTTOM[a], LOOSE_FRAM_BOTTOM[b])]
+                own = (0, r, c); o = list(ot[own])
+                for oid, nid in pl: o[0] = patched(o[0], oid, nid)
+                o[2] = patched(o[2], LOOSE_FRAM_BOTTOM[a], LOOSE_FRAM_BOTTOM[b])
+                if tuple(o) != nt[own]: errs.append('own tile: %s -> %s, not %s' % (ot[own], tuple(o), nt[own]))
+                if c < 9:
+                    rt = (0, r, c + 1); o = list(ot[rt])
+                    o[0] = patched(o[0], LOOSE_FRAM_RIGHT[a], LOOSE_FRAM_RIGHT[b])
+                    if tuple(o) != nt[rt]: errs.append('right tile: %s -> %s, not %s' % (ot[rt], tuple(o), nt[rt]))
+                for k in ot:
+                    if k not in (own, (0, r, c + 1)) and ot[k] != nt.get(k): errs.append('tile %s changes' % (k,))
+                if errs:
+                    bad += 1; print('loosepics: level %d room %d tile %d %d -> %d: %s' % (lv, room, i, a, b, ', '.join(errs[:4])))
+    print('loosepics: %d steps, %d differ' % (n, bad), flush=True)
+    return bad
+
 if __name__ == '__main__':
-    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes', 'torches', 'caches', 'loose']
+    what = sys.argv[1:] or ['gates', 'doors', 'buttons', 'chompers', 'spikes', 'torches', 'caches', 'loose', 'loosepics']
     sys.exit(1 if sum(globals()[w]() for w in what) else 0)

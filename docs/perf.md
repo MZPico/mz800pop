@@ -4376,3 +4376,136 @@ ticks: the beam phase, deterministic), fight +0.04, walkthrough 190-260 +0.05; 1
   run_rooms, traps_b1, fight1, fight_drop, level2_fight and level2_drop. The only differences are seven floor scenes
   (l10r11p20, l13r01p22, l13r12p00/01/02, l13r17p22/23) that differ the same way, pixel for pixel, on main's build:
   they are not from this change.
+
+## M8a part 28: loose floors' shakes patched in place (2026-11-10)
+
+Status: **built: a loose floor's picture step patches its records and lays one small rect.** Of the three loose-floor
+candidates left after the falling floors' drawing order (the speed roadmap's 3, L2: cached pictures; #49's right-tile
+overlay ops; 11, M3), each was measured first, and two more were built and measured and then left out (below).
+
+### Measure first (1 MB, main 960bcaf)
+
+tools/loosescenes.py measure (the five scenes of `find`: levels 13, 10, 13, 13, 11), frames a tick median / p90 /
+mean: shake (sh, a loose_frame change) 4.98 / 12.78 / 7.25, release 12.07 / 16.79 / 12.09, one floor falling 6.95 /
+9.47 / 7.07, several 10.57 / 14.03 / 10.63, landing 11.81 / 19.80 / 12.59, nothing 3.99. Where a tick goes
+(tools/optione.py profile / diff against the scene with its loose floors patched to floor, inclusive frames, a - b):
+
+| tick | a / b | redraw (of it: regenerations, run_rect, shadow write) | the object pass | copy, wait |
+|---|---|---|---|---|
+| a visible shake step (fallrun 1, 2, 8: one floor) | 6.46 / 2.56 | +2.94 (0.53, 1.66, 0.23; the laying 1.22: 8 pieces) | +0.33 | +0.22, +0.26 |
+| a knock (shake_a 18, level 11 room 8: 8 floors) | 26.90 / 4.31 | +18.36 (4.23, 9.34, 1.74) | +3.03 | +1.24, +0.99 |
+| one floor falling, one shaking (fallrun 12) | 8.89 / 3.86 | +2.94 (the shake) | +2.75: people_chunk +1.62 (lay_mob 0.69, pc_ops 0.49) | +0.47, +0.05 |
+| falling, a torch room (l01r07p05 45, one floor) | 7.59 / 5.02 | 0 | lay_mob 1.02, pc_ops 0.51; flames_lay +0.30, tc_try -0.20 | +0.6..+0.8 (the torch chunks pending, not copied directly) |
+
+people_place +0.40..+0.46 on a falling tick is ov_gen_all (0.36-0.42), #49's right-tile overlay ops. A shake
+regenerates its own tile and its right neighbour (part 18), then lays the rect of all their old and new ops.
+
+### What changed
+
+A loose floor's picture step in its own room (spike.asm loose_redraw, VS_KIND 0) goes to a new W1 overlay
+(src/m4/ovl_loose.asm, loosestep.asm; the stub loose_fast). It does not regenerate. It patches the records and lays one
+rect:
+- **records:** in the floor's own slice every back record of the old left piece (41 / 69 / 70) and every back and fore
+  record of the old bottom piece (43 / 73 / 74); in the right neighbour's slice (columns 0-8) every back record of the
+  old right piece (42 / 71 / 72). Each gets the new image with its bottom row kept: frames.asm's fs_patch, moved to
+  src/m4/fspatch.asm and included by both overlays. A tile drawn twice (5 floors of levels 4 and 10) has two of each.
+- **the rect:** x 4c .. 4c + 7 (to byte column 39), rows 63r + 49 .. 63r + 65, laid by dr_run as one chunk (at most
+  8 x 17).
+- a fore record patched where the redraw touched a torch flame drops the torch pictures with fore pieces (fore_gen, as
+  frames.asm). Records keep their places, so ops_gen and the torch registry need not follow. This is also why the torch
+  rooms gain more (below): a shake no longer renews the flame registry and flushes the torch cache.
+- a record not found (never, by the check) or a picture outside the three: carry, and loose_redraw regenerates as
+  before (the tiles from the level, whatever was patched).
+
+**Why it is exact:** tools/movecheck.py loosepics renders every loose floor of levels 1-14 in its own room with each of
+its three pictures (frames 0, 1, 3) and checks every ordered pair: the shadow changes only inside the rect, and so do
+the changed fore ops; the wipe and mid lists stay; and the old tiles' op lists patched as above equal the new ones,
+every other tile's unchanged. 1,032 steps, 0 differ. Other screens (the left room's column 9, the above room's row 2)
+take part 18's path.
+
+### Built, measured and left out
+
+1. **L2 proper: the rect's pictures in RAM-disk slots** (as the choppers' in part 15, through cs_put). The rect is a
+   function of a key: the floor's picture and the bottom piece its left and right neighbours' slices hold (a
+   movecheck claim, 4,185 renders, 0 differ). So the slots stay valid over the neighbours' steps (a knock), and only
+   other redraws drop them (frm_drop over a 6-entry LS_TAB in low RAM 0x09DB). Four keyed slots a floor, 16 MB page
+   62 0xC000-, 512 KB / 1 MB from part 15's pools. On the 168 loose-floor scenes (1 MB) it gave sh 5.42 -> 5.41 over
+   the patch alone, the falling and release ticks +0.02..+0.05:
+   - a stepped-on floor's countdown shows pictures B, A, C, A, C: two hits of five at most;
+   - a hit still costs ~0.9 (the slot read 0.22, cs_put's shadow write 0.25, the patches 0.15, the key's look-ups
+     0.08) against ~1.9 for a lay, and a miss pays the save (+0.2);
+   - 512 KB / 1 MB have 18 slots for every chopper, spike and floor (four floors);
+   - shake_a's second knock 24.3 -> 20.5, its first +2 (all misses).
+
+   It cost a 1,017-byte overlay that needed its own RAM-disk place, 36 bytes of low RAM and 11 of main.
+2. **The torch cache per chunk** (tc_try asked "any overlay op this tick"; ov_meet, ~85 bytes of main, tested each op
+   against the chunk). Measured on the 168 scenes: torch rooms' falling ticks +0.11 (mob1 7.87 -> 7.97), releases
+   +0.17. Right after a release the cache is cold (its tile_redraw renews the flame registry), and a floor falls only
+   4-8 ticks, so the cache only paid its saves (tc_save), as part 18 found.
+
+Not built:
+- **Caching the right tiles' overlay ops** (ov_gen_all 0.36-0.42 a falling tick): the tiles marked are the same as
+  last tick's on 669 of 2,093 falling ticks (32 %, kidsim over the 168 scenes): ~-0.12 a falling tick.
+- **M3, a falling floor's pieces looked up once a tick:** lm_piece's directory look-ups are ~0.007 a call: ~-0.05 a
+  falling tick.
+
+### Memory (main 960bcaf / this)
+
+| area | change |
+|---|---|
+| main (end_of_code 0x7AC5 -> 0x7AD6) | +17: the stub loose_fast 8, loose_redraw's call 9; **298 free** |
+| low code block, block 2, low RAM | unchanged (35 free; 13 free, the cheat build 0) |
+| overlays | the loose-floor overlay (16), W1: 373 bytes (651 free), in page 7's area at 0xFC24; OVL_MAX 16 -> 17; the frames overlay unchanged (988 bytes: fs_patch moved to fspatch.asm) |
+| RAM disk | page 7's overlay area 8,988 -> 9,369 bytes (7:D900-FD98, 615 free; the cheat build to 7:FF36, 201 free) |
+
+### Per phase (tools/loosescenes.py measure, the five scenes; frames a tick, mean (median); main / this)
+
+| phase | ticks | 512 KB | 1 MB | 16 MB |
+|---|---:|---|---|---|
+| shake (sh) | 81 | 7.44 (4.99) / **6.86** (4.97) | 7.25 (4.98) / **6.68** (4.93) | 6.91 (4.40) / **6.35** (4.40) |
+| release | 26 | 12.21 / **12.04** | 12.09 / **11.92** | 11.85 / **11.69** |
+| one falling | 52 | 7.60 / **7.42** | 7.07 / **6.94** | 6.79 / **6.65** |
+| two to five falling | 54 | 10.82 / 10.77 | 10.63 / 10.60 | 10.49 / 10.46 |
+| landing | 18 | 12.73 / **12.45** | 12.59 / **12.44** | 12.29 / **12.16** |
+| nothing | 203 | 4.38 / 4.38 | 4.35 / 4.35 | 4.33 / 4.33 |
+
+- **A visible shake step: -1.0 a floor** at every size (fallrun ticks 1, 2, 8, 1 MB: 6.46 / 6.00 / 6.25 -> 5.48 /
+  4.97 / 5.23). The redraw goes 2.94 -> 1.92. The laying stays (the same 8 pieces clipped to the rect, 1.2); the
+  regenerations, the room links, the flame registry and most of the dirty rect go.
+- **The 8-floor knock** (shake_a ticks 17-20): 26.5-26.9 -> 23.7-23.9 (512 KB, 1 MB); 25.9-27.0 -> 22.8-24.2 (16 MB).
+  That is ~-0.4 a floor: the floors' rects overlap, and each still lays its own.
+- The other phases gain where a shaking floor shares the tick.
+
+On the 168 loose-floor scenes (one a floor of levels 1-14, 1 MB, means): shake 5.92 -> **5.42** (torch rooms 6.41 ->
+**5.73**: the torch cache survives a shake now; others 5.54 -> 5.19). Falling -0.05, the rest within +-0.04.
+
+### perfcheck (one run per size; main 960bcaf's own runs = the baselines; lowered where beaten, in this commit)
+
+| Stretch | 512 KB base / new | 1 MB base / new | 16 MB base / new |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.73 / **4.51** | 4.51 / **4.28** | 4.44 / **4.21** |
+| level door step (walkthrough 203-207) | 8.49 / 8.50 | 7.73 / 7.72 | 7.73 / 7.72 |
+| room change (walkthrough 89) | 82.28 / 82.66 | 82.28 / 82.32 | 81.44 / 81.49 |
+| walkthrough 190-260 | 5.89 / 5.92 | 5.75 / 5.76 | 5.38 / 5.40 |
+| gate (gate_push 200-260) | 4.02 / 4.02 | 4.02 / 4.02 | 4.02 / 4.02 |
+| traps (traps_b1 0-300) | 4.96 / **4.89** | 4.77 / **4.71** | 4.74 / **4.68** |
+| fight (fight1 60-160, guard on) | 6.35 / 6.39 | 5.63 / 5.65 | 5.42 / 5.45 |
+| choppers (frm_button 20-120) | 6.42 / 6.42 | 6.14 / 6.16 | 5.53 / 5.53 |
+
+The normal tick holds walk_level1's knock-shaken floor (ticks 55-58): -0.22..-0.23. On every other stretch main
+960bcaf's own runs are within 0.02 of the new build's (512 KB room change 82.66, fight 6.41; 1 MB fight 5.65, choppers
+6.16; 16 MB fight 5.45): the differences from the baselines there are #49's and the beam phase, not this change.
+
+### Same pixels, same logic
+
+- **tests/m4_game.py --every 1** at 512 KB, 1 MB and 16 MB on one scene per loose floor of levels 1-14 (168, #49's
+  set), on loosescenes.py's fall, fallrun, multi (to tick 46), ride and shake scenes, walk_level1, run_rooms,
+  traps_b1, fight1, fight_drop, level2_fight, level2_drop, frm_button and chomper (182 scripts a size): 0 state diffs
+  and 0 differing pixels, except the seven floor scenes #49 found (l10r11p20, l13r01p22, l13r12p00 / 01 / 02,
+  l13r17p22 / 23). They differ the same way, pixel for pixel, on main 960bcaf's build (run again here).
+- **tools/movecheck.py loosepics** (new) and **loose**: 0 differ.
+- The logic is untouched (drawing only). `make cheats` (block 2 0 free as before, page 7 201 free). The full
+  regression on the runners: see the PR.
+- **tests/m7_sound.py:** its looping-piece check (Jaffar's piece streamed through walk_level1's room draws, live) now
+  starts the piece at tick 5, not 40. At 16 MB the walkthrough got short enough that the piece no longer wrapped before
+  the script's end (0 loops; it had wrapped with a few frames to spare). From tick 5 it wraps once at every size.

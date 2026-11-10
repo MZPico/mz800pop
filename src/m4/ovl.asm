@@ -36,7 +36,7 @@ OVL_W2_END      equ     0xb000
 OVL_RD_PAGE     equ     7               ; the overlay table and images: RAM-disk page 7 after the vizier guard set (0x8D80-0xD8F3;
 OVL_RD_TAB      equ     0xd900          ; page 6 0xE300-0xFFFF until 2026-11-01, full then) (256-aligned: entry k at low byte 8 k)
 OVL_RD_LAST     equ     0xffff          ; (the area ends with the page)
-OVL_MAX         equ     16              ; table entries (the images follow the table)
+OVL_MAX         equ     17              ; table entries (the images follow the table)
 OVL_ROOM        equ     0               ; W1: the full room draw (src/m4/ovl_room.asm)
 OVL_LEVEL       equ     1               ; W2: load_level and the level start (src/m4/ovl_level.asm)
 OVL_EVENT       equ     2               ; W1: potions, scripted shadows, the mirror jump (src/m4/ovl_event.asm)
@@ -53,6 +53,7 @@ OVL_DOOR        equ     12              ; W1: the level door's opening step (src
 OVL_FRM         equ     13              ; W1: choppers' and spikes' pre-drawn pictures (src/m4/ovl_frm.asm)
 OVL_LOW         equ     14              ; WL: the lazy shadow, resident (src/m4/ovl_low.asm, M8a part 25)
 OVL_LOW2        equ     15              ; WL2: choppers' and spikes' steps and direct copies, resident (src/m4/ovl_low2.asm)
+OVL_LOOSE       equ     16              ; W1: a loose floor's picture step (src/m4/ovl_loose.asm, M8a part 28)
 OVL_WF          equ     0xaa00          ; the fill overlay's window: W2's top (the level-start overlay ends below it)
 OVL_FILL_PAGE   equ     6               ; its image in the RAM disk (written on every size; page 7's area is nearly full)
 OVL_FILL_RD     equ     0xec00
@@ -190,6 +191,11 @@ frm_fast:       push    af
                 ld      a, OVL_FRM
                 call    ovl_w1
                 pop     af
+                jp      OVL_W1 + 0
+; the loose-floor overlay (src/m4/loosestep.asm): spike.asm loose_redraw; B, D = the new and the old picture; carry: not
+; this way (A is not kept)
+loose_fast:     ld      a, OVL_LOOSE
+                call    ovl_w1
                 jp      OVL_W1 + 0
 ; the save overlay (src/m4/save.asm, W2): save_key at a tick start (game.asm: Ctrl+G; keeps BC), load_saved (M7: the
 ; title's Ctrl+L; A = 0 loaded, 1 no valid save, 2 disk error)
