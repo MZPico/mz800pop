@@ -131,17 +131,19 @@ def part_title(dsk):
             go(e); pc = e.call('get_registers')['PC']; tr.event(pc)
             if pc == PS['title']: break
         check('after m\'s fade-out (screen black) the title again (step 9 puts the demo here)', e.vram_planes() == BLACK)
-        C.psg_report(tr, 'the title from g to m (music 55, 50, 50 again, 54, 42)')
-        check('   the music: g\'s piece (55), Jaffar\'s piece (50) from pv_scene\'s first cue and again with i\'s fade-in, the title theme (54) at j, '
-              'the credits (42) at k; the cues 4, 51, 53, 52 start nothing; banks A at the title\'s start, B at h, C before j: %s' % tr.banks,
-              tr.starts.get(50) == 2 and all(s in tr.starts for s in (54, 42)) and not any(s in tr.starts for s in (4, 51, 53, 52)) and tr.starts.get(55) == 1 and
+        C.psg_report(tr, 'the title from g to m (music 55, 50, 53, 52, 52 again, 54, 42)')
+        check('   the music: g\'s piece (55), the story piece (50) from pv_scene\'s first cue, the Grand Vizier at Jaffar\'s cues 53 and '
+              '52 and again with i\'s fade-in (52), the title theme (54) at j, the credits (42) at k; the cues 4 and 51 start nothing; '
+              'banks A at the title\'s start, B at h, C before j: %s' % tr.banks,
+              tr.starts.get(50) == 1 and tr.starts.get(53) == 1 and tr.starts.get(52) == 2 and all(s in tr.starts for s in (54, 42)) and
+              not any(s in tr.starts for s in (4, 51)) and tr.starts.get(55) == 1 and
               [b for _, b in tr.banks] == ['PRS_SOUND', 'PRS_SND_B', 'PRS_SND_C'], (tr.starts, tr.banks))
-        check('   Jaffar\'s piece looped %s times in pv_scene (24.4 s a loop)' % tr.wraps.get(50), tr.wraps.get(50, 0) >= 1, tr.wraps)
+        check('   the Grand Vizier looped %s times from pv_scene\'s cue 52 (12.4 s a loop)' % tr.wraps.get(52), tr.wraps.get(52, 0) >= 1, tr.wraps)
         # the fade-outs (psg.asm mf_start, MFADE_FRAMES): each ends silent (the stream stopped) at its screen's end
         fo = 16                                       # (a fade_out_2's last pass: the screen black)
         want = [(55, (th - 20 + fo - sndsim.MFADE_TICKS) * 5 // 6, (th - 20 + fo) * 5 // 6),
-                (50, None, (Tpv - 4) * 5 // 6),
-                (50, (mus_end - sndsim.MFADE_TICKS) * 5 // 6, mus_end * 5 // 6),
+                (52, None, (Tpv - 4) * 5 // 6),
+                (52, (mus_end - sndsim.MFADE_TICKS) * 5 // 6, mus_end * 5 // 6),
                 (54, (Tk - sndsim.MFADE_TICKS) * 5 // 6, Tk * 5 // 6),
                 (42, (Tm + fo - sndsim.MFADE_TICKS) * 5 // 6, (Tm + fo) * 5 // 6)]
         got = [(sid, a - F0, b - F0) for a, (sid, b) in zip(tr.fades, tr.faded)]

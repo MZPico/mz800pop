@@ -580,7 +580,7 @@ play_next_sound:
                 ld      a, 0xff
                 ld      (cut_next), a
                 ; (M7 step 11) a cue whose id has no stream in the bank starts nothing: the piece playing goes on
-                ; (pv_scene's 4, 51, 53, 52 under Jaffar's piece: tools/presbank.py bank B); the ticks model runs as before
+                ; (pv_scene's 4 and 51: tools/presbank.py bank B); the ticks model runs as before
                 ld      a, (cut_cur)
                 add     a, a
                 add     a, a

@@ -1540,15 +1540,17 @@ command; the tones rescaled by 1.0000006), build/sound/sms/index.txt:
 |---|---|---|---|---|
 | Title a-f (MAIN .. logo) | 01 title (570 = 11.40 s) | 54 | whole; stopped in f after exactly 2 plays (1140 frames), f 60 ticks shorter (§15) | A |
 | Story text g | 11 hourglass (985) | 55 | from frame 25 (0.50 s intro, 19.20 s loop); faded out with g's fade-out (§19.1) | A |
-| pv_scene h from its first cue (frame 2) | 05 story_jaffar (1220 = 24.40 s) | 50 | whole; faded out by pv_scene's fade-out | B |
-| "Marry Jaffar" i | 05 | 50 | again from its start with i's fade-in; faded out at i's end | B |
+| pv_scene h from its first cue (frame 2) | 05 story_jaffar (1220 = 24.40 s) | 50 | whole | B |
+| pv_scene from Jaffar's cues 53, 52 (§19.2) | 08 Grand Vizier (620 = 12.40 s) | 53, 52 | whole; restarted at 52; faded out by pv_scene's fade-out | B |
+| "Marry Jaffar" i | 08 | 52 | again from its start with i's fade-in; faded out at i's end | B |
 | Main picture j | 01 | 54 | whole; faded out at j's end | C |
 | Credits k | 03 story_credits (501 = 10.02 s) | PM_CREDITS 42 | one-shot; faded out with m's fade-out (k lasts 440 ticks = 367 frames) | C |
 | Level cutscenes 2/6, 4, 8, 9, 12 | 07 cutscene (432 = 8.64 s) | 27, 35, 40 | one-shot: the level starts when it ends (it decays to silence itself) | A |
 | Time-out | 11 | 36 | as g; faded out at its end | A |
 | Ending: embrace, hail, TITLE_MAIN | 01 | 26 | whole; cut at step t after 3 plays (2052 ticks from the embrace's start) | A |
 
-The pv_scene cues 4, 51, 53, 52 and the hail's 56 start nothing: Jaffar's piece / the title theme loop on. The cues'
+The pv_scene cues 4 and 51 and the hail's 56 start nothing: the piece playing / the title theme loop on (until
+2026-11-11 also 53 and 52, under Jaffar's piece 05: §19.2). The cues'
 ticks model (cut_left, mus_end) runs exactly as before, so every screen's duration is the DOS one: g 600 ticks, h waits for
 55's DOS end (945 ticks after g's start) before the fade-in, i until 52's DOS end (1734 ticks after its cue), j 80 + 120,
 k 80 + 360, the embrace 840 (26), the hail 16 + 900, the wipe + TITLE_MAIN 240.
@@ -1559,7 +1561,8 @@ address 228 in A and B, so it played on through h's black wait and the fade-in u
 Jaffar's piece; since the fades of §19.1 it is silent from g's fade-out, the shared address stays); bank C after i (OP_MSTOP first: the DOS is silent from i's end, so nothing is cut); bank A again at the next title
 start, and at p_cutscene unless it is there (bank_cur). Three reloads instead of one because 01 + 11 + 05 (12.2 KB exact,
 10.2 KB _env) do not fit the 10 KB torch cache with the index (228 B): all pieces stay exact. Sizes with all effects:
-A 10,121 B (247 free), B 9,938 (430; without the effects 4 and 51, pv_scene's no-op cues), C 7,631 (2,737).
+A 10,121 B (247 free), B 9,938 (430; without the effects 4 and 51, pv_scene's no-op cues), C 7,631 (2,737); since §19.2
+and the ring-outs (§12.2) A 10,148 (220), B 9,738 (630: 05, 08, the effects), C 7,658 (2,710).
 
 **The loop command** (§13): `0xE8 lo hi` after a stream whose last byte is a wait, not counted in the index length; snd_fill
 reads it when it has copied the stream's last byte and goes on from hi:lo (`jp snd_fill`: the loop point's bytes follow the
@@ -1634,3 +1637,27 @@ Unchanged: the title a-f (the theme stops on its 2nd pass's end, §15), the endi
 exactly, the pass boundary), the level cutscenes (SMS 7 decays to silence by itself; only its last 1-2 frames, silent,
 fall after the level start). A key (the title, the story, pv_scene, a level's cutscene) still stops the music at once
 (snd_halt): the game starts right away, and a fade could not run across the floppy loads (interrupts off).
+
+### 19.2 The Grand Vizier for Jaffar's screens (2026-11-11)
+
+The user's choice after the Game Gear pack was compared with our Master System rip (the same soundtrack: its 8 tracks are
+our pieces 01, 03 + 05 chained ("Intro"), 11, 14, 16, 10, 08, 15; the GG names settle that our 08 is SMS Power's "Grand
+Vizier" and our 16 its "Get Sword"; our 07 is their SMS pack's "Mirror Prince", the one piece the GG pack lacks): the
+screens whose DOS piece is Jaffar's play the Grand Vizier. In pv_scene the DOS cue 53 (story 3, Jaffar comes) and 52 (story
+4, Jaffar leaves) start it (a cue with a stream in the bank starts it, cut.asm play_next_sound), "Marry Jaffar" i (under
+52) starts it again with its fade-in (OP_FADEIN 52). The princess's part of pv_scene from cue 50 keeps 05. The
+time-out's scene (36) shows no Jaffar and keeps the hourglass piece; the level cutscenes are the princess's.
+
+- **The piece**: assets/sms/08_grand_vizier.psg (SMS song 8, 620 frames = 12.40 s, 3,253 bytes, exact, looping whole as
+  01 and 05: the loop group writes the whole chip state), made by presbank.py --from-vgm as the others (the five
+  existing streams came out byte-identical); vgm2psg.py PIECES names it grand_vizier.
+- **Bank B** holds 05 (50), 08 (53, 52) and the effects but 4 and 51: 9,738 bytes (630 free). The hourglass piece left
+  it: it sat at bank A's address so that g's stream went on through h's black after the reload, which is silent since
+  g's fade-out (§19.1). No fourth bank, no _env variant: the exact stream fits.
+- **Timing**: unchanged. The cues' ticks model (cut_left, mus_end) and every screen's DOS length stay; pv_scene's fade
+  (after frame 360) and i's fade (54 ticks before 52's DOS end) now fade the Grand Vizier. The Grand Vizier is restarted
+  at cue 52 (a DOS cue is a new piece) and loops (12.4 s against 52's 28.9 s).
+- **Floppy**: POP800.PRS / PR2 unchanged in blocks (bank B -227 bytes, its entry 19 blocks as before); PRES's code
+  unchanged (one operand byte): the duel's PRES and floppy reserves are untouched.
+- **Tests**: tests/m7_story.py (the starts: 50 once, 53 once, 52 twice, 4 and 51 none; the Grand Vizier loops; the fades
+  of pv_scene and i are 52's), tests/m7_sound.py part A plays the new piece through the game's player with its loop.

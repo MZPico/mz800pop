@@ -1142,3 +1142,8 @@ piece used AND/XOR semantics.
    the taps, clicks and thumps; the footstep a noise tap from its sample. +30 bytes; the bank's second part at page 1
    0xFEE4 (free at every RAM-disk size; sndconv and tests/m7_sound.py check the layout). No game code, the sound model
    and the 'N' lines unchanged; an interrupting effect sounds as alone.
+77. The Grand Vizier for Jaffar's screens (2026-11-11, docs/m7-design.md 19.2; the user's choice after the Game Gear pack
+   turned out to be our Master System soundtrack): PRES plays SMS song 8 ("Grand Vizier", assets/sms/08_grand_vizier.psg,
+   3,253 bytes, looping) at pv_scene's Jaffar cues 53 and 52 and with "Marry Jaffar"; the princess's part keeps 05.
+   Bank B holds 05, 08 and the effects (the hourglass piece left it: 630 bytes free). Timing, fades and the floppy's
+   blocks unchanged.

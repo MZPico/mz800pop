@@ -52,13 +52,15 @@ PIECES = {
     1: ('title', 'title screen music (also the attract mode\'s first piece)'),
     3: ('story_credits', 'intro story, first part: the palace with the princess and the credits'),
     5: ('story_jaffar', 'intro story, second part: Jaffar in the palace (chained after 3 by the game)'),
-    7: ('cutscene', 'the between-level cutscene piece (called from five cutscene character scripts)'),
-    8: ('ending', 'played by the ending script interpreter (not reached in the emulator; by code only)'),
+    7: ('cutscene', 'the between-level cutscene piece (called from five cutscene character scripts; SMS Power\'s "Mirror '
+        'Prince", the one track of their SMS pack the Game Gear pack lacks)'),
+    8: ('grand_vizier', 'SMS Power\'s "Grand Vizier" (the Game Gear pack\'s track of that name is the same piece); called by '
+        'the ending script interpreter (not reached in the emulator; by code only); PRES plays it for Jaffar\'s screens'),
     10: ('potion', 'the potion jingle (the potion-drinking code, one piece for all potions)'),
     11: ('hourglass', 'the looping piece of the "minutes left" hourglass screen and the demo play'),
     14: ('level_start', 'played when a level starts (after the hourglass screen); the game is silent after it'),
     15: ('death', 'the death music (fall, spikes, chomper, sword)'),
-    16: ('level_end', 'played when the kid walks into the exit door'),
+    16: ('level_end', 'played when the kid walks into the exit door (SMS Power\'s "Get Sword", as the Game Gear pack\'s)'),
 }
 SFX = list(range(17, 35))
 
