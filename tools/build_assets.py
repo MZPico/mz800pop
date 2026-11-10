@@ -14,7 +14,7 @@ Sets:
 """
 import json, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
-from popdata import kid_post, POTION_FRAM_BUBB, CHOMPER_FRAM1, ImageSet, DatImageSet, DATA, DOSDIR, TILE_TABLE, EGA2MZ, PALACE_EGA_MAP, palace_env_post, palace_wall_post
+from popdata import kid_post, KID_FEET, POTION_FRAM_BUBB, CHOMPER_FRAM1, ImageSet, DatImageSet, DATA, DOSDIR, TILE_TABLE, EGA2MZ, PALACE_EGA_MAP, palace_env_post, palace_wall_post
 from datfile import DatFile
 OUT = os.path.join(HERE, '..', 'build', 'assets')
 EGA = os.path.isdir(DOSDIR) and not os.environ.get('POP_VGA_ASSETS')   # EGA DAT art when the DOS files are present
@@ -65,7 +65,9 @@ def ega_set(name, sprite):
     dat, first, paldat = EGA_SETS[name]
     if name == 'palace': iset = DatImageSet(dat, first, ega_map=PALACE_EGA_MAP, post=palace_env_post)
     elif name == 'palace_wall': iset = DatImageSet(dat, first, ega_map=PALACE_EGA_MAP, post=palace_wall_post)
-    elif name == 'kid': iset = DatImageSet(dat, first, sprite=sprite, post=kid_post)
+    elif name == 'kid':
+        iset = DatImageSet(dat, first, sprite=sprite, post=kid_post)
+        iset.lut[13], iset.lut[14] = (c or 8 for c in KID_FEET)       # the feet (popdata.KID_FEET)
     else: iset = DatImageSet(dat, first, sprite=sprite)
     if paldat:
         r = DatFile(os.path.join(DOSDIR, paldat + '.DAT')).resource(750)
@@ -345,7 +347,23 @@ def title_image(res):
             e = tabs[((y0 + y) & 1) * 2 + ((x0 + x) & 1)][v]
             r.append(-1 if v == 0 else EGA2MZ[0 if e == 13 else e])
         out.append(r)
+    if res == TITLE_MAIN: title_sky(out)
     return w, h, out
+
+# T2w (2026-11-10, PLAN status 74): the title's sky is EGA brown (6), MZ yellow 6, too close to the palace's yellows in
+# front of it. Inside the arch window only (rows < TITLE_SKY_ROWS: the area reached from the sky's point TITLE_SKY_SEED
+# without crossing the arch's light yellow 14) the MZ yellow 6 pixels become a red 2 / dark green 4 checker (= brown);
+# the yellow ornaments and the road outside the window keep their colour.
+TITLE_MAIN, TITLE_SKY_SEED, TITLE_SKY_ROWS = 51, (160, 40), 100
+def title_sky(rows):
+    seen = {TITLE_SKY_SEED}; st = [TITLE_SKY_SEED]
+    while st:
+        x, y = st.pop()
+        for q in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= q[0] < len(rows[0]) and 0 <= q[1] < TITLE_SKY_ROWS and q not in seen and rows[q[1]][q[0]] != 14:
+                seen.add(q); st.append(q)
+    for x, y in seen:
+        if rows[y][x] == 6: rows[y][x] = 2 if (x + y) & 1 else 4
 
 def build_title():
     """title.pack / title.dir / title.json (PRES's title art; mkgamedisk.py cuts it into PZ bands for POP800.PRS).
