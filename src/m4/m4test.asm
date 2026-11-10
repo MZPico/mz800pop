@@ -179,6 +179,7 @@ SS_N            equ     ($ - ss_tab) / 2
 ; (psg.asm's address): 0 silent, 2 ticks ('# sound ticks' scripts: tests/m4_test.py pokes it before the start)
 SND_MODE        equ     0x03c8 + 8
 snd_start:
+snd_again:
 snd_halt:       ret
 snd_playing:    xor     a
                 ret

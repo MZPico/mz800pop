@@ -46,6 +46,7 @@ OUT = os.path.join(HERE, '..', 'build', 'assets')
 CPU = 3546895                   # Hz; the PSG is clocked at CPU / 16 (mz800emu), tone f = CPU / (32 N)
 FRAME = 0.02                    # the player's step: one VBLN interrupt (50 Hz)
 SB_PAGE, SB_ADDR = 1, 0xE000    # the bank in the RAM disk (src/m4/psg.asm SB_PAGE, SB_ADDR)
+BANK_END = 0xE918               # the button pictures follow it (src/m4/btnstep.asm BC_BASE, docs/memory.md)
 MUS_BUF, RING = 0xFE02, 254     # the player's ring buffer (0xFE02-0xFEFF; it holds at most RING - 1 bytes)
 NIDS = 57
 TONE_MIN = CPU / (32 * 1023)    # 108.3 Hz: the lowest tone
@@ -72,6 +73,13 @@ UNUSED = {31, 34, 42}
 #   att        attenuation (2 dB steps, 0 loudest) of every line; env: per-frame added attenuation (last entry repeats)
 #   src='digi' made from the digitized sample: mode 'tone' (pitch from the autocorrelation in prange Hz), 'noise'
 #              (rate from the zero crossings) or 'mix' (tone at tonef Hz + noise 3 steps quieter); level from the RMS
+#   loop       the stream loops (its end byte dropped, the loop command to its start follows it in the bank) until a
+#              stop or another sound: the level door's sliding (15), which animate_leveldoor asks for every tick of the
+#              opening and stops when the door is open; the ticks model holds it for its digitized length (20 ticks),
+#              longer than the speaker pattern (13 frames) and, on the MZ-800's slower ticks, than the digitized
+#              sample itself, so a one-shot stream left a silence of most of every 20 ticks (docs/m7-design.md 12.1);
+#              a last frame equal to the first is dropped (the seam), which also keeps the bank's size: it ends where
+#              the button pictures start (page 1 0xE918, src/m4/btnstep.asm)
 #   why        the note for sound.txt / the docs
 SPEC = {
     0: dict(why='random notes 24-1068 Hz (72 ms) -> white noise, rate following the notes'),
@@ -94,7 +102,8 @@ SPEC = {
     13: dict(voices=2, att=3, why='two interleaved falling lines 980->820 / 480->320 Hz (51 ms) -> two tones'),
     14: dict(voices=2, att=3, why='rising octave pairs 208/416 -> 400/800 Hz, then a 97 ms rest (184 ms) -> two '
              'tones, then silence (the stream keeps the length)'),
-    15: dict(why='18 notes 39->31->39 Hz (250 ms) -> a 31-39 Hz pulse following the notes'),
+    15: dict(loop=True, why='18 notes 39->31->39 Hz (250 ms) -> a 31-39 Hz pulse following the notes, looping until '
+             'stopped (the door\'s opening ends with stop_sounds; DOS restarts it every tick it has ended)'),
     16: dict(voices=3, noise=[1], att=3, why='three interleaved lines: 121->201 and 101->181 Hz rising, one random '
              '(60 ms) -> two tones + noise'),
     17: dict(att=3, why='one 49 Hz note (42 ms) -> 2 frames of a 49 Hz pulse, 2 dB quieter than the bump'),
@@ -340,7 +349,7 @@ def make_bank(streams, loops=None):
 
 def build(verbose=True):
     import midi2psg
-    streams, notes, info = {}, {}, {}
+    streams, notes, info, loops = {}, {}, {}, {}
     for sid in range(NIDS):
         name = NAMES[sid]
         if sid in UNUSED: notes[sid] = 'unused id: no stream'; continue
@@ -351,11 +360,16 @@ def build(verbose=True):
             continue
         spec = SPEC[sid]
         fr = frames_from_digi(sid, spec) if spec.get('src') == 'digi' else frames_from_speaker(sid, spec)
+        if spec.get('loop') and len(fr) > 1 and fr[-1].key() == fr[0].key():
+            fr = fr[:-1]                # (the loop's seam: the last frame is the first one again)
         data = encode(fr)
         assert len(data) < RING, (sid, len(data))
+        if spec.get('loop'):
+            assert data[-1] == 0 and 0 < data[-2] < 0x80, sid       # (the end byte after the last wait)
+            data = data[:-1]; loops[sid] = 0
         streams[sid] = data
         notes[sid] = spec['why']
-        info[sid] = dict(kind='effect', frames=len(fr), bytes=len(data))
+        info[sid] = dict(kind='effect', frames=len(fr), bytes=len(data) + (3 if sid in loops else 0))
     assert SB_ADDR & 0xFF == 0 and 4 * (NIDS - 1) < 256          # (psg.asm: the index entry at SB_ADDR + 4 id)
     banks = {}
     for fn, music, base in (('sound.bin', MUSIC_GAME, SB_ADDR),):
@@ -364,8 +378,9 @@ def build(verbose=True):
             if sid not in streams or (sid in MUSIC and sid not in music): continue
             data = streams[sid]
             struct.pack_into('<HH', bank, sid * 4, addr, len(data))
+            if sid in loops: data = data + bytes([0xE8]) + struct.pack('<H', addr + loops[sid])
             bank += data; addr += len(data)
-        assert base + len(bank) <= 0x10000
+        assert base + len(bank) <= BANK_END, ('the bank overlaps the button pictures', base + len(bank))
         os.makedirs(OUT, exist_ok=True)
         open(os.path.join(OUT, fn), 'wb').write(bytes(bank)); banks[fn] = bank
     eff = sum(i['bytes'] for i in info.values() if i['kind'] == 'effect')

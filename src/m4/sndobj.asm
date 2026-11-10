@@ -122,3 +122,44 @@ knock_snd:      push    af
                 call    snd_play
                 pop     af
                 jp      do_knock
+
+                if defined GAME_OVL             ; (m4test: a stub, src/m4/m4test.asm)
+; snd_again (sound.asm snd_next starts a sound; main code: block 2 is full): A = B = the sound id. When the player is
+; still copying a stream (MF_LEFT != 0) and its copy position MF_SRC lies inside this id's stream, the id plays already:
+; it goes on (the looping level door's sliding 15, which animate_leveldoor asks for every tick of the opening and the
+; ticks model restarts every 20 ticks; a long piece asked for again mid-way); otherwise snd_start restarts it (an
+; effect is copied whole at its start, so a short one is always restarted, as before). The PSG player's state only:
+; the sound model (SND_CUR, SND_LEFT, the 'N' line) is snd_next's as before. Keeps BC, DE (snd_start's contract).
+snd_again:      ld      hl, (MF_LEFT)
+                ld      a, h
+                or      l
+                ld      a, b
+                jp      z, snd_start            ; (nothing being copied)
+                push    bc
+                push    de
+                add     a, a                    ; the index entry: SB_ADDR + 4 id (psg.asm snd_start)
+                add     a, a
+                ld      e, a
+                ld      d, SB_ADDR / 256
+                ld      a, SB_PAGE
+                call    far_seek
+                in      a, (RD_DATA)
+                ld      e, a
+                in      a, (RD_DATA)
+                ld      d, a                    ; DE = the stream's start
+                in      a, (RD_DATA)
+                ld      c, a
+                in      a, (RD_DATA)
+                ld      b, a                    ; BC = its length
+                ld      hl, (MF_SRC)
+                or      a
+                sbc     hl, de                  ; (C: before the stream)
+                jr      c, sag_new              ; (C: restart)
+                sbc     hl, bc                  ; (C: inside it)
+                ccf                             ; (C: after it: restart)
+sag_new:        pop     de
+                pop     bc
+                ld      a, b
+                jp      c, snd_start            ; (another stream)
+sag_on:         ret                             ; (tests: the stream goes on)
+                endif
