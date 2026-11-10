@@ -2068,7 +2068,25 @@ io_mirror:      ld      a, (K_CHARID)   ; the kid run-jumping left through the m
                 ld      a, 0xff
                 ld      (JUMPED_MIRROR), a
                 jp      io_no
-; xpos_in_drawn_room: HL = xpos -> HL adjusted when the tile's room is left/right of the drawn room
+; dead_button: the button held while the kid is dead (SDLPoP process_key: rem_min != 0, Kid.alive > 6, as at the tick's
+; start): Ctrl+A, the level restarts (not on level 15) and this tick does nothing more, as the Enter key (keys.asm kl_enter)
+dead_button:    ld      a, (REM_MIN)
+                or      a
+                ret     z
+                ld      a, (K_ALIVE)    ; 7 .. 100 (-1: alive)
+                sub     7
+                cp      94
+                ret     nc
+                ld      a, (level_number)
+                cp      15
+                ret     z
+                call    snd_stop
+                inc     a
+                ld      (IS_RESTART), a
+                ret
+; xpos_in_drawn_room: HL = xpos -> HL adjusted when the tile's room is left/right of the drawn room (SDLPoP
+; seg004.c: room_L or room_BL -140, else room_R or room_BR +140; seg008.c load_room_links: with no room below, room_BL /
+; room_BR are the left / right room's below, and a missing link is room 0, which the tile's room 0 matches)
 xpos_in_drawn_room:
                 ld      a, (DRAWN_ROOM)
                 ld      b, a
@@ -2077,34 +2095,47 @@ xpos_in_drawn_room:
                 ret     z
                 ld      (K_TMP), a
                 push    hl
-                ld      a, (DRAWN_ROOM)
+                ld      a, b
                 or      a
-                jp      z, xdr_none
+                jr      z, xdr_none
                 call    links_of        ; C = L, B = R, D = U, E = D
-                ld      a, (K_TMP)
-                cp      c
-                jp      z, xdr_left
-                cp      b
-                jp      z, xdr_right
                 push    bc
-                ld      a, e            ; room below: its left / right
+                ld      a, e
                 or      a
-                jp      z, xdr_pop
+                jr      z, xdr_nb
+                call    links_of        ; C = BL, B = BR
+                ld      h, c
+                ld      l, b
+                jr      xdr_cmp
+xdr_nb:         pop     bc              ; no room below: the left and right rooms' below
+                push    bc
+                ld      a, b
                 call    links_of
+                ld      a, e
+                pop     bc
+                push    bc
+                push    af
+                ld      a, c
+                call    links_of
+                pop     af
+                ld      h, e
+                ld      l, a
+xdr_cmp:        pop     bc
                 ld      a, (K_TMP)
                 cp      c
-                jp      z, xdr_left2
+                jr      z, xdr_left
+                cp      h
+                jr      z, xdr_left
                 cp      b
-                jp      z, xdr_right2
-xdr_pop:        pop     bc
+                jr      z, xdr_right
+                cp      l
+                jr      z, xdr_right
 xdr_none:       pop     hl
                 ret
-xdr_left2:      pop     bc
 xdr_left:       pop     hl
                 ld      de, -140
                 add     hl, de
                 ret
-xdr_right2:     pop     bc
 xdr_right:      pop     hl
                 ld      de, 140
                 add     hl, de
@@ -2676,6 +2707,9 @@ kt2:            ld      hl, CTRL1       ; rest_ctrl_1
                 ld      de, C_FWD
                 ld      bc, 5
                 ldir
+                ld      a, (C_SHIFT)    ; the button after death: Ctrl+A (do_paused's process_key, before the controls)
+                or      a
+                call    nz, dead_button
                 ld      a, (KEYS)       ; a key: Ctrl+A, SPACE, Shift+L ... (src/m4/keys.asm; Ctrl+G: game.asm)
                 and     0xf9
                 call    nz, key_logic
@@ -2686,9 +2720,7 @@ kt2k:           call    guards_off_chk
                 ld      de, CTRL1
                 ld      bc, 5
                 ldir
-                xor     a               ; death timer (SDLPoP waits while a sound plays: sound.asm death_wait)
-                ld      (WANT_RESTART), a
-                ld      a, (K_ALIVE)
+                ld      a, (K_ALIVE)    ; death timer (SDLPoP waits while a sound plays: sound.asm death_wait)
                 bit     7, a
                 jp      nz, kt2c
                 ld      a, (K_FRAME)
@@ -2707,13 +2739,7 @@ kt2a:           call    death_wait      ; (sound.asm: C, A = alive while a sound
                 jp      nc, kt2b
                 inc     a
                 ld      (K_ALIVE), a
-kt2b:           cp      7
-                jp      c, kt2u
-                ld      a, (C_SHIFT)
-                or      a
-                jp      z, kt2u
-                ld      a, 1
-                ld      (WANT_RESTART), a
+kt2b:
 kt2u:           xor     a               ; dead: the screen turns back
                 ld      (UPSIDE), a
 kt2c:           ld      a, (IS_RESTART) ; Ctrl+A: nothing more this tick (the caller restarts the level)

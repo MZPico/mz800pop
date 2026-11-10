@@ -1,0 +1,49 @@
+# The ceiling's brick dividers (docs/perf.md "Known pixel mismatches"): on level 13 the kid falls from room 17 into room 23 at the start;
+# at tick 3 his top is in the row above, whose wall bottoms SDLPoP lays again (redraw_needed_above's fore
+# copy over the divider). The game and the reference lay that copy only inside the characters' and the falling
+# floors' dirty rects. The falling floors' drawing order's per-floor scene l13r17p23.
+# level 13
+# start 17:21:0
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1
+-1 0 1

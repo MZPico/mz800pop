@@ -4509,3 +4509,145 @@ The normal tick holds walk_level1's knock-shaken floor (ticks 55-58): -0.22..-0.
 - **tests/m7_sound.py:** its looping-piece check (Jaffar's piece streamed through walk_level1's room draws, live) now
   starts the piece at tick 5, not 40. At 16 MB the walkthrough got short enough that the piece no longer wrapped before
   the script's end (0 loops; it had wrapped with a few frames to spare). From tick 5 it wraps once at every size.
+
+## Known pixel mismatches (2026-11-11)
+
+Status: **all four causes settled: two fixed in the game, one in the game, kidsim and the oracle, and one by making
+the reference follow the game (the user's choice; a recorded deviation from SDLPoP).** The mismatches tests/m4_game.py --every 1 has reported since the falling floors' drawing order (#49) and
+M8a part 28: seven of the 168 per-floor scenes (kidsim-found, not committed) and loosescenes.py's multi_a from tick
+47. Each was taken to its first differing tick and settled with SDLPoP's code and, where the picture is not
+EGA-specific, with SDLPoP's screenshots (POP800_SHOTS, VGA) and traces (tools/oracle.py). All of them differed on main
+already: none came from the speed work.
+
+| scene | first tick | what differs | cause | wrong | fix |
+|---|---|---|---|---|---|
+| l10r11p20 | 22, 23 | 36 + 44 px, x 3-19, y 184-191 | the top of the gate in room 8 column 9 (the room below-left, SDLPoP's room_BL), seen through the empty tile 11:20 the fallen floor left, is opening; the game never redrew it | game | view.asm watches room_BL's column 9 |
+| l13r12p02 | 39 (state) | x 191 (SDLPoP, kidsim) / 75 (game) | falling out of the level, the kid bumps into room 0; xpos_in_drawn_room takes room 0 as room_BL (no room below: the left room's below, 0) and moves x by -140 | game (kidsim right by luck) | kid.asm and kidsim build room_BL / room_BR as load_room_links does |
+| multi_a | 47 (state, screen) | the game restarts the level, kidsim does not | the button held after the death: SDLPoP's process_key turns it into Ctrl+A at the start of a tick with Kid.alive > 6 | kidsim (no restart), the game (one tick early), the oracle's hook (could not show it) | all three follow process_key |
+| l13r01p22, l13r12p00, l13r12p01, l13r17p22, l13r17p23 | 3, 32, 63, 3, 3 | 6-15 px in rows 0-2 | a palace wall's brick divider in the ceiling (the room above's row 2) under the row above's overlay | the game at that tick, both later (see below) | the reference clips those pieces to the dirty rects, as the game does |
+
+### The gate below-left (l10r11p20)
+
+SDLPoP draws a tile's top-right corner from row_below_left (seg008.c load_rowbelow): for our row 2, column 0 that is
+room_BL's tile 9 (seg008.c load_room_links: the below room's left, or with no room below the left room's below).
+draw_tile_anim_topright draws a gate's top there when our tile can see its bottom-left (empty, big pillar top, door
+top), and when that gate moves, seg007.c get_trob_right_above_pos_in_drawn_room's room_BL case redraws our tile 20.
+The game's tile-change snapshot (view.asm) watched our 30 tiles, the left room's column 9, the room above's row 2 and
+the room below's row 0, not room_BL: the gate's top stayed as the last room draw or tile redraw left it. In l10r11p20
+the floor 11:20 falls at tick 20, the tile is regenerated with the gate 8:9 (opening: modifier 80, 84, 88, 92) at its
+tick-20 position, and from tick 22 the screen shows the old bars until the room changes at tick 24.
+
+Fix: a 54th snapshot entry, room_BL's tile 9, handled as a below room's tile with tag 20 (VS_KIND 3: a gate step
+regenerates tag 20 only; a spike, chopper or loose floor there draws nothing on our screen; a tile change redraws tag
+20). Five screens of levels 1-14 see such a gate through an empty tile 20 all the time (level 4 room 9, level 5 room
+10, level 8 rooms 20 and 21, level 9 room 8), level 10 room 11 after its floor fell.
+
+### Falling out at the bottom (l13r12p02)
+
+seg004.c xpos_in_drawn_room: `curr_room == room_L || curr_room == room_BL` gives x - 140, else room_R / room_BR + 140.
+With no room below, room_BL and room_BR are the left and right rooms' below (load_room_links), and a missing link is
+room 0. The kid falling out of level 13's room 4 (links 24, 16, 3, 0) is bumped against room 0's walls (get_tile's
+level edge) in his last tick: room_BL = room 24's below = 0 = the tile's room, x - 140, and bumped's +112 and
+bumped_fall's -4 give x 191 (SDLPoP's trace). The game took room_BL / room_BR only from a room below (none here: no
+move, x 75) and compared room_R before room_BL; kidsim took room_BL as 0 without a room below, right here by luck.
+Both now follow load_room_links. A kid who has left the level is not drawn, but the logic stays tick-exact.
+
+### The button after the death (multi_a)
+
+seg000.c process_key: `if (rem_min != 0 && Kid.alive > 6 && (control_shift || key == Enter)) key = Ctrl+A`, which
+restarts the level (not on level 15). It runs in control_kid's do_paused before the tick's controls are set, so it
+sees Kid.alive as the last tick left it, and the restart tick does nothing more. The game's Enter (keys.asm kl_enter)
+did it that way; the button went through WANT_RESTART after the death timer instead, with alive already counted up:
+the level restarted after the tick that made alive 7, one tick early. kidsim computed want_restart and never used it,
+so the harness never followed the restart, and the oracle's hook (pop800_trace.c) sets the scripted controls after
+process_key, so SDLPoP never saw the button either.
+
+- **Game**: kid.asm dead_button, called at the tick's start while the button is held: kl_enter's test, then snd_stop
+  and IS_RESTART (the tick ends as a Ctrl+A tick). WANT_RESTART (OV + 16) and its code went.
+- **kidsim**: control_kid restarts on the button as on Ctrl+A when rem_min != 0 and alive > 6 (Char.alive there is the
+  last tick's Kid.alive). want_restart went.
+- **Oracle** (tools/sdlpop-pop800.patch): the hook restarts on the scripted button with process_key's condition. With
+  it kidsim matches SDLPoP through the restart (multi_a with `# sound ticks` and 30 more ticks: restart at tick 55).
+  The local external/SDLPoP needs the patch and `make` in src; CI builds it from the patch.
+- **tests/m4_game.py** follows a restart (Ctrl+A or the button) to the script's end instead of stopping 8 ticks after
+  the death.
+
+In the silent model multi_a now restarts at tick 48 (alive 7 at the end of tick 47). No other test script holds the
+button at alive > 6 within its compared ticks (kidsim over tests/*_scripts: traps_b9, level3_skeleton, fight2, fight3
+and level2_drop do, 12 or more ticks after the death, past the 8 the logic tests compare).
+
+### The ceiling's brick dividers (the other five level-13 scenes): the reference follows the game
+
+All five are the tick the kid falls into the room below (l13r12p00, p01: room 9 -> 4) or his first tick there after a
+start in the wall row (l13r01p22, l13r17p22, l13r17p23: 1 -> 16, 17 -> 23). His top is in the row above the room, so
+redraw_at_char2 marks the row above's tiles of his columns (redraw_frames_above) and redraw_needed_above draws them
+again: draw_tile_bottom(1) puts the wall's bottom piece into the back table and a copy into the fore table, and
+wall_pattern(0, 0) adds the brick divider to the back table, which the fore copy covers. The reference laid that fore
+copy over the whole tile (32 px); the game lays overlay ops only inside the characters' dirty rects, so where the
+divider lies outside the kid's rect it stays (game 8 / 0 where the reference has 7). SDLPoP lays the whole piece, as
+the reference did: at that tick the old reference was right. But SDLPoP never peels back- or fore-table pieces, so the
+divider stays covered until the room is drawn again, while both models show it again on the next tick (the room's
+picture is the shadow): from then on both differ from SDLPoP, the same way. (The palace wall's bottom has an image in
+EGA only: in VGA draw_tile_bottom gives it id 0, so SDLPoP's VGA screenshots show the dividers at every tick;
+l13r17p22 ticks 3-5.)
+
+Options were: (a) the game lays the copies whole (its rect grown over the row-above tiles: ~40 bytes main and 6-9 in
+block 2, full in the cheat build); (b) the reference lays them only where the game does; (c) both keep SDLPoP's
+persistence. The user chose (b): 0 game bytes.
+
+**The deviation (game and reference):** the fore-table copies that SDLPoP's redraw_needed_above adds for the row above
+the room (the wall's bottom piece, and every other tile's, whose pixels equal the room's anyway) are laid only inside
+the tick's dirty rects that carry objects: per character the bounding box, in whole byte columns, of his objects this
+tick and last tick (the kernel's byte box, wb + 1 bytes, a flipped image's box ending at its right edge; one box when
+the kid's and the guard's meet; none from last tick across a room change), and each visible falling floor's rect (8
+bytes from its column, rows ybottom - 16 .. ybottom, at least rows 0-2), this tick's and last tick's. Elsewhere the
+ceiling keeps the room's picture, brick dividers included. SDLPoP covers those dividers for the whole tile and keeps
+them covered until the room is drawn again; the port shows them again where they lie outside the rects and from the
+next tick. Over the test scripts and the per-floor scenes it shows only in these five level-13 ticks, in the top
+three rows.
+
+The reference (tests/m4_game.py people_rects, reference) paints the frame once without and once with those fore
+copies and keeps the copies' pixels only inside the rects. Checked: over tests/m4_scripts, m5, m6, m7, perf_scripts,
+loosescenes.py's a scenes and the 168 per-floor scenes, the clip changes the reference on exactly 5 ticks, the five
+scenes' differing ticks (6, 12, 15, 12, 12 pixels). The game's other dirty rects (tile redraws) would lay the copies
+too; none meets the top rows in those ticks.
+
+### Memory (main e1d7398 / this)
+
+| area | change |
+|---|---|
+| low code | +29 (35 -> **6 free**): view.asm vs_entry's entry 53 (room_BL computed there), its vs_runs run |
+| main | +18 (247 -> **229 free**; the cheat build 221): kid.asm dead_button and its call +33, xpos_in_drawn_room +7, WANT_RESTART's code -19 (kid.asm) and -3 (game.asm) |
+| block 2 | 0 (13 free, the cheat build 0) |
+| runtime | VIEW_SNAP 0xF510-0xF5F8 (+4: 54 entries); OV + 16 (WANT_RESTART) free |
+
+Duel (docs/duel-design.md, option A): it reserves no resident bytes, overlay window, RAM disk or floppy, and this takes
+none of those. Option C's hook estimate counted on the low block's free bytes (35 -> 6).
+
+### perfcheck (one run per size; main e1d7398's own runs / this)
+
+| Stretch | 512 KB | 1 MB | 16 MB |
+|---|---|---|---|
+| normal tick (walkthrough 30-60) | 4.51 / 4.51 | 4.28 / 4.28 | 4.21 / 4.21 |
+| level door step (walkthrough 203-207) | 8.49 / 8.50 | 7.92 / 7.91 | 7.85 / 7.91 |
+| room change (walkthrough 89) | 82.66 / 82.32 | 82.32 / 82.33 | 81.49 / 81.50 |
+| walkthrough 190-260 | 5.91 / 5.91 | 5.75 / 5.73 | 5.39 / 5.42 |
+| gate (gate_push 200-260) | 4.02 / 4.04 | 4.02 / 4.04 | 4.02 / 4.04 |
+| traps (traps_b1 0-300) | 4.89 / 4.89 | 4.71 / 4.71 | 4.68 / 4.68 |
+| fight (fight1 60-160, guard on) | 6.41 / 6.41 | 5.64 / 5.68 | 5.43 / 5.45 |
+| choppers (frm_button 20-120) | 6.42 / 6.43 | 6.15 / 6.17 | 5.53 / 5.54 |
+
+The seventh snapshot run costs ~0.01-0.02 frames a tick (gate +0.02 at every size); the rest is the beam phase. All
+within the baselines' 5 %; the baselines are not changed.
+
+### Same pixels, same logic
+
+- **tests/m4_game.py --every 1** at 512 KB, 1 MB and 16 MB: all seven floor scenes (as the new scripts below) and
+  multi_a (54 ticks, through the restart) 0 differences; fall_a, shake_a, walk_level1, fight1 0 (fallrun_a, ride_a and
+  run_rooms 0 too before the reference's clip, which changes nothing there).
+- New scripts: tests/m4_scripts/gate_below_left.txt (l10r11p20), tests/m4_scripts/fall_out_bottom.txt (l13r12p02),
+  tests/m4_scripts/ceiling_l13r01p22, _l13r12p00, _l13r12p01, _l13r17p22, _l13r17p23.txt, tests/m5_scripts/
+  death_button.txt (multi_a, `# sound ticks`, 84 ticks): tests/m4_test.py 0 differing; the oracle with the new hook
+  (a private SDLPoP build) matches kidsim on all eight.
+- tests/m4_test.py on death_text, fight2, level3_skeleton: 0. `make ci-build`, `make cheats`. The full regression on
+  the runners: see the PR.

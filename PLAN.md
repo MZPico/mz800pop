@@ -1147,3 +1147,14 @@ piece used AND/XOR semantics.
    3,253 bytes, looping) at pv_scene's Jaffar cues 53 and 52 and with "Marry Jaffar"; the princess's part keeps 05.
    Bank B holds 05, 08 and the effects (the hourglass piece left it: 630 bytes free). Timing, fades and the floppy's
    blocks unchanged.
+78. Known pixel mismatches (2026-11-11, docs/perf.md "Known pixel mismatches"): the seven per-floor scenes and multi_a
+   that m4_game --every 1 failed since #49, settled with SDLPoP's code. Fixed: a gate's top seen from the room
+   below-left (room_BL's column 9, view.asm snapshot entry 53: the game never redrew it when that gate moved;
+   l10r11p20); xpos_in_drawn_room's room_BL / room_BR with no room below (the left / right room's below; the game
+   and kidsim, l13r12p02: x when falling out of the level); the button after the death restarts the level at the
+   tick's start as SDLPoP's process_key does (the game one tick earlier before, kidsim and the oracle's hook not at
+   all; m4_game now follows a restart; multi_a). New scripts gate_below_left, fall_out_bottom, death_button. The
+   ceiling's brick dividers under the row-above overlay (five level-13 scenes; SDLPoP lays the fore copy whole and keeps
+   it, the game only inside the dirty rects): the reference now follows the game (the user's choice; a recorded
+   deviation). All eight scenes are scripts now (also ceiling_l13*). Memory: low +29 (6 free), main
+   +18 (229 free), block 2 0. perfcheck within 0.06 of main's own runs.

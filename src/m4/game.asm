@@ -32,7 +32,7 @@ VS_KIND         equ     VARS + 0x7c
 VS_PTR          equ     VARS + 0x7d     ; 16-bit
 VS_PRESSED      equ     VARS + 0x5b
 VS_LINKS        equ     VARS + 0x5c     ; 4: the shown room's links (left, right, up, down) for this snapshot/redraw
-VIEW_SNAP       equ     0xf510          ; 53 x (tile, modifier), the buttons, the entries' tile addresses (view.asm; to 0xF5F4)
+VIEW_SNAP       equ     0xf510          ; 54 x (tile, modifier), the buttons, the entries' tile addresses (view.asm; to 0xF5F8)
 ; M8a part 2: time-exact pacing (PACE_MODE 1, below): the tick clock and the skipped drawing (low RAM, runtime only)
 NEXT_TICK       equ     0x01b8          ; 16-bit: the frame the next tick is due (mode 1)
 SKIP_TICK       equ     0x01ba          ; mode 1: this tick is a whole tick late: its drawing may be skipped
@@ -171,9 +171,8 @@ gmt_d:          ld      a, (LEVEL_SWITCH) ; the exit stairs after the wait on so
 gmt0:           ld      (NEXT_LEVEL), a
                 call    load_level      ; (stub: src/m4/ovl.asm, the level-start overlay)
                 jr      gmt2
-gmt1:           ld      a, (WANT_RESTART) ; the button after death, Ctrl+A: the level again (or its checkpoint)
-                ld      hl, IS_RESTART
-                or      (hl)
+gmt1:           ld      a, (IS_RESTART) ; the button after death, Ctrl+A: the level again (or its checkpoint)
+                or      a
                 jr      z, gmt2
                 ld      a, (level_number)
                 jr      gmt0

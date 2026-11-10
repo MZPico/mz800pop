@@ -181,7 +181,7 @@ class KidSim:
         self.seed = self.seed0 = seed; self.trobs = []; self.mobs = []
         self.hitp_curr = self.hitp_max = 3; self.hitp_delta = 0
         self.leveldoor_open = 0; self.pickup_obj_type = 0; self.last_loose_sound = 0
-        self.level_done = False; self.want_restart = False
+        self.level_done = False
         self.curr_tile = 0; self.curr_modifier = 0
         self.sword_opt = sword; self.place = list(place)
         # level events (seg000/002/003): SDLPoP init_game
@@ -1308,7 +1308,8 @@ class KidSim:
     def xpos_in_drawn_room(self, xpos):
         if self.curr_room != self.drawn_room:
             L, R, U, D = self.links(self.drawn_room) if self.drawn_room else (0, 0, 0, 0)
-            BL = self.links(D)[0] if D else 0; BR = self.links(D)[1] if D else 0
+            if D: BL, BR = self.links(D)[0], self.links(D)[1]
+            else: BL, BR = (self.links(L)[3] if L else 0), (self.links(R)[3] if R else 0)   # (load_room_links)
             if self.curr_room in (L, BL): xpos -= TILE_SIZEX * 10
             elif self.curr_room in (R, BR): xpos += TILE_SIZEX * 10
         return xpos
@@ -2364,14 +2365,13 @@ class KidSim:
                     if self.level.number not in (0, 15): self.set_text(288, 'Press Button to Continue')
                     else: self.set_text(36, '')
                 if C.alive < 100: C.alive += 1     # (capped: the Z80 keeps it in a byte where 0xFF means alive)
-        self.want_restart = C.alive > 6 and shift
     def control_kid(self, cx, cy, shift, keys=0):
         C = self.Char
         if C.alive < 0 and self.hitp_curr == 0: C.alive = 0
         if self.grab_timer: self.grab_timer -= 1
         (self.control_forward, self.control_backward, self.control_up, self.control_down, self.control_shift2) = self.ctrl1
-        if (keys & 1) and self.level.number != 15:                             # Ctrl+A: restart the level
-            self.stop_sounds(); self.is_restart_level = 1
+        if ((keys & 1) or (shift and self.rem_min != 0 and C.alive > 6)) and self.level.number != 15:
+            self.stop_sounds(); self.is_restart_level = 1   # Ctrl+A, or the button after death (process_key: Kid.alive)
         if keys >> 3: self.process_key(keys >> 3)
         # pop800_control: the first control tick applies the level patches and (guards off) removes all guards
         for (r, p, t, m) in self.patches: self.set_tile(r, p, t); self.set_mod(r, p, m)
