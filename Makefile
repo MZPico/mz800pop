@@ -249,7 +249,13 @@ $(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_ev
 # POP800.PR3 (tools/mkgamedisk.py)
 $(BUILD)/duel.inc: src/duel/duel.asm $(BUILD)/m4game.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym src/duel/duel.asm src/m1 $@
-$(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc
+$(BUILD)/duel_text.inc: $(BUILD)/ovl_text.bin tools/ovltool.py
+	$(PY) tools/ovltool.py equp $(BUILD)/ovl_text.sym TX_ $@ td_render td_put td_num td_str txt_font
+# (the glyphs of tools/build_assets.py DUEL_CHARS 'KQW:' in SDLPoP's font: res 1000 + the character's code)
+DUEL_GLYPHS = $(foreach c,1075 1081 1087 1058,external/SDLPoP/data/font/res$(c).png)
+$(BUILD)/assets/font_duel.inc: tools/build_assets.py $(DUEL_GLYPHS)
+	$(PY) tools/build_assets.py --font-duel
+$(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc $(BUILD)/duel_text.inc $(BUILD)/assets/font_duel.inc
 	cd src/m1 && $(PASMO)$(if $(DUEL_LOOK), --equ DUEL_LOOK=$(DUEL_LOOK)) --bin ../duel/duel.asm ../../$(BUILD)/duel.bin ../../$(BUILD)/duel.sym
 $(BUILD)/duel_main.bin $(BUILD)/duel_stage.bin &: $(BUILD)/duel.bin $(BUILD)/m4ovl.bin tools/duelpatch.py tools/z80flow.py
 	$(PY) tools/duelpatch.py build

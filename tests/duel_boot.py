@@ -6,7 +6,7 @@ around the GAME image (src/boot/boot.asm); the game starts level 1 as always and
 which lays the staged pieces into their holes and starts the duel (d_entry). Checked: the handoff's action, every piece
 in main RAM at d_entry byte for byte (build/duel_patch.json), the silent sound model, the arena (room 3 drawn, the two
 players at their start tiles), the local input bytes (duel.asm d_input: the cursor keys / SHIFT for player 1, W A S D /
-Q for player 2, BREAK quit, ENTER rematch), then BREAK: back to PRES's title (ACT_TITLE) and a new game from there.
+Q for player 2, BREAK quit, ENTER rematch), the HUD's first text and a sound on the PSG, then BREAK: back to PRES's title (ACT_TITLE) and a new game from there.
 Saves screenshots with --shots DIR.
 usage: duel_boot.py [--shots DIR]"""
 import json, os, shutil, sys, tempfile
@@ -70,9 +70,13 @@ def main():
             kid, gd = e.mem(G['KID_REC'], 16), e.mem(G['GUARD_REC'], 16)
             check('the players at their start tiles (room 3, columns 2 and 7)', (kid[9], kid[4], gd[9], gd[4], gd[11]) == (3, 2, 3, 7, 1),
                   (kid.hex(), gd.hex()))
+            M5.run_to(e, D['ds_go'], 400); e.run(2)
+            check('the sound: the swords drawn (19) play on the PSG (duel.asm d_snd)',
+                  e.mem(D['d_acur'], 1)[0] == 19 and e.mem(G['SP_WAIT'], 1)[0] != 0, (e.mem(D['d_acur'], 1), e.mem(G['SP_WAIT'], 1)))
             print('2. the local input')
             ticks(e, 2)
             check('room 3 on the screen', e.mem(G['SHOWN_ROOM'], 1)[0] == 3)
+            check('the bottom text: ROUND 1 (duel.asm d_key)', tuple(e.mem(D['d_key'], 4)) == (0, 1, 0, 0), e.mem(D['d_key'], 4))
             check('no key: 0, 0', ticks(e, 1) == (0, 0))
             for k1, k2, want in ((('RIGHT', 'SHIFT'), ('A', 'Q'), (0x12, 0x11)), (('LEFT', 'UP'), ('D', 'W'), (0x05, 0x06)),
                                  (('DOWN',), ('S',), (0x08, 0x08))):

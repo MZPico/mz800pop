@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -827,6 +827,113 @@ tests/duel_z80.py every tick: the body and sword images the Z80 draws (the descr
 duelsim's records through the same map (DRAW_MAP; with the map emptied the check fails). Renders: the candidates
 against SDLPoP's kid against a guard (docs only, the user's renders blades2_*.png).
 
-What remains: **phase 3** (the HUD: score and round texts, "P1 WINS", the rematch / quit menu, the round-end sound or
-music, a hit flash for both), **phase 4** (network: the NET driver,
-lobby, lockstep with the hash already computed every tick, the delay).
+What remains: **phase 4** (network: the NET driver, lobby, lockstep with the hash already computed every tick, the
+delay); phase 3 is section 13. A hit flash for both players is not built (the game's flash is the kid's).
+
+## 13. Phase 3: the HUD, the texts and the sound, as built (2026-11-11)
+
+Drawing and audio only: the logic, the hash and duelsim's trace (every line, the 'N' line included) are unchanged, and
+nothing of it waits on the screen or the PSG. Code: src/duel/duel.asm d_hud, d_ghp, d_snd; the checks in
+tools/duelpatch.py (the texts, the W2 calls) and tests/duel_z80.py (the text and the tunes every tick against duelsim's
+state). The game's own code is unchanged (no new label either): m4game.bin, every overlay and m4test byte-identical.
+
+### 13.1 The screen
+
+The bottom row as the game has it: player 1's hit point strip at the left (the game's hp_draw), player 2's at the right
+and the text line between them (x 80-239, rows 193-199, the game's font, white).
+
+| When | The text line (duel.asm d_strs) |
+|---|---|
+| a round's first 20 ticks drawn (ROUND_TEXT_TICKS) | `ROUND n` |
+| the rest of the round | `ROUND n   P1 a : b P2` (the round's number, then the score) |
+| the 36 ticks after a round's decision | `P1 WINS ROUND` / `P2 WINS ROUND`; `DRAW` for a same-tick double death (not reachable by the sword since the clash, D13); `P1 WINS THE MATCH` / `P2 WINS THE MATCH` when that round was the third win |
+| the match over (waiting for ENTER / BREAK, no auto-return) | `P1 WINS THE MATCH` and `ENTER REMATCH  BREAK QUIT` in turn, 32 ticks each (HUD_ALT) |
+
+The round's number counts the draws (the round state's `rounds` + 1, shown up to 99). Rematch (ENTER) and quit (BREAK)
+are phase 2's: the prompt only shows them.
+
+**Player 2's strip** is drawn like player 1's (d_ghp through the rare overlay's hp_strip): the full icons and the empty
+ones up to its maximum, mirrored from the right edge, the full icon the kid's with planes I and II (B, R) swapped: blue
+where player 1's is red (d_hpicon, made from hp_full at the duel's start). The game's guard strip (the guard's icon, only
+the full ones) is no longer drawn: the match loop calls hp_draw with player 2's record's charid back to the shadow's,
+for which ghp_draw draws nothing off level 12. The empty icons are the game's (hp_empty, red outlines) for both.
+
+### 13.2 The texts: the game's text overlay, called in place
+
+The text overlay (src/m4/text.asm, W2) prints only the game's messages from its table, so d_hud uses its parts: when the
+text's key (d_key: its kind and up to three numbers) changes, d_hud loads the overlay into W2 as text_chk does (after
+the tick's drawing, when the compose buffers are free), writes the string into its td_str (the numbers through its
+td_num), blanks the line's bitmap (MASKBUF) and calls its td_render and td_put (centred, three chunks, blit). The
+labels come from build/ovl_text.sym (tools/ovltool.py equp -> build/duel_text.inc, TX_*).
+
+The game's font has only the glyphs of the game's texts. The duel's texts need four more (K, Q, W and the colon): taken
+from SDLPoP's font like the others (tools/build_assets.py --font-duel -> build/assets/font_duel.inc: d_font, 36 B) and
+laid by d_hud over the loaded copy's lowercase records (e, i, n, o: the duel's texts are capitals); the RAM disk's image
+of the overlay stays the game's. **tools/duelpatch.py checks every string of d_strs** at every build: each character has
+a glyph in that font, and its width (SDLPoP draw_text: each glyph + 1, the numbers as the widest two digits) fits the
+line's 160 pixels. "ENTER: REMATCH  BREAK: QUIT" is 165 pixels; the prompt is therefore `ENTER REMATCH  BREAK QUIT`
+(159). Widths today: ROUND n 54, the score line 145, P1 WINS ROUND 93, DRAW 29, P1 WINS THE MATCH 119, the prompt 159.
+
+**The call graph** (12.2): a jump from a duel piece into W2 is resolved to the text overlay (duelpatch.py PIECE_W2; it
+must hit a label of that overlay), so the walk covers td_render, td_put, td_num and what they call (the text overlay now
+in the reached list). Run-time the code log check is unchanged (W2 is no hole).
+
+Cost: a text change loads the overlay (1,021 B) and draws the line, ~1 frame, on ~4 ticks of a round; an unchanged text
+costs the key's compare.
+
+### 13.3 The sound
+
+Phase 2 already played every requested effect for both players: player 2's frame runs with the kid's charid, so its
+sounds are the kid's (the sword drawn 19, the clash 10, the hit 13, the footsteps 23, the swish 11...). But with the
+silent model every request started at once, cutting whatever the PSG played. **d_snd** replaces the game's snd_next in
+the duel's tick:
+
+- **The logic's side is the silent model, unchanged**: the queued request starts (SND_CUR), nothing "plays" (the 'N'
+  line's third figure 0), snd_snap (the trace) as before. So duelsim's 'N' line and every logic wait stay as they were.
+- **The PSG's side** applies the game's priorities (sound.asm snd_tab) against what the PSG really plays (the player's
+  SP_WAIT, the last id given, d_acur): a request starts on the PSG when the PSG is idle, or the playing sound is
+  interruptible and the request's priority is equal or higher. Audio only: it may differ between two machines.
+- **The tunes**: JINGLE_DELAY (3) ticks after a round's decision (after the hit's sound), the guard's death tune
+  (sound 37, 4.1 s) for a round, the level's end music (41, 12.8 s) for the match's deciding round, none for a draw.
+  Both are non-interruptible, so the fight's leftover sounds do not cut them; a round's reset (d_reset: d_acur = none)
+  lets the next round's first sound (the swords drawn) cut them, also after a rematch. Both pieces are in the game's
+  in-game bank already (sndconv.py MUSIC_GAME).
+
+Sound off (Ctrl+S on the title) is the game's: it mutes the PSG writes.
+
+### 13.4 Memory, disk, speed
+
+| Hole | Size | Used (phase 2 -> 3) | Free |
+|---|---|---|---|
+| H_MAIN | 297 | 212 -> 227 (the HUD's calls, the redraw after the room draw) | 70 |
+| H_KT | 290 | 207 -> 283 (d_ghp, the icon) | 7 |
+| H_FREE (new piece P_free) | 229 | 0 -> 216 (d_hud, d_key) | 13 |
+| H_TICK | 517 | 365 -> 508 (the strings, d_font) | 9 |
+| H_AI | 1,073 | 904 -> 1,041 (d_snd, the icon's set-up, the HUD's variables) | 32 |
+| **code holes** | 2,406 | 1,688 -> **2,275** | **131** |
+
+Resident game bytes 0. Staged (PRS_DUEL1) 2,061 of 4,544 B; P_main 227 B. Floppy: POP800.PR3 6 -> **8** blocks (32 of
+the 40 reserved left). Launcher and PRES unchanged (83 and 41 B of their reserves left). The design's trap, view, button
+and clock holes (~3.5 KB) are still unused: phase 4's network code needs them.
+
+Speed (tests/duel_z80.py, match.txt, 572 ticks, frames a tick; the text's redraws included): **5.49 at 512 KB, 5.22 at 1 MB, 4.89 at 16 MB** (phase 2 with the blades on the same tree: 5.46, 5.18, 4.86): +0.03-0.04 frames a tick.
+
+### 13.5 Tests
+
+- tests/duel_z80.py, every tick besides phase 2's lines: the text's key d_key against hud_key (duelsim's round state,
+  the ticks since the round's reset), the tunes (ds_j: tick and id) against jingle(). All seven scripts 0 differing
+  lines at 512 KB, 1 MB, 16 MB; the code log check: no hole reached. (Checked negatively: a 21-tick ROUND text or
+  another tune id fails.)
+- tests/duel_boot.py (from the floppy): the first text is `ROUND 1`, the swords' sound (19) plays on the PSG.
+- tools/duelpatch.py at every `make duel`: the pieces in their holes, the call graph (the text overlay walked), the
+  texts' glyphs and widths.
+
+### 13.6 Decisions for the user (defaults chosen, each one constant or string in duel.asm)
+
+1. The wording: `ROUND n`, `ROUND n   P1 a : b P2`, `P1 WINS ROUND`, `DRAW`, `P1 WINS THE MATCH`, and the prompt
+   **without colons** `ENTER REMATCH  BREAK QUIT` (with the colons it is 5 pixels too wide for the line).
+2. The timing: `ROUND n` alone for 20 ticks; the winner and the prompt alternating every 32 ticks after the match.
+3. Player 2's strip: the kid's icons in blue with the empty ones (as player 1's), instead of the guard's icon.
+4. The tunes: 37 (the guard's death) after a round, 41 (the level's end) after the match, starting 3 ticks after the
+   deciding hit; none after a draw.
+5. The PSG respects the game's priorities (a playing non-interruptible sound is not cut), the logic stays silent.
