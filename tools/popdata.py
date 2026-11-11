@@ -184,23 +184,19 @@ def palace_wall_post(id1, w, h, rows, eg):
                 if not adj: out[y][x] = _chk(6, 8)(x, y)
             elif e == 15: out[y][x] = _chk(6, 7)(x, y)
     return out
-# F3 (2026-11-10, PLAN status 74): the palace floor tops (EGA red 4, only floor pieces carry it) -> a red 2 / black 0
-# 1-pixel checker (dark maroon) instead of solid red. The checker's phase counts from the image's bottom row, so that
-# the pieces of one tile row meet without a seam: every piece is drawn at x = 0 mod 8 and with its bottom at an even
-# offset from the row's draw_main_y, but for these ids (odd offsets: the pressed plate's floor 35/36, the level door's
-# floor 99 and 144). Seamless over every palace room (the PR's floorcheck); a raised plate's right piece (42 one row
-# up) and a shaking loose floor move with their texture, as a shifted piece should.
-PALACE_FLOOR_ODD = frozenset((35, 36, 99, 144))
+# Palace floor tops (2026-11-11, PLAN status 79; replaces #53's "F3" red/black checker): EGA red 4 (only floor pieces
+# carry it) -> solid magenta 3 ("P2", the user's choice from mock-ups): a solid colour shows no cross-colour on composite
+# video, keeps the floors' grey diamonds and parts the floor from the orange brick walls. Solid, so no phase per piece.
+PALACE_FLOOR = 3
 def palace_env_post(id1, w, h, rows, eg):
     out = [row[:] for row in rows]
     if id1 == 1:
         for y in range(2, min(45, h)):
             for x in range(9, min(20, w)):
                 if eg[y][x] == 7: out[y][x] = _chk(2, 6)(x, y)
-    ph = h - 1 + (id1 in PALACE_FLOOR_ODD)
     for y in range(h):
         for x in range(w):
-            if eg[y][x] == 4: out[y][x] = 2 if (x + ph - y) & 1 else 0
+            if eg[y][x] == 4: out[y][x] = PALACE_FLOOR
     return out
 # The kid's feet (2026-11-10, PLAN status 74): KID.DAT's pixel values 13 (the foot) and 14 (its shade) are the feet's own
 # palette entries (bare skin in the VGA art); their EGA colours (white 15, light grey 7) gave him white shoes. Both

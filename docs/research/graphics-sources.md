@@ -79,11 +79,12 @@ look.
 - Kid's feet (popdata.KID_FEET): KID.DAT values 13 / 14 are the feet's own entries (bare skin in VGA; EGA white 15 /
   light grey 7 = white shoes). Now skin yellow 6 for both ("K1a flat skin"); the shade colour is still open (6/8;
   6/0 is the same on the MZ, a sprite's black being drawn as 8).
-- Palace floor tops (popdata.palace_env_post, "F3"): EGA red 4 (MZ red 2, only floor pieces carry it) -> a red 2 /
-  black 0 1-pixel checker, a dark maroon. Phase from each image's bottom row, odd for the pieces drawn at an odd
-  offset from the row (PALACE_FLOOR_ODD: 35, 36, 99, 144). Over all 6 palace levels' rooms the only joints left are
-  the 10 rows where a raised plate meets its own right piece (42, drawn one row up beside an unpressed opener: 43
-  joints, 430 pixel pairs); ordinary tile joints have none. The walls are unchanged.
+- Palace floor tops (popdata.palace_env_post, PALACE_FLOOR): EGA red 4 (MZ red 2, only floor pieces carry it) ->
+  solid magenta 3 ("P2", 2026-11-11, chosen from the mock-up sheet of 12 palace variants, solid and dithered). It
+  replaces #53's "F3" red 2 / black 0 checker (a dark maroon, which needed a per-piece phase, PALACE_FLOOR_ODD, and
+  left 43 raised-plate joints): solid, it has no seams and no composite cross-colour, keeps the grey diamonds and
+  parts the floor from the orange/yellow brick walls (the red versions never quite did). The dungeon floor stays the
+  EGA cyan/grey dither (the user's choice after mock-ups of 12 dungeon variants). The walls are unchanged.
 - Title sky ("T2w", build_assets.title_sky): EGA brown 6 -> MZ yellow 6 made the sky the palace's colour. Inside the
   arch window only (flood fill from (160, 40) over rows < 100, bounded by the arch's light yellow 14) yellow 6 becomes a
   red 2 / dark green 4 checker (= brown); ornaments and road keep yellow. +480 bytes PZ of title art (PRES: 759 free).
@@ -91,6 +92,5 @@ look.
   close to the PAL colour subcarrier, so through composite the checkers can show cross-colour (a shimmer of false
   colour) and dot crawl instead of a clean mix; on RGB and in the emulator they mix as intended. The palace walls' and
   the arch lattice's checkers (2026-10-26) are the same kind of pattern, so how they look on the user's set predicts
-  these. The floor's red/black is a strong luminance step (likely the most visible artefact, over large areas); the
-  sky's red/green has two hues of different brightness. Fallbacks if it is bad: solid red 2 floors (as before) and a
-  solid red 2 sky ("T1w").
+  these. The sky's red/green has two hues of different brightness; fallback if it is bad: a solid red 2 sky ("T1w").
+  The user judged the 1-pixel checkers acceptable (the dungeon floor has always been one).
