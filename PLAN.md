@@ -1158,3 +1158,7 @@ piece used AND/XOR semantics.
    it, the game only inside the dirty rects): the reference now follows the game (the user's choice; a recorded
    deviation). All eight scenes are scripts now (also ceiling_l13*). Memory: low +29 (6 free), main
    +18 (229 free), block 2 0. perfcheck within 0.06 of main's own runs.
+79. The palace floor tops solid magenta (2026-11-11, docs/research/graphics-sources.md "MZ-specific recolours"; the
+   user's choice from mock-ups of 12 palace and 12 dungeon floor variants, solid and dithered): popdata.PALACE_FLOOR,
+   EGA red 4 -> magenta 3, replacing item 75's red/black checker (no per-piece phase, no seams, no composite
+   cross-colour; the grey diamonds stay). The dungeon floor stays as it is. Assets only: every program byte-identical.
