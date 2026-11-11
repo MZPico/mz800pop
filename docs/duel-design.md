@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **design only, nothing built; the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **phase 1 built (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -176,7 +176,8 @@ the same collisions; the kid's frame runs first, as in SDLPoP.
   cancels the kid's hurt when both records are AC_HURT (the kid's action becomes AC_RUN_JUMP) and hurts only the shadow:
   with the host always the kid that would favour the host. DUEL patches check_sword_hurt to hurt both (loadkid /
   hurt_by_sword / savekid, then the shadow's), so a same-tick double death is a draw (the round is replayed, nobody
-  scores); the normal game keeps SDLPoP's rule. (A patch site of ~10 B, in the sword-rules line of 1.3.)
+  scores); the normal game keeps SDLPoP's rule. (A patch site of ~10 B, in the sword-rules line of 1.3.) **Changed by the
+  user 2026-11-11 (11.2 D13): simultaneous hits are a clash, nobody is hurt, both react as parried.**
   The reset puts both back at their start tiles with full hit points and sheathed swords, without a room draw (only the
   people are drawn again). Score "P1 2 : 1 P2" in the bottom text line (text.asm); best of 5 (a setting).
 - All of this is logic in lockstep: the round end, the reset and the quit (a key bit, 3.3) happen at the same tick on both
@@ -349,7 +350,7 @@ looks right by construction.
 | Phase | Content | Effort | Risk |
 |---|---|---|---|
 | 0 (now, tiny PRs) | the reservations of 1.5: mkgamedisk's DUEL_BLOCKS assert, ACT_DUEL named in launch.inc | 1 hour | none |
-| 1 | kidsim duel mode, the per-player block, the kid's sword rules for P2, rounds; scripted duels; check the shadow set's frames against seq 75 / 86 | 3-4 days | low |
+| 1 (**done**, section 11) | kidsim duel mode, the per-player block, the kid's sword rules for P2, rounds; scripted duels; check the shadow set's frames against seq 75 / 86 | 3-4 days | low |
 | 2 | `make duel`: the patch assembled against build/m4game.sym (tools/ovltool.py's equ step) with an assert per hole, the stubs, the labels at the patch sites; the call graph and profiler check of the holes; the launcher action, the PRS entries, PRES's key; the arena start; local P2 input; Z80 against kidsim exact; the game byte-identical | 1-1.5 weeks | medium: a routine in a hole that the arena reaches after all (caught by the profiler check), patch sites inside hot kid.asm code |
 | 3 | HUD, score, rematch, quit, mode 0 pacing (every tick drawn), sound; decide the look (open question 3) from measurements | 3-4 days | low |
 | 4 | network: the NET driver in assembly (netdev_card.c's ten calls), the lobby, lockstep, the hash, the delay; two emulators with the relay | 1.5-2 weeks | medium: the emulator's NET path is proven by BomberNet; the real MZPico with the RAM disk on the same board is not |
@@ -426,3 +427,234 @@ not worth it for an easter egg. A 3-player mode has the same problems at ~3/4 th
 The duel's design keeps these open by: the per-player block (2.2) written for N players, P2's input path written for a
 player index, the guard AI only stubbed (not overwritten) when a co-op mode is built, and the network byte format
 (3.2) per slot as BomberNet's N-player rooms already are.
+
+## 11. Phase 1: the rules as built (2026-11-11)
+
+The duel's logic in Python: **tools/duelsim.py** (DuelSim, a subclass of kidsim's KidSim), the rule sites in
+**tools/kidsim.py** marked `(duel Dn)` (each acts only with `KidSim.duel` set: every game test runs with it off and
+gives byte-identical traces: all 82 scripts of m4 / m5 / m6 / m7 compared before and after), the scripted duels in
+**tests/duel_scripts**, their test **tests/duel_test.py** (PR tier b, the full regression's logic part, the smoke tier;
+~1 s, no emulator). kidsim in duel mode is the oracle the Z80 duel (phase 2) must match tick for tick. Where a rule
+below is a choice (the design left it open, or SDLPoP's behaviour would be unfair), it is marked **[choice]**: the
+user's decisions to confirm are collected in 11.10.
+
+### 11.1 The tick
+
+DuelSim.step(in1, in2), in SDLPoP play_frame's order, with what the arena never needs left out:
+
+1. (sound_tick; the deltas zeroed) check_can_guard_see_kid (with D11).
+2. Player 1's frame: play_kid_frame on the kid's record (loadkid_and_opp ... savekid) with the duel's control (11.4). The
+   kid trace line is taken here, as in the game (mid-tick).
+3. tick + 1.
+4. Player 2's frame: **the same play_kid_frame** on the shadow's record (loadshad_and_opp ... saveshad), its block swapped
+   in before and out after (11.3). Same collisions, bumps, gate push, the kid's checks (spikes, presses, chompers,
+   knocks: no-ops without such tiles).
+5. check_sword_hurting (the shadow's check first, then the kid's: SDLPoP), check_sword_hurt (D13), check_sword_vs_sword,
+   do_delta_hp.
+6. The rounds (11.5), then play_next_sound (the 'N' line).
+
+Not run: timers, do_mobs, process_trobs, check_skel, exit_room, check_the_end, check_guard_fallout, show_time (no clock,
+the room never changes), the guard AI (autocontrol_*), play_guard. **The torches** are animated by process_trobs in
+the game (prandom): the duel's logic does not animate them (they change nothing in the logic); phase 2 decides whether
+the drawing keeps them flickering (11.9).
+
+### 11.2 The rule sites (the Z80 patch sites of phase 2)
+
+| Site | Where (kidsim; SDLPoP) | Duel rule |
+|---|---|---|
+| D1 | load_frame (seg006 load_frame) | **[choice]** player 2's frames 150-189 come from the **kid's** frame table (frame_table_kid, chtab 2: the kid's images), not frame_tbl_guard (the shadow's set) (11.8) |
+| D2 | control_standing: `charid != kid` draws with down + forward | player 2 takes the kid's branch (draws when the opponent is near, as the kid) |
+| D3 | control_standing: no auto-draw while `Opp.charid == shadow` jumps (Opp midair or frames 107-117) | **[choice]** for both players (the opponent is always "the shadow"), so the rule is symmetric |
+| D4 | forward_with_sword | seq 86 (kid), not 56 |
+| D5 | draw_sword | the kid's: sound 19, offguard = 0, seq 55 |
+| D6 | control_with_sword | the kid's: holding_sword = 0 when alive |
+| D7 | swordfight, down with the sword drawn | the kid's: offguard = 1, guard_refrac = 9, holding_sword = 0, seq 93 (put_sword_away_fast), not 92 |
+| D8 | sword_strike | seq 75 (kid), not 58 |
+| D9 | parry | the kid's rule (parries any attack but frame 168; plays on at frame 153), not the guard's (only frame 152, backs off at 32) |
+| D10 | hurt_by_sword | the kid's sound 13 (not 12); the gate fix for a killed guard does not apply |
+| D11 | check_can_guard_see_kid: a shadow outside level 12 is blind | the shadow sees on every level (the rest of the routine as it is: both alive, one room and row, no wall between); can_guard_see_kid = 2 in the open arena |
+| D12 | control_kid: `hitp_curr == 0` -> dead (duelsim duel_control) | the character's own hit points: hitp for the kid, guardhp for the shadow (take_hp's own rule) |
+| D13 | check_sword_hurt | **changed by the user 2026-11-11: a clash.** Both hurt in one tick (each one's strike reached the other: check_sword_hurting marked both AC_HURT): **nobody is hurt**, both react as an attacker whose strike was parried: check_hurting's own reaction, the sequence attack_was_parried (69) played at once, the kid first, then the shadow (check_sword_vs_sword then plays the clash sound on their frame 167). One hurt: hurt_by_sword as SDLPoP. (First built: both hurt, a double death a draw. SDLPoP cancels the kid's hurt and hurts only the shadow: it would favour player 1.) No guard_refrac |
+| D14 | bumped, pushed left into a wall of room 0 | **[choice]** the floor check uses the room's own column 9, as SDLPoP does for the left edge (`curr_room == 0 && tile_col == 10` -> the room's column 0). Without it a player bumping the arena's right edge falls back (seq 45 bumpfall) where the left edge gives a plain bump |
+| D15 | xpos_in_drawn_room for room 0 | **[choice]** with both links 0, SDLPoP takes room 0 for the left neighbour: the right edge's wall lands 140 units too far left and a player bumping it is thrown back ~28 units (the left edge: 3). The duel puts room 0's column 0 on the right |
+
+Not changed (charid tests that stay the shadow's / SDLPoP's): kid_sword_strike = 15 on a strike and justblocked = 4 on
+a parried strike (inputs of the guard AI only, which the duel never runs: they keep their value, they are hashed); land
+(a 2-row fall: the shadow lands softly; the arena has no fall); is_obstacle's mirror, proc_get_object (kid only, nothing
+in the arena); take_hp / do_delta_hp (hitp for the kid, guardhp for the shadow).
+
+Without D14 and D15 the two edges were measurably different (tests/duel_scripts/edges.txt): with them both bump with
+frames 50-52 and stop at x 68 and 201 (SDLPoP's left/right rounding: 68 + 201 = 269, the start positions mirror around
+270).
+
+### 11.3 The per-player block
+
+Player 1's lives in the game's globals (as today); player 2's in a block swapped with them around its frame:
+
+| Part | Bytes | Z80 (kid.asm / guard.asm / objects.asm) |
+|---|---|---|
+| ctrl1 (forward backward up down shift2) | 5 | CTRL1 (KV + 24) |
+| grab_timer | 1 | GRAB_TIMER (KV + 29) |
+| have_sword | 1 | HAVE_SWORD (OV + 4) |
+| offguard | 1 | OFFGUARD (g_glob + 11) |
+| holding_sword | 1 | HOLDING_SWORD (g_glob + 5) |
+| **the collision rows** (prev_collision_row, prev / curr / below / above rooms and flags) | **81** | PREV_COLL_ROW (KV + 71), PREV_ROOMS .. ABOVE_FLAGS (KV + 96 .. KV + 175) |
+
+**The collision rows are new against design 2.2.** check_collisions compares where the character's sides were against
+the walls at its last call with where they are now (the flags depend on char_x_left / right_coll), and move_coll_to_prev
+carries the rows from one call to the next. SDLPoP runs it for the kid only; with two players calling it, each would
+compare against the other's walls (spurious or missed bumps). So the block is **90 bytes** (9 hashed + 81), and the swap
+is two block exchanges (KV + 71, 1 B; KV + 96, 80 B), in and out: ~25 B of code, ~5 K T a tick. (Rows prev_* are rebuilt at every
+check_collisions except on a turn, where check_gate_push reads the old ones: swapped as well.)
+
+Hit points are **not** in the block (design 2.2): the shadow's stay in GUARDHP_CURR / MAX. **[choice]** The design's
+HITP <-> GUARDHP exchange around player 2's frame is replaced by D12: with the exchange, a take_hp inside player 2's
+frame (spikes, chompers: DUEL_TRAPS, 10.1) would compute its delta from the kid's hit points (take_hp picks guardhp by
+charid). D12 is one read in control_kid.
+
+### 11.4 Control, death, sound
+
+- **The duel's control** (duelsim duel_control) is SDLPoP's control_kid without the restart: no Ctrl+A, **no restart by
+  the button after death** (`shift && alive > 6`: in the game a dead player's fire would restart the level), no level
+  keys, no level patches; then play_kid's death counter (alive counts up while is_dead(), capped at 100) **without
+  waiting for a sound, without the death music, without the "Press Button" text and its 288-tick return to the title**.
+  The same for player 1: the game's kid_tick needs these patched in the duel as well (11.9).
+- **Sound**: the silent model (KidSim sound='silent'): the logic never waits on a sound; the requests (play_sound with
+  SDLPoP's priorities) go into the 'N' line. Player 2 makes the kid's sounds (D5, D10). The round end's sound or music
+  is phase 3.
+
+### 11.5 Rounds, results, reset
+
+| Constant | Value |
+|---|---|
+| ROUND_HP | 3: hitp_curr = hitp_max = guardhp_curr = guardhp_max = 3 at every round's start |
+| WINS | 3 (best of 5); draws do not count: a match has no round limit |
+| ROUND_END_TICKS | 36 |
+| START | player 1 (the kid, charid 0): column 2 facing right; player 2 (the shadow, charid 1): column 7 facing left; row 1 of room 3 |
+
+- **The decision** (after the tick's do_delta_hp): the first tick at which hitp_curr == 0 or guardhp_curr == 0 decides
+  the round: both 0 = **draw** (result 3, nobody scores, the round is replayed), else the player still above 0 wins it
+  (result 1 or 2) and scores. rounds += 1 (draws counted), timer = 36. **[choice]** Whatever happens in the 36 ticks
+  after does not change the result (a dying player cannot strike: hurt_by_sword starts the death sequence at once).
+- **The round end**: the timer counts down one a tick; at 0: a player with WINS rounds ends the match (match = 1 or 2,
+  no reset: the survivor keeps standing, the loser lies dead), else **the reset**: both records rebuilt (room 3, row 1,
+  x = x_bump[col + 5] + 14 (100 and 170), y = y_land[2] = 118, the direction above, alive -1, sword sheathed, action 0,
+  fall_x = fall_y = repeat = 0, seq 2 "stand" played: frame 15); both blocks fresh (ctrl1 0, grab_timer 0, have_sword 1,
+  offguard 0, holding_sword 0, collision rows empty: prev_collision_row -1, rooms -1, flags 0); hit points 3; deltas,
+  can_guard_see_kid, justblocked, guard_refrac, kid_sword_strike, guard_notice_timer, is_guard_notice, droppedout,
+  is_screaming, knock 0. The match's first round starts from the same reset (tick 0).
+- **[choice]** Columns 2 and 7 are 83 units apart (70 + 13 for facing each other): inside the kid's draw distance (90),
+  so **both draw their swords on the first tick of every round** with no key pressed (the kid's auto-draw, control_standing)
+  and stand en garde ~8 ticks later. Columns 1 and 8 (111) would start them sheathed.
+- **Quit** (bit 5 of either player's byte): match = 3 at that tick, nothing else changes (the network sends NETLEAVE
+  after it). **Rematch** (bit 6 of either byte) after a match's end (match 1 or 2): score, rounds and result to 0,
+  match 0, the reset. Both are logic, so both machines act at the same tick (design 2.3).
+
+The round state (6 bytes, hashed): rounds (draws included, so unbounded: one byte, modulo 256), score 1, score 2, timer, result (0 none yet, 1 P1, 2 P2, 3 draw; the last
+round's until the next decision), match (0 on, 1 P1 won, 2 P2 won, 3 quit).
+
+### 11.6 The input byte
+
+One byte per player per tick, the same locally and over the network (decision 10: the host is player 1):
+
+| Bit | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| Meaning | left | right | up | down | the button (SHIFT / fire) | quit | rematch | 0 |
+
+Bits 0-4 are the game's INPUT byte as read_inputs builds it (game.asm), so player 1's byte is INPUT plus the two key bits
+and player 2's is a second decode (W A S D + Q, joystick 2: phase 2) into the same layout. Decoded as get_controls
+decodes INPUT: **right wins over left, down over up** (left+right = right). The directions are the screen's (as the kid's
+scripts): user_control flips them for a character facing right.
+
+### 11.7 The state hash and the traces
+
+**The hash** (design 4.3; duelsim state_bytes / hash16): 68 bytes in this order, 16 bits, per byte `h = rotl16(h, 1) +
+byte`:
+
+| Bytes | Content |
+|---|---|
+| 16 | the kid's record, the Z80's layout (guard.asm OF_*: frame x y direction col row action fall_x fall_y room repeat charid sword alive seq_lo seq_hi; direction 0 / 0xFF, alive 0xFF alive) |
+| 16 | the shadow's record |
+| 12 | hitp_curr, hitp_max, guardhp_curr, guardhp_max, can_guard_see_kid, justblocked, guard_refrac, kid_sword_strike, guard_notice_timer, is_guard_notice, droppedout, guard_skill |
+| 9 + 9 | player 1's block, player 2's block (11.3's first five rows) |
+| 6 | the round state |
+
+Not hashed **[choice]**: OPP_REC and CHAR_SAVE (scratch copies whose contents between ticks are an implementation detail
+of the Z80), the deltas (zeroed every tick), the collision rows (they follow from the records within a tick or two),
+prandom's seed (the duel's logic never draws a number). The design's "gv_start..gv_end" is therefore an explicit list,
+not the memory range: the Z80 hashes these addresses in this order.
+
+**The trace** per tick (tests/duel_test.py; `tools/duelsim.py script out.txt` writes it): the kid line (kidsim
+trace_line, mid-tick: the m4_test kid snapshot), the 'G' line (kidsim trace_guard_line: the shadow's record and the
+fight globals, the m4_test G snapshot at the tick's end), `D tick in1 in2 rounds score1 score2 timer result match hash
+<P1 block 9> <P2 block 9>` (the tick's end), and the 'N' sound line; a first line `D 0 ... hash` holds the state before
+the first tick. Phase 2's harness can reuse m4_test's kid and G snapshots and add the D line's bytes.
+
+**Scripts** (tests/duel_scripts): `# duel`, then one line a tick `x1 y1 s1  x2 y2 s2` (x -1 left / 1 right, y -1 up / 1
+down, s 1 the button) with optional `*N` (repeat), `Q1` / `Q2` (quit bit), `R1` / `R2` (rematch bit), or two hex bytes
+`0x.. 0x..`; options `# p2 frames shadow`; expectations `# expect rounds|score|match|matches|mirror|hurt|sheathe|digest ...`
+(tests/duel_test.py's header).
+
+### 11.8 The shadow's image set against the kid's sword sequences
+
+`tools/duelsim.py --frames`: per sword sequence, the frames 150-189 player 2 shows when drawn as SDLPoP draws the
+shadow (frame_tbl_guard[frame - 149], chtab 5 = the shadow's set, 32 images):
+
+- **Seq 75 (strike: 151-158, 170, 171) and seq 86 (forward_with_sword: 164, 165, 158, 170, 171) are covered**, as are
+  draw_sword, back_with_sword, parry (169, 150), parry_after_strike, strike_after_parry (162), attack_was_parried (167),
+  turn_with_sword, the pushes, hit_by_sword (172-174). The frame numbers mean the same poses in both tables (seq 58,
+  the guard's strike, uses the same 151-157).
+- **Missing: frames 183 and 185** (images 33 and 34 of the guard table: the last two poses of stabbed_to_death and dying,
+  falling down dead and lying dead). The shadow never dies in SDLPoP (on level 12 it is cleared), so its set ends at 32.
+  A dead player 2 would have no image, and its collision box would be 0 x 0 (set_char_collision: no size).
+- **The geometry differs** for nearly every sword frame (150-171, 179-185): the guard table's dy is 1 where the kid's
+  is 2, dx differs for 150-152, 159, 161, 162, 166, 168, 179-183, 185, and the flags (weight, odd pixel, thin, needs
+  floor) for 150, 151, 153, 157 (weight 14 against 0), 159, 161, 162, 166, 183, 185. Positions in a fight come from the sequences' dx (identical), so a fight in the open plays
+  the same (p2_wins with `# p2 frames shadow` mirrors p1_wins frame for frame, only the digest differs: columns and
+  collision boxes), but at walls and in the drawing player 2 would differ from player 1 by a pixel or a column.
+
+**[choice] D1: player 2 uses the kid's frame table for all frames**, i.e. the kid's images, drawn as the user's "cheaper
+look" with a colour variant (the R <-> B plane swap of the kid blit, approved 2026-11-10). Then the shadow's image set
+is not needed at all (no missing frames, no guard image set for level 1, no guard_wh table), and the two players are
+exactly symmetric (tests/duel_scripts/p2_wins.txt mirrors p1_wins.txt tick for tick, checked). Kept as an option:
+`DuelSim(kid_frames=False)` / `# p2 frames shadow` gives SDLPoP's shadow (frame_tbl_guard, the shadow's sizes for
+collisions); it would need images for frames 183 and 185 (e.g. the kid's 215 and 79 in the kid's chtab) and the arena
+loading the shadow's set where level 1 loads the guard's (TBL_GUARD_TYPE[1] = 0).
+
+### 11.9 What phase 2 needs that the design did not foresee
+
+1. **The collision rows per player**: +81 bytes of player 2's block (90 in all, not 9) and its swap (11.3).
+2. **More patch sites**: D3, D12, D14, D15 besides the design's sword sites; and the duel's control for **both** players:
+   the game's kid_tick (player 1) must not restart on the button after death, nor print the death text, nor play the
+   death music, nor wait on a sound in the death counter; show_time must not run (else the duel expires after 60 min).
+3. **Level 1 specifics of the arena**: the release's level 1 music crouch (need_level1_music: the kid would sit until
+   the music ends) cleared; have_sword = 1 (level 1 starts without the sword); the level 1 start (the falling entry, the
+   button of room 5 via trigger_button, the "LEVEL 1" text) overwritten by the arena setup and the round reset.
+4. **The torches**: process_trobs is a stub in the design's table, but the arena's two torches flicker only through it
+   (animate_tile's torch case, prandom). Either keep that path (the duel's logic does not depend on it, the seed is not
+   hashed) or freeze the flames.
+5. **Player 2's images** (D1): with the kid's table, player 2 draws the kid's images (the kid's whole set, sword
+   frames included) in the guard's slot: the guard slot's fetch has to read the kid's set (frame store, SPRBUF_G
+   up to the kid's largest frame), plus the colour variant. With the shadow's table instead: the arena must load the
+   shadow's set (not level 1's guard set) and frames 183 / 185 need images.
+6. **check_sword_hurt's order** with both hurt (the clash, D13): the kid's attack_was_parried first, then the shadow's; one hurt: hurt_by_sword reads the current frame's geometry (cur_frame, the last one loaded: player 2's), as SDLPoP's does; the Z80 must keep the same order.
+7. **The trace's sample points**: the kid line is mid-tick (after player 1's frame), the G and D lines at the tick's end.
+
+### 11.10 Decisions for the user
+
+**All nine accepted by the user 2026-11-11, as built** (D1: player 2 drawn with the kid's images and the R <-> B
+plane swap; 8: no death music, text or restart in the duel).
+
+1. **D1** player 2 = the kid's frame table and images (colour variant), not the shadow's set (11.8).
+2. **D3** the "opponent jumping: no auto-draw" rule for both players.
+3. **D14 / D15** the right edge bumps like the left one (a deviation from SDLPoP's behaviour at a room-0 edge).
+4. **D12** instead of the design's HITP <-> GUARDHP exchange.
+5. The round is decided at the first tick with a player at 0 hit points; a same-tick double death is a draw and is
+   replayed (since the clash, D13, only possible from causes other than the sword: none in the arena today); the 36
+   ticks after it change nothing. **D13 changed by the user 2026-11-11**: simultaneous hits are a clash, nobody is
+   hurt (11.2).
+6. ROUND_END_TICKS = 36; the match ends 36 ticks after the deciding tick; quit at once, rematch after the end.
+7. Start columns 2 and 7: both draw their swords on a round's first tick.
+8. In the duel no death music, death text or restart on the button; the death counter never waits on a sound; the
+   silent sound model.
+9. The hash: the explicit 68-byte list (11.7), without OPP_REC, CHAR_SAVE and the collision rows.

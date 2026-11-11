@@ -32,6 +32,8 @@ EARLY = ['tests/m4_scripts/walk_level1.txt', 'tests/m4_scripts/jumps_climbs.txt'
          'tests/m6_scripts/fight1.txt', 'tests/m6_scripts/fight_killpush.txt',
          'tests/m5_scripts/level12_shadow_merge.txt', 'tests/m5_scripts/feather_fall.txt', 'tests/m5_scripts/level13_jaffar.txt']
 # m4_game: three scripts (a level walk, a fight, the shadow), the state every tick, the screen every 10th
+# the duel's logic (tools/duelsim.py, kidsim in duel mode): its scripted duels, a second (no emulator, no SDLPoP)
+DUEL = [PY, 'tests/duel_test.py'] + scripts('duel_scripts')
 M4_GAME = ['tests/m4_scripts/walk_level1.txt', 'tests/m6_scripts/fight1.txt', 'tests/m5_scripts/level12_shadow_merge.txt']
 CHEAT_BUILD = ('cheat build', ['make', '-s', 'cheats'])
 PARTS = {
@@ -50,6 +52,7 @@ PARTS = {
         ('m4_test m7', [PY, 'tests/m4_test.py'] + M7),
         ('oracle_suite subset', [PY, 'tools/oracle_suite.py'] + M7 + EARLY),
         ('cut_suite', [PY, 'tools/cut_suite.py']),
+        ('duel_test', DUEL),
     ],
     # the game disk (build/pop800.dsk): the launcher round trips, PRES's title and cutscenes, the keys
     'c': [
@@ -71,6 +74,7 @@ FULL = {
     'logic': [
         ('m4_test all', [PY, 'tests/m4_test.py'] + scripts('m4_scripts', 'm6_scripts', 'm5_scripts', 'm7_scripts')),
         ('cut_suite', [PY, 'tools/cut_suite.py']),
+        ('duel_test', DUEL),
     ],
     'oracle-m4m6': [('oracle_suite m4+m6', [PY, 'tools/oracle_suite.py'] + scripts('m4_scripts', 'm6_scripts'))],
     'oracle-m5m7': [('oracle_suite m5+m7', [PY, 'tools/oracle_suite.py'] + scripts('m5_scripts', 'm7_scripts'))],
@@ -144,6 +148,7 @@ SMOKE = [
     ('m7_cut 2:60', [PY, 'tests/m7_cut.py', '2:60']),
     ('perfcheck', [PY, 'tools/perfcheck.py']),
     ('cut_suite', [PY, 'tools/cut_suite.py']),
+    ('duel_test', DUEL),
 ]
 
 
@@ -198,6 +203,7 @@ PROGRAMS = {
     'tools/oracle_suite.py': dict(build=[ASSETS_GAME], uses={'sdlpop'}, by_script=True, expect=30),
     'tests/m4_game.py': dict(build=[M4GAME, ASSETS_GAME], by_script=True, expect=60),
     'tools/cut_suite.py': dict(build=[ASSETS_ALL], uses={'sdlpop'}, expect=10),
+    'tests/duel_test.py': dict(build=[ASSETS_GAME], uses=set(), expect=5),
     'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
     'tests/m8_pace.py': dict(build=[M4GAME, ASSETS_GAME],
                              split=lambda: [([s], {}) for s in sorted(literal('tests/m8_pace.py', 'STRETCHES'))], expect=120),

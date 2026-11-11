@@ -1166,3 +1166,13 @@ piece used AND/XOR semantics.
    blocks free behind the last file (DUEL_BLOCKS; 204 free today) and 64 bytes of PRES free (DUEL_PRES_BYTES; 759 today);
    src/boot/launch.inc names ACT_DUEL (0x20, bit 5) and LN_DUEL_RESERVE (100 launcher bytes), asserted in boot.asm.
    Build-time checks only: every program byte-identical.
+81. Duel phase 1: the duel's logic in Python (2026-11-11, docs/duel-design.md section 11): tools/duelsim.py (DuelSim,
+   a KidSim subclass) plays the kid and the shadow, both through the kid's frame with the kid's sword rules, from one
+   input byte each a tick (bits: left right up down button quit rematch); rounds of 3 hit points, best of 5, a same-tick
+   double death is a draw (2026-11-11, the user: simultaneous hits are a clash, nobody hurt, both parried; tests
+   clash.txt, apart.txt); the arena level 1 room 3 with its links zeroed. The rule sites in tools/kidsim.py are marked
+   '(duel D1..D15)' and act only in duel mode: every game script's kidsim trace is byte-identical. New against the
+   design: player 2's block needs the collision rows (90 bytes, not 9), two edge rules (the right edge of a room-0
+   arena bumps like the left), player 2 drawn from the kid's frame table (the shadow's set lacks the dead frames 183 and
+   185). Seven scripted duels (tests/duel_scripts) with their state hash per tick; tests/duel_test.py in the PR tier b,
+   the logic part and the smoke tier. Python only: no Z80, asset or disk change.

@@ -1,0 +1,20 @@
+# duel
+# expect digest 5df25372dd9646ac
+# expect hurt none
+# expect score 0:0
+# expect sheathe 30,30
+# expect mirror apart.txt
+# walking apart: both draw on the first tick, then step back with the sword (one tap every 6 ticks), short of the
+# arena's walls (where SDLPoP's rounding makes the edges differ by a unit: edges.txt); out of the sword's range
+# (char_opp_dist >= 90) both put the sword away at the same tick (control_with_sword at frame 171), each the
+# mirror of the other
+0 0 0 0 0 0 *12
+-1 0 0 1 0 0
+0 0 0 0 0 0 *5
+-1 0 0 1 0 0
+0 0 0 0 0 0 *5
+-1 0 0 1 0 0
+0 0 0 0 0 0 *5
+-1 0 0 1 0 0
+0 0 0 0 0 0 *5
+0 0 0 0 0 0 *30

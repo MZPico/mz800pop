@@ -1,0 +1,40 @@
+# duel
+# expect digest 08cfad846d62efc5
+# expect match 0
+# expect rounds 1
+# expect score 1:0
+# player 1 wins a round: the kid steps in and strikes three times, the shadow stands en garde
+# the round end: the shadow dies at its third hit, both are reset 36 ticks later
+0 0 0 0 0 0 *8
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+0 0 1 0 0 0
+0 0 0 0 0 0 *12
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+0 0 1 0 0 0
+0 0 0 0 0 0 *12
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+0 0 1 0 0 0
+0 0 0 0 0 0 *12
+1 0 0 0 0 0
+0 0 0 0 0 0 *3
+1 0 0 0 0 0
+0 0 0 0 0 0 *43
