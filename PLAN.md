@@ -1162,3 +1162,7 @@ piece used AND/XOR semantics.
    user's choice from mock-ups of 12 palace and 12 dungeon floor variants, solid and dithered): popdata.PALACE_FLOOR,
    EGA red 4 -> magenta 3, replacing item 75's red/black checker (no per-piece phase, no seams, no composite
    cross-colour; the grey diamonds stay). The dungeon floor stays as it is. Assets only: every program byte-identical.
+80. Duel phase 0: the reservations (2026-11-11, docs/duel-design.md 1.5 and 8): tools/mkgamedisk.py asserts 40 floppy
+   blocks free behind the last file (DUEL_BLOCKS; 204 free today) and 64 bytes of PRES free (DUEL_PRES_BYTES; 759 today);
+   src/boot/launch.inc names ACT_DUEL (0x20, bit 5) and LN_DUEL_RESERVE (100 launcher bytes), asserted in boot.asm.
+   Build-time checks only: every program byte-identical.
