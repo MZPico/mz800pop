@@ -1,5 +1,5 @@
 # duel
-# expect digest 9c846e5853068be5
+# expect digest 1fb98b3a56a33caf
 # expect rounds 2
 # expect score 0:1
 # expect mirror p1_wins.txt

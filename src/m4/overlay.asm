@@ -1490,7 +1490,7 @@ pcd2:           ld      a, (PP_ANYFX)           ; (no object has a left clip or 
                 jr      nz, pcd3
                 push    ix
                 pop     hl
-                call    spr_draw
+duel_sd1:       call    spr_draw                ; (the duel patch's sites SD1, SD2: player 2's colours, src/duel/duel.asm)
                 jr      pcd_r
 pcd3:           ld      a, (PC_SLOT)            ; left (pixel x; 0: none)
                 add     a, a
@@ -1540,7 +1540,7 @@ pcd_k:          ld      a, c
                 call    pc_col                  ; (keep the clip column)
 pcd_dr:         push    ix
                 pop     hl
-                call    spr_draw
+duel_sd2:       call    spr_draw
                 ld      a, (PC_SLOT)
                 ld      e, a
                 ld      d, 0

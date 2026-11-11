@@ -63,7 +63,7 @@ $(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/b
 	$(PY) tools/cutart.py
 $(BUILD)/pres.bin: src/pres/pres.asm src/boot/launch.inc src/boot/unpz.asm src/boot/fdc.asm src/m1/far.asm src/m4/psg.asm src/m4/save.asm $(BUILD)/assets/title.inc src/pres/cut.asm $(BUILD)/assets/cut.inc | $(BUILD)
 	cd src/pres && $(PASMO) --bin pres.asm ../../$(BUILD)/pres.bin ../../$(BUILD)/pres.sym
-$(BUILD)/pop800.dsk: $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin tools/mkgamedisk.py tools/pzpack.py tools/cutart.py tools/cutsim.py
+$(BUILD)/pop800.dsk: $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin $(BUILD)/duel_main.bin $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin tools/mkgamedisk.py tools/pzpack.py tools/cutart.py tools/cutsim.py
 	$(PY) tools/mkgamedisk.py $@ $(BUILD)/boot.mzf
 m5boot: $(BUILD)/pop800.dsk
 	$(PY) tests/m5_boot.py
@@ -243,6 +243,18 @@ $(BUILD)/ovl_save.inc: src/m4/save.asm src/boot/fdc.asm
 $(BUILD)/ovl_text.inc: src/m4/text.asm
 $(BUILD)/m4ovl.bin: $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_frm.bin $(BUILD)/ovl_low.bin $(BUILD)/ovl_low2.bin $(BUILD)/ovl_fill.bin $(BUILD)/ovl_loose.bin tools/ovltool.py
 	$(PY) tools/ovltool.py pack $(BUILD)/m4game.sym $@ $(BUILD)/ovl_room.bin $(BUILD)/ovl_level.bin $(BUILD)/ovl_event.bin $(BUILD)/ovl_text.bin $(BUILD)/ovl_gleave.bin $(BUILD)/ovl_genter.bin $(BUILD)/ovl_save.bin $(BUILD)/ovl_keys.bin $(BUILD)/ovl_rare.bin $(BUILD)/ovl_anim.bin $(BUILD)/ovl_btn.bin $(BUILD)/ovl_door.bin $(BUILD)/ovl_frm.bin $(BUILD)/ovl_low.bin $(BUILD)/ovl_low2.bin $(BUILD)/ovl_fill.bin $(BUILD)/ovl_loose.bin
+# the duel easter egg's patch (docs/duel-design.md, phase 2: src/duel/duel.asm): assembled against the game's symbols
+# like an overlay, then cut into its pieces and checked against the holes and the call graph (tools/duelpatch.py);
+# build/duel_main.bin (PRS_DUEL, main RAM) and build/duel_stage.bin (PRS_DUEL1, staged in the RAM disk) go into
+# POP800.PR3 (tools/mkgamedisk.py)
+$(BUILD)/duel.inc: src/duel/duel.asm $(BUILD)/m4game.bin tools/ovltool.py
+	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym src/duel/duel.asm src/m1 $@
+$(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc
+	cd src/m1 && $(PASMO)$(if $(DUEL_LOOK), --equ DUEL_LOOK=$(DUEL_LOOK)) --bin ../duel/duel.asm ../../$(BUILD)/duel.bin ../../$(BUILD)/duel.sym
+$(BUILD)/duel_main.bin $(BUILD)/duel_stage.bin &: $(BUILD)/duel.bin $(BUILD)/m4ovl.bin tools/duelpatch.py tools/z80flow.py
+	$(PY) tools/duelpatch.py build
+duel: $(BUILD)/duel_main.bin
+.PHONY: duel
 $(BUILD)/m4test.mzf: $(BUILD)/m4test.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 2000
 $(BUILD)/m4game.mzf: $(BUILD)/m4game.bin $(BUILD)/m4ovl.bin $(BUILD)/assets/sound.bin

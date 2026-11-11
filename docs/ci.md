@@ -61,6 +61,8 @@ pr [--part a] [-j 4]` runs the same commands through the local runner: in parall
 | b | `tools/oracle_suite.py` on `tests/m7_scripts` + the 7 scripts above | kidsim against SDLPoP | ~9 min |
 | b | `tools/cut_suite.py` | cutsim against SDLPoP, all 63 cutscene cases | ~5 s |
 | b | `tests/duel_test.py` | the duel's logic (tools/duelsim.py) on tests/duel_scripts: determinism, results, mirror, trace digest | ~1 s |
+| b | `tests/duel_z80.py --cdl` | the Z80 duel (src/duel/duel.asm over the game) against duelsim on tests/duel_scripts, every tick; the code log: no hole reached | ~1.5 min |
+| c | `tests/duel_boot.py` | the duel from the floppy: Ctrl+D, the launcher's ACT_DUEL, the input bytes, BREAK back to the title | ~0.5 min |
 | c | `tests/m7_launch.py` | the launcher: boot -> PRES -> game round trips, the level-end handoff through a cutscene, game over and restart | ~13 min |
 | c | `tests/m7_cut.py --quick` | PRES's level cutscenes 2 and 8 against cutsim: every frame's state, VRAM, the timing, the music | ~4.5 min |
 | d | `tests/m7_title.py --quick` | PRES's title, part 1 (steps a-g): VRAM against tools/titleref.py at every step, fade pass and wipe column, the step timing, the PSG against sndsim (bank A, the looping title theme) | ~8 min |
@@ -77,11 +79,11 @@ whole set fits the runners (m7_sound ~1.5 h -> ~5.4 min, m4_test on every script
 |---|---|
 | logic | `tests/m4_test.py` on every script (m4, m6, m5, m7), `tools/cut_suite.py`, `tests/duel_test.py` |
 | oracle-m4m6, oracle-m5m7 | `tools/oracle_suite.py` on those sets (kidsim against SDLPoP) |
-| pixels-m4, pixels-m6, pixels-m5 | `tests/m4_game.py --every 1` on that set (the state and VRAM every tick) |
+| pixels-m4, pixels-m6, pixels-m5 | `tests/m4_game.py --every 1` on that set (the state and VRAM every tick); pixels-m6 also `tests/duel_z80.py --cdl` |
 | sound | `tools/perfcheck.py` (here, not in logic: its baseline is per size), `tests/m7_sound.py` (full), `tests/m5_boot.py`, `tests/m5_save.py`, `tests/m8_pace.py`, `tests/m8_fstore.py` |
 | pres | `tests/m7_title.py`, `tests/m7_cut.py` (full: every case, the keys, Ctrl+L) |
 | story | `tests/m7_story.py` |
-| launch-keys | `tests/m7_launch.py`, `make cheats`, `tests/m7_keys.py`, and in the CHEATS=1 tree `build/cheat/tests/m7_keys.py` (the cheat keys) and `build/cheat/tests/m4_test.py` on the key scripts (the cheats, Z80 against kidsim) |
+| launch-keys | `tests/m7_launch.py`, `tests/duel_boot.py`, `make cheats`, `tests/m7_keys.py`, and in the CHEATS=1 tree `build/cheat/tests/m7_keys.py` (the cheat keys) and `build/cheat/tests/m4_test.py` on the key scripts (the cheats, Z80 against kidsim) |
 | early | `smoke_test`, `m0_test`, `m1_compare`, `m1_test`, `make build/m3test.mzf build/m3demo.mzf`, `m3_test` on each of the 14 levels, `m3_anim_test` on levels 1-6, `m3_demo` (records only) |
 | early-anim | `make build/m3test.mzf`, `m3_anim_test` on levels 7-14 (split from early: `m3_anim_test` is ~1,350 s of its ~1,450 s on the runner; measured locally ~9 min wall for both with 4 jobs, 1,729 s serial) |
 
@@ -196,7 +198,7 @@ emu/ makes `make check` select every emulator test: run those on the runners ins
 | Target | What | Use |
 |---|---|---|
 | `make check` | the full regression's tests that the changes since `BASE` can affect, plus those that failed last time; each cached | after a change |
-| `make check-smoke` | `SMOKE`: the build, `smoke_test`, `m5_boot` (the disk boot), `m4_test` on three short scripts, `m4_game --every 1` on one scene, `m7_title --quick`, `m7_cut 2:60` (one cutscene), `perfcheck`, `cut_suite`, `duel_test` | ~1.6 min cold (below), seconds cached |
+| `make check-smoke` | `SMOKE`: the build, `smoke_test`, `m5_boot` (the disk boot), `m4_test` on three short scripts, `m4_game --every 1` on one scene, `m7_title --quick`, `m7_cut 2:60` (one cutscene), `perfcheck`, `cut_suite`, `duel_test`, `duel_z80` on parry | ~1.6 min cold (below), seconds cached |
 | `make check ALL=1` | every test of the full regression, cached | after changing the emulator, SDLPoP, pasmo or the Makefile's build rules |
 | `make check-full` | every test, no cache | normally on the runners (above) |
 
