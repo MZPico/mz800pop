@@ -149,7 +149,10 @@ launch_main:    di
                 ld      a, (ho_buf + HO_ACTION)
                 bit     ACT_PRES_BIT, a
                 jr      nz, ln_pres
-                ld      a, 1            ; the game: its compressed image from the RAM disk
+ln_duel1:       bit     ACT_DUEL_BIT, a ; the duel (src/duel/duel.asm): its staged pieces into the RAM disk's scratch
+                ld      a, PRS_DUEL1    ; first (a RAM-disk record: through the buffers the game's image overwrites)
+                call    nz, prs_load_main
+ln_duel1_end:   ld      a, 1            ; the game: its compressed image from the RAM disk
                 ld      (s_src), a
                 ld      a, GAME_RD_PAGE
                 ld      de, GAME_RD_ADDR
@@ -159,7 +162,11 @@ launch_main:    di
                 ld      d, a
                 ld      e, a
                 call    rd_seek
-                jp      GAME_START
+ln_duel2:       ld      a, (ho_buf + HO_ACTION) ; the duel: its piece over the game's main loop (the game starts as
+                bit     ACT_DUEL_BIT, a         ; always and runs into it after level 1's start)
+                ld      a, PRS_DUEL
+                call    nz, prs_load_main
+ln_duel2_end:   jp      GAME_START
 ln_pres:        xor     a               ; PRES: entry 0 of POP800.PRS
                 call    prs_load_main
                 jp      PRES_START
@@ -932,7 +939,8 @@ end_of_image:
                 if end_of_image - LOAD > LN_MAX
                 .error the launcher's image is larger than its RAM-disk area
                 endif
-                if end_of_image - LOAD > LN_MAX - LN_DUEL_RESERVE
+LN_DUEL_USED    equ     ln_duel1_end - ln_duel1 + ln_duel2_end - ln_duel2      ; (ACT_DUEL's code: within the reserve)
+                if end_of_image - LOAD - LN_DUEL_USED > LN_MAX - LN_DUEL_RESERVE
                 .error the launcher's image leaves less than LN_DUEL_RESERVE bytes for the duel (docs/duel-design.md 1.5)
                 endif
 ; variables (not in the image)

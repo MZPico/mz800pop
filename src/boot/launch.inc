@@ -74,9 +74,12 @@ ACT_EXPIRED     equ     0x11            ; PRES: the time has expired (then the t
 ACT_ENDING      equ     0x12            ; PRES: the ending (then the title)
 ACT_CUTSCENE    equ     0x13            ; PRES: the cutscene before level HO_LEVEL (then that level)
 ACT_PRES_BIT    equ     4
-ACT_DUEL        equ     0x20            ; the duel easter egg (bit 5; docs/duel-design.md 1.4, reserved, not built yet):
-                                        ; the GAME image, then the PRS entries PRS_DUEL / PRS_DUEL1, then the patch's entry
+ACT_DUEL        equ     0x20            ; the duel easter egg (bit 5; docs/duel-design.md 1.4, 12; src/duel/duel.asm): the
+                                        ; PRS entry PRS_DUEL1 (the patch's pieces, staged in the RAM disk), the GAME image,
+                                        ; the PRS entry PRS_DUEL (its piece over the game's main loop), the game's start
 ACT_DUEL_BIT    equ     5
-LN_DUEL_RESERVE equ     100             ; launcher bytes kept free for ACT_DUEL (boot.asm asserts it, duel-design 1.5)
+LN_DUEL_RESERVE equ     100             ; launcher bytes kept for ACT_DUEL, its code included (boot.asm asserts it)
+PRS_DUEL        equ     23              ; POP800.PRS entries (POP800.PR3, tools/mkgamedisk.py): the duel's main-RAM
+PRS_DUEL1       equ     24              ; piece (P_main) and its staged pieces (build/duel_patch.json)
 PRES_START      equ     0x2000          ; PRES's entry (its image: 0x1200-0x7FFF and 0xC000-0xFDFF, never 0x8000-0xBFFF:
                                         ; the launcher's buffers and image while it loads PRS entries)

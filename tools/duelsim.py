@@ -98,13 +98,17 @@ class DuelSim(KidSim):
 
     def arena_setup(self):
         """design 6: the room's four links zeroed (room 0 is a wall: its edges draw and collide as walls), no guards,
-        no tile animations, no level texts; the level's tiles are not touched (a trap in the room would stay: 10.1)"""
+        no tile animations but the room's torches, no level texts; the level's tiles are not touched (a trap in the room
+        would stay: 10.1). The torches flicker as in the game (the user's choice 2026-11-11): the room's entry torch
+        step (anim_tile_modif: random first frames, trobs) and process_trobs every tick, drawing on prandom: lockstep
+        state the logic never reads, not hashed"""
         L = self.level; room = self.arena
         L.raw = bytearray(L.raw); o = 1952 + (room - 1) * 4; L.raw[o:o + 4] = bytes(4)
         for i in range(24): L.guards_tile[i] = 30
         self.trobs = []; self.mobs = []
         self.need_level1_music = 0; self.erase_bottom_text(); self.is_show_time = 0
         self.drawn_room = self.next_room = room; self.exit_room_timer = 0
+        self.anim_tile_modif()                            # (the torches: random first frames, animated)
 
     def round_reset(self):
         """a round's start: both at their start tiles, standing, swords sheathed, full hit points, fresh blocks"""
@@ -137,7 +141,8 @@ class DuelSim(KidSim):
         self.guard_line = self.duel_line = self.sound_line = self.kid_line = None
         self.sound_tick()
         self.guardhp_delta = 0; self.hitp_delta = 0
-        # (no timers, do_mobs, process_trobs, check_skel: the arena has none of it)
+        # (no timers, do_mobs, check_skel: the arena has none of it)
+        self.process_trobs()                              # (the torches' flicker: prandom, no logic reads it)
         self.check_can_guard_see_kid()                    # (duel D11)
         self.char_frame(0, in1)
         self.kid_line = self.trace_line()

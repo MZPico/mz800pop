@@ -53,6 +53,8 @@ NPAGES = 8
 SAVE_NAME = 'POP800.SAV'  # the saved game (src/m4/save.asm)
 PRS_NAME = 'POP800.PRS'   # the presentation program and its scenes (M7)
 PR2_NAME = 'POP800.PR2'   # (M7 step 7) POP800.PRS's continuation: the next blocks on the disk (see prs_file)
+PR3_NAME = 'POP800.PR3'   # (the duel, phase 2) the duel's entries: the blocks after POP800.PR2, within DUEL_BLOCKS
+DUEL_ENTRIES = ['PRS_DUEL', 'PRS_DUEL1']
 # the GAME image's pieces in the RAM disk: (page, start, end); the first must be launch.inc's GAME_RD_PAGE:GAME_RD_ADDR.
 # Pages 3 and 4 hold only fixed art packs (the kid, the palace environment) whatever M8a does with the guard sets.
 GAME_SEGS = ((3, 0xA000, 0x10000), (4, 0xD400, 0x10000))
@@ -277,9 +279,10 @@ def title_entries(P):
         return addr, free
     addr, free = place_all(P['end_of_pres'])
     assert addr is not None, 'the title art does not fit in PRES'
-    # the duel's PRES code (DUEL_PRES_BYTES, docs/duel-design.md 1.5) will lengthen PRES: the same first fit must still
-    # place every band with end_of_pres moved by the reserve (the placement above stays as it is)
-    assert place_all(P['end_of_pres'] + DUEL_PRES_BYTES)[0] is not None, \
+    # the duel's PRES code (DUEL_PRES_BYTES, docs/duel-design.md 1.5; pres.asm DUEL_PRES_USED of them today, Ctrl+D): the
+    # same first fit must still place every band with end_of_pres moved by the rest of the reserve
+    assert P['DUEL_PRES_USED'] <= DUEL_PRES_BYTES, 'the duel\'s PRES code is larger than DUEL_PRES_BYTES'
+    assert place_all(P['end_of_pres'] - P['DUEL_PRES_USED'] + DUEL_PRES_BYTES)[0] is not None, \
         'the title art leaves PRES less than DUEL_PRES_BYTES for the duel (docs/duel-design.md 1.5)'
     out = {}
     for ent, slots in TITLE_ENTRIES:
@@ -325,8 +328,16 @@ def prs_file():
             st += stored_records([(addr, data)]) if stored else b''.join(records(main_blocks([(addr, data)])))
         named[name] = st
     tstats['cut'] = cstats
+    # the duel (src/duel/duel.asm, tools/duelpatch.py): its main-RAM piece and its staged pieces (a RAM-disk record), the
+    # last entries: they make POP800.PR3 (the launcher's ACT_DUEL)
+    dp = json.load(open(os.path.join(B, 'duel_patch.json')))
+    named['PRS_DUEL'] = b''.join(records(main_blocks([(a, bytes.fromhex(h)) for a, h in dp['main']])))
+    st = dp['stage']; stage = bytes.fromhex(st['data'])
+    assert (st['addr'] & 0xFFFF) + len(stage) <= 0x10000 and len(stage) <= RD_BLOCK
+    named['PRS_DUEL1'] = b''.join(records([(st['page'], st['addr'], stage)]))
     order = sorted((k for k in named if k != 'PRES'), key=lambda k: P[k])
     assert [P[k] for k in order] == list(range(1, len(order) + 1)), 'pres.asm PRS_* and the entries differ'
+    assert order[-2:] == DUEL_ENTRIES, 'the duel\'s entries must come last (POP800.PR3)'
     streams = [named['PRES']] + [named[k] for k in order]
     tstats['names'] = ['PRES'] + order
     streams = [st + b'\xff' for st in streams]
@@ -335,7 +346,10 @@ def prs_file():
     for st in streams:
         index += struct.pack('<HH', blk, len(st) // 256); blk += len(st) // 256
     data = index.ljust(256, b'\0') + b''.join(streams)
-    assert len(data) <= 2 * FILE_MAX, 'POP800.PRS and POP800.PR2 are full'
+    duel_at = len(data) - sum(len(s) for s in streams[-len(DUEL_ENTRIES):])
+    assert FILE_MAX <= duel_at <= 2 * FILE_MAX, 'POP800.PRS and POP800.PR2 are full'
+    assert len(data) - duel_at <= FILE_MAX
+    tstats['duel_at'] = duel_at
     return data, [len(st) for st in streams], tstats
 
 def mzf(name, data, ftype=0x01, load=0, exec_=0):
@@ -367,7 +381,7 @@ def build_disk(out, boot, mzd):
     print('GAME image in the RAM disk: %d bytes (%s)' % (sum(len(d) for _, _, d in gw),
           ', '.join('page %d %04X-%04X' % (p, a, a + len(d) - 1) for p, a, d in gw)))
     prs, lens, ts = prs_file()
-    print('POP800.PRS + PR2: %d bytes (index 256, entries: %s); title art: %d bands, %d bytes PZ (title.pack %d raw), %d bytes free for it in PRES' % (
+    print('POP800.PRS + PR2 + PR3: %d bytes (index 256, entries: %s); title art: %d bands, %d bytes PZ (title.pack %d raw), %d bytes free for it in PRES' % (
           len(prs), ', '.join('%s %d' % (a, b // 256) for a, b in zip(ts['names'], lens)), ts['bands'], ts['pz'], ts['raw'], ts['free']))
     print('  cutscenes: %s' % ', '.join('%s %s' % kv for kv in ts['cut'].items()))
     if os.path.exists(out): os.remove(out)
@@ -385,7 +399,8 @@ def build_disk(out, boot, mzd):
     p = os.path.join(B, 'pop800_sav.mzf')
     open(p, 'wb').write(mzf(SAVE_NAME, bytes(256), ftype=0x04))
     run('mzdsk-fsmz', out, 'put', p)
-    for name, part in ((PRS_NAME, prs[:FILE_MAX]), (PR2_NAME, prs[FILE_MAX:])):
+    da = ts['duel_at']
+    for name, part in ((PRS_NAME, prs[:FILE_MAX]), (PR2_NAME, prs[FILE_MAX:da]), (PR3_NAME, prs[da:])):
         if not part: continue
         names.append(name)
         p = os.path.join(B, 'pop800_%s.mzf' % name[-3:].lower())
@@ -395,14 +410,18 @@ def build_disk(out, boot, mzd):
     fb = {f['name']: f for f in d['files']}
     if PR2_NAME in fb:                  # the launcher reads POP800.PRS's entries as blocks counted from its first one
         assert fb[PR2_NAME]['block'] == fb[PRS_NAME]['block'] + fb[PRS_NAME]['block_count'], 'POP800.PR2 must follow POP800.PRS'
+    assert fb[PR3_NAME]['block'] == fb[PR2_NAME]['block'] + fb[PR2_NAME]['block_count'], 'POP800.PR3 must follow POP800.PR2'
     print(run('mzdsk-fsmz', out, 'boot').split('Reading bootstrap header ...')[-1].strip().replace('\n\n', '\n'))
     for f in d['files']:
         print('  %-10s block %4d, %4d blocks (%d bytes)' % (f['name'], f['block'], f['block_count'], f['size']))
     assert [f['name'] for f in d['files']] == names, d
     end = max(f['block'] + f['block_count'] for f in d['files'])
-    print('  %d blocks free after block %d (the duel keeps %d)' % (DISK_BLOCKS - end, end, DUEL_BLOCKS))
-    assert DISK_BLOCKS - end >= DUEL_BLOCKS, 'the floppy: %d blocks free, the duel keeps %d (docs/duel-design.md 1.5)' % (
-        DISK_BLOCKS - end, DUEL_BLOCKS)
+    duel = fb[PR3_NAME]['block_count']; before = end - duel     # (POP800.PR3, the duel's, is the last file)
+    print('  %d blocks free after block %d; the duel: %d of its %d reserved blocks (POP800.PR3), %d left' % (
+        DISK_BLOCKS - end, end, duel, DUEL_BLOCKS, DUEL_BLOCKS - duel))
+    assert duel <= DUEL_BLOCKS and DISK_BLOCKS - before >= DUEL_BLOCKS, \
+        'the floppy: %d blocks free before the duel\'s, the duel keeps %d and uses %d (docs/duel-design.md 1.5)' % (
+        DISK_BLOCKS - before, DUEL_BLOCKS, duel)
 
 if __name__ == '__main__':
     main()

@@ -1176,3 +1176,13 @@ piece used AND/XOR semantics.
    arena bumps like the left), player 2 drawn from the kid's frame table (the shadow's set lacks the dead frames 183 and
    185). Seven scripted duels (tests/duel_scripts) with their state hash per tick; tests/duel_test.py in the PR tier b,
    the logic part and the smoke tier. Python only: no Z80, asset or disk change.
+82. Duel phase 2: the local duel in Z80 (2026-11-11, docs/duel-design.md section 12): Ctrl+D on the title; the patch
+   src/duel/duel.asm (`make duel`, tools/duelpatch.py: the pieces against the holes, a static call-graph check over the
+   game and its overlays from the duel's entry) over the game's main loop, kid_tick, tick_pre .. check_skel and the
+   guard AI (1,636 of 2,406 bytes; 0 resident). Staged: POP800.PR3's PRS_DUEL1 into RAM-disk page 6 0x16C0, PRS_DUEL
+   over the main loop; the game starts level 1 untouched, then d_boot lays the pieces in (the level start writes
+   inside the design's holes). Player 2's frame runs the kid's code with Char.charid 0 (D1-D9 without a patch); two
+   patch sites in kid.asm (D14, D15), two in overlay.asm (player 2's blue suit and grey hair, DUEL_LOOK). tests/duel_z80.py: all seven duel
+   scripts tick for tick equal to duelsim (state, hash) at 512K / 1M / 16M, with the code log's hole check;
+   tests/duel_boot.py: the floppy path. 5.6 / 5.3 / 5.0 frames a tick with the torches flickering as in the game (prandom, not hashed; duelsim too). Launcher +17 B, PRES +23 B, floppy 6 blocks.
+   Every game program byte-identical (labels only).

@@ -104,6 +104,12 @@ the events overlay also includes: one W1 overlay cannot call another). Freed: bl
 Ctrl+G from the keyboard matrix, edge-triggered) and the save stubs took 32 bytes of main (end_of_code 0x7B53). The
 IM2 table and the op-list sizes were not needed as reclaims.
 
+The duel (docs/duel-design.md section 12, src/duel/duel.asm): nothing resident. While a duel runs, its pieces lie over
+game.asm's main loop (level_ready .. flip_now), kid.asm kid_tick, guard.asm tick_pre .. check_skel and the guard AI
+(autocontrol_opponent .. check_chomped_guard), plus four patched operands (kid.asm duel_d14 / duel_d15, overlay.asm
+duel_sd1 / duel_sd2); the staged pieces wait in RAM-disk page 6 0x16C0- (the chopper pictures' pool, runtime scratch)
+from the launcher to the game's level_ready. The next game start restores the clean GAME image.
+
 ## Code overlays (src/m4/ovl.asm, 2026-10-29)
 
 Code that does not run every tick is assembled separately (src/m4/ovl_*.asm, against the main program's symbols:

@@ -2044,7 +2044,7 @@ io2:            ld      a, (TILE_COL)
                 call    k_tbl
                 ld      l, a
                 ld      h, 0
-                call    xpos_in_drawn_room
+duel_d15:       call    xpos_in_drawn_room      ; (the duel patch's site D15: this call's target, src/duel/duel.asm)
                 ld      de, TILE_MIDX
                 add     hl, de
                 ld      (COLL_TLX), hl
@@ -2160,11 +2160,11 @@ bumped:         ld      (K_TMP2), a
                 ld      a, (CURR_TILE2) ; pushing left
                 cp      T_WALL
                 jp      nz, bp_floor
-                ld      a, (TILE_COL)
+duel_d14:       ld      a, (TILE_COL)   ; (the duel patch's site D14: a jump from here, src/duel/duel.asm)
                 dec     a
                 ld      (TILE_COL), a
                 ld      c, a
-                ld      a, (TILE_ROW)
+duel_d14r:      ld      a, (TILE_ROW)
                 ld      b, a
                 ld      a, (CURR_ROOM)
                 call    k_get_tile

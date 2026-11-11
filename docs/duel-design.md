@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **phase 1 built (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -456,7 +456,7 @@ DuelSim.step(in1, in2), in SDLPoP play_frame's order, with what the arena never 
 Not run: timers, do_mobs, process_trobs, check_skel, exit_room, check_the_end, check_guard_fallout, show_time (no clock,
 the room never changes), the guard AI (autocontrol_*), play_guard. **The torches** are animated by process_trobs in
 the game (prandom): the duel's logic does not animate them (they change nothing in the logic); phase 2 decides whether
-the drawing keeps them flickering (11.9).
+the drawing keeps them flickering (11.9). **Decided 2026-11-11 (phase 2): they flicker as in the game; duelsim runs the room-entry torch step at the arena setup and process_trobs before check_can_guard_see_kid, prandom never hashed (12.4).**
 
 ### 11.2 The rule sites (the Z80 patch sites of phase 2)
 
@@ -614,7 +614,8 @@ shadow (frame_tbl_guard[frame - 149], chtab 5 = the shadow's set, 32 images):
   collision boxes), but at walls and in the drawing player 2 would differ from player 1 by a pixel or a column.
 
 **[choice] D1: player 2 uses the kid's frame table for all frames**, i.e. the kid's images, drawn as the user's "cheaper
-look" with a colour variant (the R <-> B plane swap of the kid blit, approved 2026-11-10). Then the shadow's image set
+look" with a colour variant (approved 2026-11-10 as the R <-> B plane swap of the kid blit; the user chose a **blue
+suit and grey hair** instead on 2026-11-11: section 12.4). Then the shadow's image set
 is not needed at all (no missing frames, no guard image set for level 1, no guard_wh table), and the two players are
 exactly symmetric (tests/duel_scripts/p2_wins.txt mirrors p1_wins.txt tick for tick, checked). Kept as an option:
 `DuelSim(kid_frames=False)` / `# p2 frames shadow` gives SDLPoP's shadow (frame_tbl_guard, the shadow's sizes for
@@ -642,8 +643,8 @@ loading the shadow's set where level 1 loads the guard's (TBL_GUARD_TYPE[1] = 0)
 
 ### 11.10 Decisions for the user
 
-**All nine accepted by the user 2026-11-11, as built** (D1: player 2 drawn with the kid's images and the R <-> B
-plane swap; 8: no death music, text or restart in the duel).
+**All nine accepted by the user 2026-11-11, as built** (D1: player 2 drawn with the kid's images, **in a blue suit with grey hair** (12.4: the R <-> B swap first
+approved, the blue suit and grey hair chosen 2026-11-11)plane swap; 8: no death music, text or restart in the duel).
 
 1. **D1** player 2 = the kid's frame table and images (colour variant), not the shadow's set (11.8).
 2. **D3** the "opponent jumping: no auto-draw" rule for both players.
@@ -658,3 +659,153 @@ plane swap; 8: no death music, text or restart in the duel).
 8. In the duel no death music, death text or restart on the button; the death counter never waits on a sound; the
    silent sound model.
 9. The hash: the explicit 68-byte list (11.7), without OPP_REC, CHAR_SAVE and the collision rows.
+
+## 12. Phase 2: the local duel in Z80, as built (2026-11-11)
+
+The duel runs on the MZ-800 from the title: **Ctrl+D**, two players on one machine, the rules of section 11 tick for tick.
+Code: **src/duel/duel.asm** (the patch), **tools/duelpatch.py** (its pieces, the holes, the call-graph check),
+**tools/z80flow.py** (the static control-flow walk), `make duel`; the launcher (src/boot/boot.asm ACT_DUEL), PRES
+(src/pres/pres.asm p_duel), tools/mkgamedisk.py (POP800.PR3); tests **tests/duel_z80.py** (Z80 against duelsim) and
+**tests/duel_boot.py** (from the floppy). The game's own code changed only by labels (kid.asm duel_d14, duel_d14r,
+duel_d15; overlay.asm duel_sd1, duel_sd2): m4game.bin, its block 2, every overlay and m4test are byte-identical.
+
+### 12.1 The patch: staged, laid in after the level start
+
+**New against 1.4: the patch is staged.** The game's own level start (game_start, load_level, play_level) runs code
+and writes variables inside the design's holes before the duel could take over (find_start_level_door writes
+objects.asm's sc_pos, the level 1 start calls trigger_button, the guard-enter overlay runs at the first room): a patch
+laid in before the start would be run or overwritten by it. So the launcher loads two POP800.PR3 entries:
+
+| Entry | What | Where |
+|---|---|---|
+| PRS_DUEL1 (24) | every piece but P_main, concatenated in d_ptab's order (1,441 B raw) | one RAM-disk record: page 6 0x16C0 (rule 1's scratch: the chopper pictures' pool at runtime, none in the arena), before the GAME image (its buffers 0x2000-0x9FFF are the image's) |
+| PRS_DUEL (23) | P_main (204 B): d_boot, the match loop, the quit | main RAM over game.asm's main loop (level_ready on), after the GAME image |
+
+Then `jp GAME_START` as for any game: the game starts level 1 untouched and returns from game_start to level_ready,
+which is now d_boot: it copies the staged pieces into their holes (d_ptab) and jumps to d_entry. The level start of the
+duel is therefore the game's own, byte for byte (as duelsim's: KidSim(Level(1)) with its play_level); d_entry then does
+the arena (duelsim arena_setup: room 3's links zeroed, no guards, no trobs / mobs, no level 1 music crouch, the text
+erased, drawn room 3) and the first round (d_reset). The design's stubs (trigger_button and the trap entries as `ret`)
+are not needed: nothing of the level start runs patched code, and the arena reaches none of the holes used (12.2).
+
+### 12.2 The holes and the call-graph check
+
+The holes used (duel.asm H_*, by the game's labels; tools/duelpatch.py checks every piece against them):
+
+| Hole | Range (this tree) | Size | Used | Free |
+|---|---|---|---|---|
+| H_MAIN: game.asm's main loop (level_ready .. flip_now) | 0x200B-0x2133 | 297 | 204 | 93 |
+| H_KT: kid.asm kid_tick (the duel has its own frame) | 0x6737-0x6858 | 290 | 207 | 83 |
+| H_TICK: guard.asm tick_pre, tick_post, tick_end, timers, do_mouse, check_skel | 0xDAD4-0xDCD8 | 517 | 321 | 196 |
+| H_AI: guard.asm the guard AI, play_guard_frame, play_guard, check_guard_bumped, dist_from_wall_behind, check_chomped_guard | 0xE096-0xE4C6 | 1,073 | 904 | 169 |
+| H_FREE: main RAM free below W1 | 0x7B1B-0x7BFF | 229 | 0 | 229 |
+| the patch sites H_D14 (3), H_D15 (2), H_SD1 (2), H_SD2 (2) | kid.asm, overlay.asm | 9 | 9 | 0 |
+| **Code holes** | | **2,406** | **1,636** | **770** |
+
+kid_tick and tick_pre / tick_post were not in 1.2's list: the duel has its own tick, so they are the cleanest holes. The
+design's trap, view, gate / button / door, sound and clock holes (~3.5 KB more) stay unused: no stub is written, and
+they stay available for phase 3-4 (with stubs for their statically reachable entries: the check names them, e.g.
+start_chompers from land, check_get_item from control_standing is **reached** in the arena and must stay).
+
+**The check (tools/duelpatch.py build, at every `make duel`, so in every CI build):** a walk of every path from d_boot
+and the interrupt (isr) over the game with the patch laid in, the overlays at their windows (an overlay stub's
+`ld a, id / call ovl_w1` names the overlay its jump enters), the kernel's self-modified calls resolved by hand
+(INDIRECT: shr_call and the other unrolled chains of gfx.asm / kernel_gen.inc), the launcher (LN_LAUNCH) an exit.
+Errors: a path reaching a hole's byte outside a piece; an edge from the game's code into a hole (a dropped routine's
+entry, where a duel piece now lies); a fall-through into a hole; a game instruction naming a hole's address as memory.
+Today: 19,424 instructions reached (the room, level, rare, events, low code overlays, and with the torches' tile redraw
+the anim, button, door, frames and loose-floor overlays), no error, no cut needed (COLD is empty); two `jp (hl)`
+dispatches stay unresolved and are left to the code log: room.asm dr_run's RR_HOOK (dirty_hook) and op_found's op handlers. Negative checks (a fake hole over play_seq, check_get_item, trigger_button, snd_again, start_chompers, sc_pos)
+each fail the build with the paths.
+
+**The profiler and code-log check (tests/duel_z80.py --cdl):** mz800emu's code log and call profiler from each script's
+d_entry on: no byte of a hole outside the pieces executed, no call into a hole but to a duel label, no COLD callee;
+over the seven scripts 1,304 of the pieces' 1,645 bytes run, 253 routines called, no hole reached.
+
+### 12.3 The rules at their Z80 sites
+
+| Site | How |
+|---|---|
+| D1-D9 (the kid's frame table, draw rule, sequences, parry, holding_sword, put away fast) | player 2's frame runs with **Char.charid = 0** and **Opp.charid = 1** (d_tick): every charid test of the game's sword code takes the kid's branch, the "opponent is the shadow" draw rule (D3) holds both ways. The only charid effect the duel must not take, kid_sword_strike = 15 on player 2's strike, is saved and restored around the frame. No patch in the game's code |
+| D10, D12 (hurt), D13 | d_hurt: both hurt in one tick: the clash (the user's change 2026-11-11, 11.2): nobody hurt, both play attack_was_parried, the kid first; one hurt: the kid's or the shadow's hurt_by_sword; the shadow's with charid 0 (the kid's sound 13, no gate fix) and HITP_CURR / DELTA exchanged with GUARDHP_CURR / DELTA around it (take_hp on its own hit points) |
+| D11 | check_can_guard_see_kid with the guard record's charid a guard's (2) for the call |
+| D12 (death) | d_frame: the character's own hit points (HITP_CURR for player 1, GUARDHP_CURR for player 2) |
+| D14 | kid.asm duel_d14 (bumped, pushed left into a wall): `jp d14`, which redoes the 4 instructions and maps room 0's column -1 to the room's own column 9 |
+| D15 | kid.asm duel_d15 (is_obstacle's call of xpos_in_drawn_room): the call goes to d15 (room 0, column 0: +140) |
+| the duel's control (11.4) | d_frame: control_kid without restart, keys, death music, text or wait; the death counter counts to 100 |
+| the block (11.3) | d_swap: 90 bytes exchanged around player 2's frame (d_blkmap: ctrl1 + grab_timer, have_sword, offguard, holding_sword, prev_collision_row, the 80 bytes of collision rows) |
+| rounds, reset, hash | d_round, d_reset, d_hash (the 68-byte list of 11.7; the round count is a byte: it wraps at 256 as duelsim's & 0xFF) |
+
+Not called in the duel's frame: check_press, check_spike_below, check_spiked, check_chomped_kid, check_knock (no such
+tiles; duelsim calls them, they do nothing there). The tick's end calls snd_next (play_next_sound, the N line).
+
+### 12.4 Input, pacing, drawing, sound
+
+- **Input** (d_input, the byte of 11.6): player 1 the game's read_inputs (cursor keys, SHIFT, joystick 1), **BREAK**
+  quit, **ENTER** rematch; player 2 **W A S D**, **Q** the button, joystick 2 (IN F1h, the layout of joystick 1).
+  Checked in tests/duel_boot.py from the emulator's keyboard; joystick 2 not (the harness has no second joystick).
+- **Pacing**: mode 0, every tick drawn, at least 4 frames (game.asm's rule). Measured over match.txt (572 ticks, the
+  4-frame floor included): **5.55 frames a tick at 512 KB, 5.26 at 1 MB, 4.95 at 16 MB** (design 5.1 expected 7.2-8.6
+  with the XOR look; the cheaper look makes the difference; the torches cost ~0.44 of it).
+- **Drawing**: the game's (the full room draw once, draw_objects, hp_draw). Player 2 is drawn with its record's charid
+  0 for the drawing (d_loop): the kid's images through the kid's frame table, no XOR look, its strip at the right
+  (ghp_draw; GHP_M set at each round's start so the full strip shows at once). Its colours: **one plane operation on the drawn
+  pixels** (d_sdraw, a copy of gfx.asm spr_draw's kernel, at overlay.asm's two spr_draw calls for the guard's
+  descriptor SPR_G), chosen at build time by `DUEL_LOOK` (`make duel DUEL_LOOK=n`; extra T a drawn cell against the
+  kernel's ~110): **0 a blue suit, grey hair** (the default, the user's choice 2026-11-11). The kid's images use only
+  colours 2, 6, 7, 8, 10 and 15. Where plane I (B) is set, planes II and III (R, G) are cleared: white 15 becomes light
+  blue 9, light grey 7 blue 1. Where R alone of B, R, G is set (the hair, 2 and 10), R is cleared and plane IV set:
+  grey 8. The skin 6 and the outline 8 stay. Per cell: R' = R & G & ~B, G' = G & ~B, I' = I | (R & ~G & ~B), with ~B
+  in IXL and G | ~drawn, then the hair, in IXH: +117 T a drawn cell, measured +0.02-0.05 frames a tick against the
+  suit alone. Colour 8 needs nothing special: the kernel's transparency is "no plane set" (colour 0), the images' black
+  is stored as 8 and shows dark grey, and the grey hair is that grey. The other looks, for comparison: **1 a blue suit
+  only** (+32), **2 R <-> B** (planes I and II swapped, the skin cyan, the hair blue; +16), **3 R <-> G** (the hair
+  green; +16), **4 no B** (plane I cleared: a golden outfit; -7), **5 I inverted** (plane IV XOR (I | II | III): XOR 8
+  on every drawn pixel but the outline: light grey clothes, light yellow skin, light red hair; +20). The outline stays
+  as it is in all six. Its sword and splash are plain. **The torches flicker as in the game** (the user's choice 2026-11-11, 11.9.4): d_entry registers the room's two torches as at a room entry (d_torches: genter.asm anim_tile_modif's torch part, a random first frame and a trob each), d_tick runs the game's process_trobs (animate_tile's torch case, prandom) where SDLPoP's tick does, and the match loop takes the game's view_snapshot / view_redraw path for the changed tiles. prandom is lockstep state only the torches use: no logic reads it, it is not hashed; duelsim does the same (arena_setup anim_tile_modif, process_trobs in step), so the trace (the trob count, the room's checksum) stays exact. Measured cost: +0.44 frames a tick at 1 MB (match.txt 4.82 -> 5.26). No flash on a hit (the game's
+  flash is the kid's only).
+- **Sound**: the silent model (SND_MODE 0, decision 8): every effect plays, nothing waits on one.
+- **Exit**: BREAK (quit) -> GAME_OVER 3 -> the level-start overlay's handoff with ACT_TITLE: PRES's title. The next
+  game start restores a clean GAME image (checked: the main loop's bytes back).
+
+### 12.5 Figures
+
+| | Reserved (1.5) | Used | Left |
+|---|---|---|---|
+| Resident game bytes | 0 | **0** (the holes only) | main 229, low 6, block 2 13 as before |
+| Floppy | 40 blocks | **6** (POP800.PR3, blocks 1076-1081) | 34 |
+| Launcher | 100 B | **17** (LN_DUEL_USED) | 83 |
+| PRES | 64 B | **23** (DUEL_PRES_USED: Ctrl+D) | 41 |
+| RAM-disk scratch (page 6 0x16C0-0x287F) | runtime only | 1,441 B while the duel starts | |
+
+PRES grew by 23 bytes, so the title art's first fit moved some bands (POP800.PRS / PR2 differ in PRES's and the title
+art entries and the index; the D files, the GAME image and every game program are unchanged).
+
+### 12.6 Tests
+
+- tests/duel_z80.py: per tick the kid line (mid-tick), the G line, the N line, the D line (the round state, the hash,
+  both blocks) of the Z80 (tracepoints at d_mid, d_gline, snd_snap, d_tend) against duelsim; the Z80's own hash
+  against the hash of the bytes it hashes. All seven scripts (1,231 ticks): **0 differing lines at 512 KB, 1 MB, 16 MB**.
+  PR tier b (with --cdl), the full regression's pixels-m6 part (three sizes), the smoke tier (parry).
+- tests/duel_boot.py: the floppy path (Ctrl+D, the handoff, the pieces in main RAM, the start tiles, the input bytes,
+  BREAK back to the title, a clean game after). PR tier c, the full regression's launch-keys part.
+
+### 12.7 Open for the user
+
+1. The torches: decided (they flicker as in the game, 12.4).
+2. Player 2's colours: decided (a blue suit, grey hair: DUEL_LOOK 0); the others stay selectable at build time.
+3. Player 2's hit point strip uses the guard's icon (level 1's guard set); the kid's icon in the suit's colours is a phase
+   3 HUD question.
+4. Local keys: BREAK quit and ENTER rematch (both players' bits are the same locally); after a match the players stand
+   until ENTER or BREAK (no HUD yet: phase 3).
+5. PRS_DUEL1 holds the staged patch (not a one-shot overlay as 1.4 planned); phase 4's lobby code can go into the same
+   staging (4.5 KB scratch, 1.3 KB used) and be copied to W2 when needed.
+
+From the user's playtest (2026-11-11): simultaneous hits became a clash (D13, 11.2); "only player 1 puts the sword
+away when the two are far apart" did not reproduce (duelsim and the Z80 sheathe both on the same tick when they walk
+apart, tests/duel_scripts/apart.txt, also from the keyboard in the emulator; a player pressing down sheathes at once);
+after a match the players stand until ENTER (rematch) or BREAK (the title): kept until phase 3.
+
+What remains: **phase 3** (the HUD: score and round texts, "P1 WINS", the rematch / quit menu, the round-end sound or
+music, a hit flash for both), **phase 4** (network: the NET driver,
+lobby, lockstep with the hash already computed every tick, the delay).

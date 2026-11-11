@@ -221,7 +221,7 @@ p_new:          ld      hl, ho_new
                 ld      bc, HO_OPTIONS - HO_ACTION
                 ldir
 p_play:         ld      a, ACT_PLAY     ; (Ctrl+L: load_saved set the level, the time and the hit points)
-                ld      (ho + HO_ACTION), a
+p_play_a:       ld      (ho + HO_ACTION), a
                 ld      hl, ho + HO_KTICK
                 ld      b, HO_SIZE - HO_KTICK
 pt_0:           ld      (hl), 0
@@ -236,6 +236,15 @@ pt_0:           ld      (hl), 0
                 jr      z, p_cutscene
                 jr      p_go
 cut_has:        db      2, 4, 6, 8, 9, 12       ; the levels with a cutscene (SDLPoP tbl_cutscenes)
+; p_duel (Ctrl+D): the duel easter egg (src/duel/duel.asm): a new game's block (level 1, its arena) with ACT_DUEL
+p_duel:         ld      hl, ho_new
+                ld      de, ho + HO_ACTION
+                ld      bc, HO_OPTIONS - HO_ACTION
+                ldir
+                ld      a, ACT_DUEL
+                jr      p_play_a
+p_duel_end:
+DUEL_PRES_USED  equ     p_duel_end - p_duel + p_duel_k_end - p_duel_k   ; (tools/mkgamedisk.py: within DUEL_PRES_BYTES)
 
 ; ---------------------------------------------------------------- the title
 title:          di
@@ -639,7 +648,10 @@ k_title:
                 ld      a, c
                 or      a
                 jr      z, p_new_k
-                ld      a, (kmat + 3)   ; L: column 3 bit 4
+p_duel_k:       ld      a, (kmat + 4)   ; Ctrl+D (D: column 4 bit 4): the duel (docs/duel-design.md)
+                and     0x10
+                jp      nz, p_duel
+p_duel_k_end:   ld      a, (kmat + 3)   ; L: column 3 bit 4
                 and     0x10
                 jr      z, p_new_k
                 call    psg_mute        ; Ctrl+L: the floppy with interrupts off: no hanging tone (the stream pauses)

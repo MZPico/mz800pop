@@ -34,6 +34,8 @@ EARLY = ['tests/m4_scripts/walk_level1.txt', 'tests/m4_scripts/jumps_climbs.txt'
 # m4_game: three scripts (a level walk, a fight, the shadow), the state every tick, the screen every 10th
 # the duel's logic (tools/duelsim.py, kidsim in duel mode): its scripted duels, a second (no emulator, no SDLPoP)
 DUEL = [PY, 'tests/duel_test.py'] + scripts('duel_scripts')
+# the Z80 duel (src/duel/duel.asm laid over the game) against duelsim on the same scripts, with the code log's hole check
+DUEL_Z80 = [PY, 'tests/duel_z80.py', '--cdl']
 M4_GAME = ['tests/m4_scripts/walk_level1.txt', 'tests/m6_scripts/fight1.txt', 'tests/m5_scripts/level12_shadow_merge.txt']
 CHEAT_BUILD = ('cheat build', ['make', '-s', 'cheats'])
 PARTS = {
@@ -53,11 +55,13 @@ PARTS = {
         ('oracle_suite subset', [PY, 'tools/oracle_suite.py'] + M7 + EARLY),
         ('cut_suite', [PY, 'tools/cut_suite.py']),
         ('duel_test', DUEL),
+        ('duel_z80', DUEL_Z80),
     ],
     # the game disk (build/pop800.dsk): the launcher round trips, PRES's title and cutscenes, the keys
     'c': [
         ('m7_launch', [PY, 'tests/m7_launch.py']),
         ('m7_cut quick', [PY, 'tests/m7_cut.py', '--quick']),
+        ('duel_boot', [PY, 'tests/duel_boot.py']),
     ],
     'd': [
         ('m7_title quick', [PY, 'tests/m7_title.py', '--quick']),
@@ -79,7 +83,8 @@ FULL = {
     'oracle-m4m6': [('oracle_suite m4+m6', [PY, 'tools/oracle_suite.py'] + scripts('m4_scripts', 'm6_scripts'))],
     'oracle-m5m7': [('oracle_suite m5+m7', [PY, 'tools/oracle_suite.py'] + scripts('m5_scripts', 'm7_scripts'))],
     'pixels-m4': [('m4_game m4 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m4_scripts'))],
-    'pixels-m6': [('m4_game m6 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m6_scripts'))],
+    'pixels-m6': [('m4_game m6 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m6_scripts')),
+                  ('duel_z80', DUEL_Z80)],
     'pixels-m5': [('m4_game m5 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m5_scripts'))],
     'sound': [
         ('perfcheck', [PY, 'tools/perfcheck.py']),      # (here, not in logic: its baseline is per size)
@@ -96,6 +101,7 @@ FULL = {
     'story': [('m7_story', [PY, 'tests/m7_story.py'])],
     'launch-keys': [
         ('m7_launch', [PY, 'tests/m7_launch.py']),
+        ('duel_boot', [PY, 'tests/duel_boot.py']),
         CHEAT_BUILD,
         ('m7_keys', [PY, 'tests/m7_keys.py']),
         # the CHEATS=1 build (build/cheat): the cheat keys, and the key scripts' cheats Z80 against kidsim
@@ -149,6 +155,7 @@ SMOKE = [
     ('perfcheck', [PY, 'tools/perfcheck.py']),
     ('cut_suite', [PY, 'tools/cut_suite.py']),
     ('duel_test', DUEL),
+    ('duel_z80 parry', [PY, 'tests/duel_z80.py', 'tests/duel_scripts/parry.txt']),
 ]
 
 
@@ -177,6 +184,7 @@ M1 = Build(['build/m1test.*', 'build/m1.pack', 'build/m1.dir', 'build/m1.json'],
 M3 = Build(['build/m3test.*'], ['src/m3/**', 'src/m1/**', 'tools/gen_kernel.py'] + MAKE_SRC)
 M3DEMO = Build(['build/m3demo.*'], M3.src)
 M0 = Build(['build/m0.dsk', 'build/m0boot.*'], ['src/m0/**'] + MAKE_SRC)
+DUEL_PATCH = Build(['build/duel*'], CORE_SRC + ['src/duel/**', 'tools/duelpatch.py', 'tools/z80flow.py', 'tools/ovltool.py'])
 COLORBARS = Build(['build/colorbars.*'], ['src/test/**'] + MAKE_SRC)
 
 
@@ -204,6 +212,8 @@ PROGRAMS = {
     'tests/m4_game.py': dict(build=[M4GAME, ASSETS_GAME], by_script=True, expect=60),
     'tools/cut_suite.py': dict(build=[ASSETS_ALL], uses={'sdlpop'}, expect=10),
     'tests/duel_test.py': dict(build=[ASSETS_GAME], uses=set(), expect=5),
+    'tests/duel_z80.py': dict(build=[DUEL_PATCH, M4GAME, ASSETS_GAME], data=scripts('duel_scripts'), expect=90),
+    'tests/duel_boot.py': dict(build=[DISK, DUEL_PATCH, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=60),
     'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
     'tests/m8_pace.py': dict(build=[M4GAME, ASSETS_GAME],
                              split=lambda: [([s], {}) for s in sorted(literal('tests/m8_pace.py', 'STRETCHES'))], expect=120),
