@@ -62,6 +62,7 @@ pr [--part a] [-j 4]` runs the same commands through the local runner: in parall
 | b | `tools/cut_suite.py` | cutsim against SDLPoP, all 63 cutscene cases | ~5 s |
 | b | `tests/duel_test.py` | the duel's logic (tools/duelsim.py) on tests/duel_scripts: determinism, results, mirror, trace digest | ~1 s |
 | b | `tests/duel_z80.py --cdl` | the Z80 duel (src/duel/duel.asm over the game) against duelsim on tests/duel_scripts, every tick; the code log: no hole reached | ~1.5 min |
+| b | `tests/duel_net.py` | the duel over the network: two emulators through BomberNet's relay.py run locally (CI fetches it pinned, `POP800_RELAY_PY`): a scripted match, both traces against duelsim; another build, a desync, the other gone or silent, no relay | ~2.5 min |
 | c | `tests/duel_boot.py` | the duel from the floppy: Ctrl+D, the launcher's ACT_DUEL, the input bytes, BREAK back to the title | ~0.5 min |
 | c | `tests/m7_launch.py` | the launcher: boot -> PRES -> game round trips, the level-end handoff through a cutscene, game over and restart | ~13 min |
 | c | `tests/m7_cut.py --quick` | PRES's level cutscenes 2 and 8 against cutsim: every frame's state, VRAM, the timing, the music | ~4.5 min |
@@ -79,7 +80,7 @@ whole set fits the runners (m7_sound ~1.5 h -> ~5.4 min, m4_test on every script
 |---|---|
 | logic | `tests/m4_test.py` on every script (m4, m6, m5, m7), `tools/cut_suite.py`, `tests/duel_test.py` |
 | oracle-m4m6, oracle-m5m7 | `tools/oracle_suite.py` on those sets (kidsim against SDLPoP) |
-| pixels-m4, pixels-m6, pixels-m5 | `tests/m4_game.py --every 1` on that set (the state and VRAM every tick); pixels-m6 also `tests/duel_z80.py --cdl` |
+| pixels-m4, pixels-m6, pixels-m5 | `tests/m4_game.py --every 1` on that set (the state and VRAM every tick); pixels-m6 also `tests/duel_z80.py --cdl` and `tests/duel_net.py` |
 | sound | `tools/perfcheck.py` (here, not in logic: its baseline is per size), `tests/m7_sound.py` (full), `tests/m5_boot.py`, `tests/m5_save.py`, `tests/m8_pace.py`, `tests/m8_fstore.py` |
 | pres | `tests/m7_title.py`, `tests/m7_cut.py` (full: every case, the keys, Ctrl+L) |
 | story | `tests/m7_story.py` |

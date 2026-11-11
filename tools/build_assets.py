@@ -314,8 +314,8 @@ def build_font_text():
     open(os.path.join(OUT, 'font_text.inc'), 'w').write('\n'.join(lines) + '\n')
 
 # the duel's bottom texts (src/duel/duel.asm d_strs: tools/duelpatch.py checks every one against the font and the line's
-# width) use these characters the game's texts do not
-DUEL_CHARS = 'KQW:'
+# width) use these characters the game's texts do not (J, Y, Z: the network's texts and room codes, phase 4)
+DUEL_CHARS = 'KQW:JYZ'
 def build_font_duel():
     """font_duel.inc: the glyphs of DUEL_CHARS (SDLPoP's font, as build_font_text), laid by the duel over the game's
     lowercase glyphs in its loaded copy of the text overlay (the duel's texts are capitals): d_font (records as

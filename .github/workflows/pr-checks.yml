@@ -25,6 +25,7 @@ env:
   MZ800EMU_COMMIT: b4ebc084d639d360888d328d06e1b3bc49236c05   # wasm: MZPico/mz800emu#2 squash-merged (regions, mr1r18_wait)
   SDLPOP_COMMIT: 3c5add5fb7f83d4ceb542823ab66d00146c4271b
   MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
+  BOMBERNET_COMMIT: ae509d5380830119be9fae20faac7272c4b5ac12   # relay/relay.py: the NET relay tests/duel_net.py runs locally
 
 jobs:
   check:
@@ -127,6 +128,12 @@ jobs:
 
       - name: Fetch the DOS data (archive.org, md5-checked)
         run: python3 -I tools/ci/fetch_dos_data.py
+
+      - name: Fetch the NET relay (BomberNet's relay/relay.py, pinned; tests/duel_net.py runs its TCP side on 127.0.0.1)
+        run: |
+          mkdir -p "$HOME/bombernet"
+          curl -fsSL "https://raw.githubusercontent.com/MZPico/BomberNet/$BOMBERNET_COMMIT/relay/relay.py" -o "$HOME/bombernet/relay.py"
+          echo "POP800_RELAY_PY=$HOME/bombernet/relay.py" >> "$GITHUB_ENV"
 
       - name: Build
         run: make ci-build

@@ -36,6 +36,10 @@ EARLY = ['tests/m4_scripts/walk_level1.txt', 'tests/m4_scripts/jumps_climbs.txt'
 DUEL = [PY, 'tests/duel_test.py'] + scripts('duel_scripts')
 # the Z80 duel (src/duel/duel.asm laid over the game) against duelsim on the same scripts, with the code log's hole check
 DUEL_Z80 = [PY, 'tests/duel_z80.py', '--cdl']
+# the duel over the network: two emulators through the local NET relay (BomberNet's relay/relay.py, POP800_RELAY_PY),
+# a scripted match (both traces against duelsim) and the failures (another build, a desync, the other gone or silent, no
+# relay)
+DUEL_NET = [PY, 'tests/duel_net.py']
 M4_GAME = ['tests/m4_scripts/walk_level1.txt', 'tests/m6_scripts/fight1.txt', 'tests/m5_scripts/level12_shadow_merge.txt']
 CHEAT_BUILD = ('cheat build', ['make', '-s', 'cheats'])
 PARTS = {
@@ -56,6 +60,7 @@ PARTS = {
         ('cut_suite', [PY, 'tools/cut_suite.py']),
         ('duel_test', DUEL),
         ('duel_z80', DUEL_Z80),
+        ('duel_net', DUEL_NET),
     ],
     # the game disk (build/pop800.dsk): the launcher round trips, PRES's title and cutscenes, the keys
     'c': [
@@ -84,7 +89,7 @@ FULL = {
     'oracle-m5m7': [('oracle_suite m5+m7', [PY, 'tools/oracle_suite.py'] + scripts('m5_scripts', 'm7_scripts'))],
     'pixels-m4': [('m4_game m4 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m4_scripts'))],
     'pixels-m6': [('m4_game m6 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m6_scripts')),
-                  ('duel_z80', DUEL_Z80)],
+                  ('duel_z80', DUEL_Z80), ('duel_net', DUEL_NET)],
     'pixels-m5': [('m4_game m5 set', [PY, 'tests/m4_game.py', '--every', '1'] + scripts('m5_scripts'))],
     'sound': [
         ('perfcheck', [PY, 'tools/perfcheck.py']),      # (here, not in logic: its baseline is per size)
@@ -214,6 +219,8 @@ PROGRAMS = {
     'tools/cut_suite.py': dict(build=[ASSETS_ALL], uses={'sdlpop'}, expect=10),
     'tests/duel_test.py': dict(build=[ASSETS_GAME], uses=set(), expect=5),
     'tests/duel_z80.py': dict(build=[DUEL_PATCH, M4GAME, ASSETS_GAME], data=scripts('duel_scripts'), expect=90),
+    'tests/duel_net.py': dict(build=[DUEL_PATCH, M4GAME, ASSETS_GAME], data=['tests/duel_scripts/match.txt'], uses={'emu'},
+                              expect=150),
     'tests/duel_boot.py': dict(build=[DISK, DUEL_PATCH, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=60),
     'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
     'tests/m8_pace.py': dict(build=[M4GAME, ASSETS_GAME],
