@@ -154,7 +154,7 @@ def call_graph(D, pieces, holes, data):
     I = Image(data, pieces)
     S = I.S
     in_piece = lambda a: any(p[0] <= a < p[1] for p in pieces)
-    dropped = [h for h in holes if not h[2].startswith(('H_D1', 'H_SD'))]      # (the patch sites are live code)
+    dropped = [h for h in holes if not h[2].startswith(('H_D1', 'H_SD', 'H_PP'))]      # (the patch sites are live code)
     in_hole = lambda a: any(h[0] <= a < h[1] for h in dropped)
     cold = {}
     for (caller, callee), why in COLD.items(): cold.setdefault(S[callee], []).append((caller, why))
@@ -230,7 +230,7 @@ def report(D, pieces, holes, where=None):
         h = [x for x in holes if x[0] <= a and e <= x[1]]
         if h: used[h[0][2]] = used.get(h[0][2], 0) + e - a
     rows = [{'hole': k, 'from': a, 'to': e, 'size': e - a, 'used': used.get(k, 0)} for a, e, k in holes]
-    code = [r for r in rows if not r['hole'].startswith(('H_D1', 'H_SD'))]
+    code = [r for r in rows if not r['hole'].startswith(('H_D1', 'H_SD', 'H_PP'))]
     fig = {'holes': sum(r['size'] for r in code), 'used': sum(r['used'] for r in code), 'main': len(dict(
         (k, 1) for k in ['P_main'])) and D['P_main_end'] - D['P_main'],
            'staged': sum(e - a for a, e, k in pieces if k != 'P_main'),

@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -678,8 +678,8 @@ laid in before the start would be run or overwritten by it. So the launcher load
 
 | Entry | What | Where |
 |---|---|---|
-| PRS_DUEL1 (24) | every piece but P_main, concatenated in d_ptab's order (1,441 B raw) | one RAM-disk record: page 6 0x16C0 (rule 1's scratch: the chopper pictures' pool at runtime, none in the arena), before the GAME image (its buffers 0x2000-0x9FFF are the image's) |
-| PRS_DUEL (23) | P_main (204 B): d_boot, the match loop, the quit | main RAM over game.asm's main loop (level_ready on), after the GAME image |
+| PRS_DUEL1 (24) | every piece but P_main, concatenated in d_ptab's order (1,489 B raw) | one RAM-disk record: page 6 0x16C0 (rule 1's scratch: the chopper pictures' pool at runtime, none in the arena), before the GAME image (its buffers 0x2000-0x9FFF are the image's) |
+| PRS_DUEL (23) | P_main (212 B): d_boot, the match loop, the quit | main RAM over game.asm's main loop (level_ready on), after the GAME image |
 
 Then `jp GAME_START` as for any game: the game starts level 1 untouched and returns from game_start to level_ready,
 which is now d_boot: it copies the staged pieces into their holes (d_ptab) and jumps to d_entry. The level start of the
@@ -694,13 +694,13 @@ The holes used (duel.asm H_*, by the game's labels; tools/duelpatch.py checks ev
 
 | Hole | Range (this tree) | Size | Used | Free |
 |---|---|---|---|---|
-| H_MAIN: game.asm's main loop (level_ready .. flip_now) | 0x200B-0x2133 | 297 | 204 | 93 |
+| H_MAIN: game.asm's main loop (level_ready .. flip_now) | 0x200B-0x2133 | 297 | 212 | 85 |
 | H_KT: kid.asm kid_tick (the duel has its own frame) | 0x6737-0x6858 | 290 | 207 | 83 |
-| H_TICK: guard.asm tick_pre, tick_post, tick_end, timers, do_mouse, check_skel | 0xDAD4-0xDCD8 | 517 | 321 | 196 |
+| H_TICK: guard.asm tick_pre, tick_post, tick_end, timers, do_mouse, check_skel | 0xDAD4-0xDCD8 | 517 | 365 | 152 |
 | H_AI: guard.asm the guard AI, play_guard_frame, play_guard, check_guard_bumped, dist_from_wall_behind, check_chomped_guard | 0xE096-0xE4C6 | 1,073 | 904 | 169 |
 | H_FREE: main RAM free below W1 | 0x7B1B-0x7BFF | 229 | 0 | 229 |
-| the patch sites H_D14 (3), H_D15 (2), H_SD1 (2), H_SD2 (2) | kid.asm, overlay.asm | 9 | 9 | 0 |
-| **Code holes** | | **2,406** | **1,636** | **770** |
+| the patch sites H_D14 (3), H_D15 (2), H_SD1 (2), H_SD2 (2), H_PP1 (2), H_PP2 (2) | kid.asm, overlay.asm | 13 | 13 | 0 |
+| **Code holes** | | **2,406** | **1,688** | **718** |
 
 kid_tick and tick_pre / tick_post were not in 1.2's list: the duel has its own tick, so they are the cleanest holes. The
 design's trap, view, gate / button / door, sound and clock holes (~3.5 KB more) stay unused: no stub is written, and
@@ -776,7 +776,7 @@ tiles; duelsim calls them, they do nothing there). The tick's end calls snd_next
 | Floppy | 40 blocks | **6** (POP800.PR3, blocks 1076-1081) | 34 |
 | Launcher | 100 B | **17** (LN_DUEL_USED) | 83 |
 | PRES | 64 B | **23** (DUEL_PRES_USED: Ctrl+D) | 41 |
-| RAM-disk scratch (page 6 0x16C0-0x287F) | runtime only | 1,441 B while the duel starts | |
+| RAM-disk scratch (page 6 0x16C0-0x287F) | runtime only | 1,489 B while the duel starts | |
 
 PRES grew by 23 bytes, so the title art's first fit moved some bands (POP800.PRS / PR2 differ in PRES's and the title
 art entries and the index; the D files, the GAME image and every game program are unchanged).
@@ -805,6 +805,27 @@ From the user's playtest (2026-11-11): simultaneous hits became a clash (D13, 11
 away when the two are far apart" did not reproduce (duelsim and the Z80 sheathe both on the same tick when they walk
 apart, tests/duel_scripts/apart.txt, also from the keyboard in the emulator; a player pressing down sheathes at once);
 after a match the players stand until ENTER (rematch) or BREAK (the title): kept until phase 3.
+
+### 12.8 The blades (the user's decision, 2026-11-11)
+
+Kid against kid, both drawn from the kid's frame table (D1), the blades did not meet in a parry and lay on top of each
+other en garde: SDLPoP's poses were drawn for the kid against a guard. At the parried tick the attacker is in frame 167
+(blade at mid height, y - 19) and the parrier in 161 (blade raised, y - 35); the kid's en garde (158, 170, 171) holds its
+blade level at y - 23 for both players. With the user's constraint that the hilt stays in the hand, a sword-only nudge
+(the gap is ~13 rows) and shifting a body were ruled out, and so were the guard table's swords on a kid body (off the
+hand). **Chosen: whole kid frames remapped for the drawing, body and sword together (C2 + E1):**
+
+| Player | Logic frame | Drawn as | Effect |
+|---|---|---|---|
+| 1 | 161 (parry) | 158 (en garde, level blade) | meets player 2's mid-height lunge |
+| 2 | 161, 158, 170, 171 | 157 (after a strike: a lower, angled blade) | meets player 1's lunge; en garde the two blades sit at two heights |
+
+Drawing only: duel.asm d_ppchar, at overlay.asm people_place's two calls of pp_char (duel_pp1, duel_pp2; labels only in the
+game), changes K_FRAME in the drawing's copy of the record (people_place restores KV from PP_SAVE): no logic, hash or
+trace change. 44 bytes in H_TICK, 8 in d_ptab and two 2-byte operands; ~80 T per character per drawn tick. Checked by
+tests/duel_z80.py every tick: the body and sword images the Z80 draws (the descriptors' SD_FRAME at d_done) equal
+duelsim's records through the same map (DRAW_MAP; with the map emptied the check fails). Renders: the candidates
+against SDLPoP's kid against a guard (docs only, the user's renders blades2_*.png).
 
 What remains: **phase 3** (the HUD: score and round texts, "P1 WINS", the rematch / quit menu, the round-end sound or
 music, a hit flash for both), **phase 4** (network: the NET driver,
