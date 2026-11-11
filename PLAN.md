@@ -1200,3 +1200,12 @@ piece used AND/XOR semantics.
    duelsim's), the PSG applies the game's priorities to both players' effects and plays tune 37 after a round, 41 after
    the match (d_snd, audio only). Holes 2,275 of 2,406 B used (H_FREE now too), floppy 8 blocks; 5.49 / 5.22 / 4.89
    frames a tick (+0.03). tests/duel_z80.py checks the text and the tunes every tick. Every game program byte-identical.
+85. Duel phase 4: network play (2026-11-11, docs/duel-design.md section 14): Ctrl+D draws the arena, then `1 LOCAL  2 HOST
+   3 JOIN`; HOST shows the room code, JOIN types it; the MZPico NET protocol (game id 0x5050, a build id CRC-16 from
+   duelpatch.py, 2 slots of 1 byte) in a Z80 driver (ports 0x50 / 0x51, REVD + INFO detection), lockstep with input delay
+   D = 1 and the state hash sent every tick; DESYNC, OTHER PLAYER LEFT, CONNECTION LOST (10 s) end the match, lobby errors
+   return to the menu. Four new holes (objects.asm loose floors and spikes, kid.asm leave_room, evres.asm death text and
+   clock: 1,365 B), holes 3,481 of 3,771 B used; 0 resident, launcher and PRES unchanged, POP800.PR3 12 blocks (28 of the
+   40 left). tests/duel_net.py: two emulators through BomberNet's relay.py run locally play match.txt, both traces equal
+   duelsim's (delayed by D) every tick, plus the failures; --realtime measures 50 Hz play. Local play and every game
+   program unchanged. How-to: docs/duel-net-howto.md.

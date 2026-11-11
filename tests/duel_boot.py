@@ -3,7 +3,7 @@
 build/pop800.dsk boots to PRES's title; Ctrl+D hands over with ACT_DUEL (src/pres/pres.asm p_duel); the launcher loads
 POP800.PR3's entries PRS_DUEL1 (the staged pieces, RAM-disk page 6) and PRS_DUEL (the piece over the game's main loop)
 around the GAME image (src/boot/boot.asm); the game starts level 1 as always and runs into the patch (duel.asm d_boot),
-which lays the staged pieces into their holes and starts the duel (d_entry). Checked: the handoff's action, every piece
+which lays the staged pieces into their holes and starts the duel (d_entry): the arena, the menu (1 LOCAL). Checked: the handoff's action, every piece
 in main RAM at d_entry byte for byte (build/duel_patch.json), the silent sound model, the arena (room 3 drawn, the two
 players at their start tiles), the local input bytes (duel.asm d_input: the cursor keys / SHIFT for player 1, W A S D /
 Q for player 2, BREAK quit, ENTER rematch), the HUD's first text and a sound on the PSG, then BREAK: back to PRES's title (ACT_TITLE) and a new game from there.
@@ -61,7 +61,8 @@ def main():
             for a, hx in j['main']:
                 check('the main piece at %04X (PRS_DUEL)' % a, e.mem(a, len(hx) // 2).hex() == hx)
             pieces = sorted((D[k], D[k + '_end'], k) for k in D if k.startswith('P_') and not k.endswith('_end'))
-            binb = open(os.path.join(B, 'duel.bin'), 'rb').read(); base = min(p[0] for p in pieces)
+            binb = bytearray(open(os.path.join(B, 'duel.bin'), 'rb').read()); base = min(p[0] for p in pieces)
+            binb[j['build_at'] - base:j['build_at'] - base + 2] = j['build_id'].to_bytes(2, 'little')   # (duelpatch.py's)
             ok = all(e.mem(a, n - a) == binb[a - base:n - base] for a, n, k in pieces)
             check('every piece in its hole (PRS_DUEL1 staged, laid in by d_boot)', ok)
             check('the game\'s level 1 started first (level_number 1)', e.mem(G['level_number'], 1)[0] == 1)
@@ -70,6 +71,12 @@ def main():
             kid, gd = e.mem(G['KID_REC'], 16), e.mem(G['GUARD_REC'], 16)
             check('the players at their start tiles (room 3, columns 2 and 7)', (kid[9], kid[4], gd[9], gd[4], gd[11]) == (3, 2, 3, 7, 1),
                   (kid.hex(), gd.hex()))
+            M5.run_to(e, D['dlb_mk'], 1000)
+            check('the menu over the arena drawn first (room 3 on the screen, duel.asm d_lobby)',
+                  e.mem(G['SHOWN_ROOM'], 1)[0] == 3 and e.mem(D['d_netm'], 1)[0] == 0)
+            if shots: e.run(2); e.screenshot(os.path.join(shots, 'duel_boot_menu.png'))
+            keys(e, ('1',)); M5.run_to(e, D['dlb_go'], 50); keys(e, ('1',), down=False)
+            check('1: LOCAL, the match', e.mem(D['d_netm'], 1)[0] == 0)
             M5.run_to(e, D['ds_go'], 400); e.run(2)
             check('the sound: the swords drawn (19) play on the PSG (duel.asm d_snd)',
                   e.mem(D['d_acur'], 1)[0] == 19 and e.mem(G['SP_WAIT'], 1)[0] != 0, (e.mem(D['d_acur'], 1), e.mem(G['SP_WAIT'], 1)))

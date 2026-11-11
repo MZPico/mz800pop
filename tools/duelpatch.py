@@ -229,7 +229,7 @@ def font(path, label):
 
 
 def check_texts(D, pieces, data):
-    """every string of duel.asm d_strs: its glyphs in the font the duel draws with (the text overlay's txt_font with
+    """every string of duel.asm d_strs and every dst_ label: its glyphs in the font the duel draws with (the text overlay's txt_font with
     d_font laid over its lowercase records, d_hud) and its width (SDLPoP draw_text: each glyph + 1, the space 3 + 1;
     the numbers 1-3 as the widest two digits) within the line's TEXT_W pixels. -> (errors, {label: width})"""
     game, gc = font(os.path.join(B, 'assets', 'font_text.inc'), 'txt_font')
@@ -238,12 +238,15 @@ def check_texts(D, pieces, data):
     gone = order[dc['DFONT_OFS'] // 9:dc['DFONT_OFS'] // 9 + dc['DFONT_N']]
     f = {c: v for c, v in game.items() if c not in gone}; f.update(duel)
     num = 2 * max(f[c][0] + 1 for c in '0123456789')
-    piece = [(a, k) for a, e, k in pieces if a <= D['d_strs'] < e][0]
-    mem = lambda a: data[piece[1]][a - piece[0]]
-    inv = {v: k for k, v in D.items()}
-    errs = []; widths = {}; t = D['d_strs']
-    while mem(t) | (mem(t + 1) << 8):
-        a = mem(t) | (mem(t + 1) << 8); t += 2; w = 0; txt = ''
+    def mem(a):
+        p = [(lo, k) for lo, e, k in pieces if lo <= a < e][0]
+        return data[p[1]][a - p[0]]
+    errs = []; widths = {}
+    t = D['d_strs']; strs = []                   # d_strs (the HUD's), then every dst_ label (the lobby's, the network's)
+    while mem(t) | (mem(t + 1) << 8): strs.append(mem(t) | (mem(t + 1) << 8)); t += 2
+    strs += sorted(set(v for k, v in D.items() if k.startswith('dst_')) - set(strs))
+    for a in strs:
+        w = 0; txt = ''
         while mem(a):
             c = mem(a); a += 1
             if c < 4: w += num; txt += '<%d>' % c
@@ -255,8 +258,30 @@ def check_texts(D, pieces, data):
     return errs, widths
 
 
+def crc16(b, crc=0xFFFF):
+    """CRC-16/CCITT-FALSE"""
+    for x in b:
+        crc ^= x << 8
+        for _ in range(8): crc = ((crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1) & 0xFFFF
+    return crc
+
+
+def build_id(D, pieces, data):
+    """the network's build id (duel.asm d_build, NETCREATE / NETJOIN: the relay refuses a joiner with another): a CRC-16
+    of the game (build/m4game.bin), its overlays (build/m4ovl.bin) and every piece of the patch (d_build 0), laid into
+    its piece; -> the id"""
+    crc = crc16(open(os.path.join(B, 'm4game.bin'), 'rb').read())
+    crc = crc16(open(os.path.join(B, 'm4ovl.bin'), 'rb').read(), crc)
+    for a, e, k in pieces: crc = crc16(data[k], crc)
+    crc = crc or 1
+    a, e, k = [p for p in pieces if p[0] <= D['d_build'] < p[1]][0]
+    b = bytearray(data[k]); b[D['d_build'] - a:D['d_build'] - a + 2] = struct.pack('<H', crc); data[k] = bytes(b)
+    return crc
+
+
 def build():
     D, pieces, holes, data = load()
+    bid = build_id(D, pieces, data)
     errs, where, order, stage = check_pieces(D, pieces, holes, data)
     terrs, widths = check_texts(D, pieces, data)
     errs += terrs
@@ -267,10 +292,11 @@ def build():
     open(os.path.join(B, 'duel_main.bin'), 'wb').write(struct.pack('<H', D['P_main']) + main)
     open(os.path.join(B, 'duel_stage.bin'), 'wb').write(stage)
     rep = report(D, pieces, holes, where)
-    js = {'main': [[D['P_main'], main.hex()]], 'stage': {'page': D['DUEL_STAGE_PAGE'], 'addr': D['DUEL_STAGE_ADDR'],
+    js = {'build_id': bid, 'build_at': D['d_build'], 'main': [[D['P_main'], main.hex()]], 'stage': {'page': D['DUEL_STAGE_PAGE'], 'addr': D['DUEL_STAGE_ADDR'],
           'data': stage.hex()}, 'holes': rep['holes'], 'figures': rep['figures'], 'call_graph': notes}
     json.dump(js, open(os.path.join(B, 'duel_patch.json'), 'w'), indent=1)
     print_report(rep)
+    print("the network's build id %04X" % bid)
     print('texts (pixels of %d): %s' % (TEXT_W, ', '.join('%s %d' % kv for kv in widths.items())))
     print('call graph: %d instructions reached (overlays %s), no hole; cut by hand: %s; indirect jumps: %s' % (
         notes['reached'], ', '.join(notes['overlays']), '; '.join(notes['cut']) or 'none', ', '.join(notes['indirect']) or 'none'))

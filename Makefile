@@ -251,8 +251,8 @@ $(BUILD)/duel.inc: src/duel/duel.asm $(BUILD)/m4game.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equ $(BUILD)/m4game.sym src/duel/duel.asm src/m1 $@
 $(BUILD)/duel_text.inc: $(BUILD)/ovl_text.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equp $(BUILD)/ovl_text.sym TX_ $@ td_render td_put td_num td_str txt_font
-# (the glyphs of tools/build_assets.py DUEL_CHARS 'KQW:' in SDLPoP's font: res 1000 + the character's code)
-DUEL_GLYPHS = $(foreach c,1075 1081 1087 1058,external/SDLPoP/data/font/res$(c).png)
+# (the glyphs of tools/build_assets.py DUEL_CHARS 'KQW:JYZ' in SDLPoP's font: res 1000 + the character's code)
+DUEL_GLYPHS = $(foreach c,1075 1081 1087 1058 1074 1089 1090,external/SDLPoP/data/font/res$(c).png)
 $(BUILD)/assets/font_duel.inc: tools/build_assets.py $(DUEL_GLYPHS)
 	$(PY) tools/build_assets.py --font-duel
 $(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc $(BUILD)/duel_text.inc $(BUILD)/assets/font_duel.inc

@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **phase 4 built (network play: section 14, PLAN status 85); phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -827,8 +827,7 @@ tests/duel_z80.py every tick: the body and sword images the Z80 draws (the descr
 duelsim's records through the same map (DRAW_MAP; with the map emptied the check fails). Renders: the candidates
 against SDLPoP's kid against a guard (docs only, the user's renders blades2_*.png).
 
-What remains: **phase 4** (network: the NET driver, lobby, lockstep with the hash already computed every tick, the
-delay); phase 3 is section 13. A hit flash for both players is not built (the game's flash is the kid's).
+Phase 3 is section 13, phase 4 (the network) section 14. A hit flash for both players is not built (the game's flash is the kid's).
 
 ## 13. Phase 3: the HUD, the texts and the sound, as built (2026-11-11)
 
@@ -937,3 +936,167 @@ Speed (tests/duel_z80.py, match.txt, 572 ticks, frames a tick; the text's redraw
 4. The tunes: 37 (the guard's death) after a round, 41 (the level's end) after the match, starting 3 ticks after the
    deciding hit; none after a draw.
 5. The PSG respects the game's priorities (a playing non-interruptible sound is not cut), the logic stays silent.
+
+## 14. Phase 4: network play, as built (2026-11-11)
+
+Two MZ-800s play the duel over the MZPico NET service as BomberNet plays (section 4): the host is player 1 (the kid),
+the joiner player 2; one input byte a player a tick (11.6) in lockstep, the 16-bit state hash (of the 68 bytes of 11.7) every tick compared by the
+relay. Code: src/duel/duel.asm (d_lobby, the NET driver n_*, d_net, d_nfail); tests/duel_net.py (two emulators through
+BomberNet's relay/relay.py run locally); tools/duelpatch.py (four new holes, the build id, every `dst_` text checked).
+The game's own code is unchanged: m4game.bin, every overlay, the launcher and PRES are byte-identical to phase 3's.
+
+### 14.1 The fit (milestone 0)
+
+The design's "trap, view, button and clock holes, ~3.5 KB" was an estimate from 960bcaf. On this tree the view hole is
+no longer free (the torches' redraw uses view_snapshot / view_redraw since phase 2) and some trap code is reached by
+the torch path (animate_tile). A walk with tools/duelpatch.py's call graph over the patched image (every m4game.sym label
+range with no reached byte and no memory or immediate reference into it) gave these code holes, all taken:
+
+| Hole | Range | Size | Used | Free | The game's code there | The duel's piece |
+|---|---|---|---|---|---|---|
+| H_OBJ | make_loose_fall .. foh2 (objects.asm) | 675 | 656 | 19 | loose floors, knocks, falling floors | P_obj: the lobby (410), the keys (70), the NET driver and detection (176) |
+| H_LR | leave_room .. kid_tick (kid.asm) | 311 | 281 | 30 | the room change | P_lr: the lockstep d_net (215), the failures (47), NETLEAVE (19) |
+| H_SPK | check_spiked .. start_chompers (objects.asm) | 205 | 176 | 29 | the spikes | P_spk: NETCREATE's parameters (23), the 11 texts (153) |
+| H_TIME | death_text .. draw_game_frame (evres.asm) | 174 | 103 | 71 | the death text, the clock | P_time: d_font (63, moved from H_TICK: 3 more glyphs), the network's variables (40) |
+
+With phase 3's: **code holes 3,771 B, used 3,481, free 290** (phase 3: 2,406 / 2,275 / 131). P_main 253 B of 297
+(+26: the hooks, four d_ptab rows). Staged (PRS_DUEL1) 3,241 of 4,544 B. **Resident game bytes 0, no overlay window,
+no new RAM-disk space; launcher and PRES unchanged** (83 and 41 B of their reserves left). Floppy: POP800.PR3 8 -> **12
+blocks** (28 of the 40 reserved left). The code log and the static check cover the new holes as the others.
+
+### 14.2 What the player sees
+
+Ctrl+D on the title: the arena is drawn first (the full room draw, both players standing), then the bottom line
+`1 LOCAL  2 HOST  3 JOIN` (BREAK: the title).
+
+- **1**: the local duel of phases 2-3, unchanged.
+- **2 HOST**: NETCREATE; `ROOM CODE ABCD` until the other player is in (NETSTATUS members = 2), then ready.
+- **3 JOIN**: `ROOM CODE ....`; letters fill the dots (DEL deletes, ENTER with four letters joins); `WAITING` until the
+  match starts.
+- Both: when the relay starts the room (NETSTATUS RUNNING) the match starts at tick 0 on both machines.
+- In the match: `WAITING` on the text line when the other machine's input is 0.5 s late (the HUD's text comes back
+  after); BREAK while waiting gives up. Quit (BREAK) and rematch (ENTER) are the input byte's bits as in local play:
+  both machines act on them at the same tick.
+- Errors in the lobby (2 s, then the menu): `NO NETWORK CARD`, `NO LINK` (error 9: no relay), `OTHER VERSION` (6: the
+  other disk's build id differs), `NO SUCH ROOM` (7), `NETWORK ERROR` (other). In the match (3 s, then the title):
+  `DESYNC` (the relay saw two hashes differ), `OTHER PLAYER LEFT` (the room dropped), `CONNECTION LOST` (no link, a
+  failed command, or 10 s without the other's input).
+
+The player's own keys over the network: either local set (the cursor keys / SHIFT / joystick 1 or W A S D / Q /
+joystick 2, ORed), BREAK and ENTER.
+
+### 14.3 The driver (duel.asm P_obj; BomberNet c/common/netdev_card.c)
+
+Ports 0x50 (command, status) and 0x51 (data). `n_do` (A command, HL parameters, B count) sends the command and its
+fixed-size parameters (otir), then `n_wait` reads the 4-byte status (STSR, inir) until it is neither IN_PROGRESS nor
+BUSY: Z = done, else A = the error (status byte 2; 10 parameters incomplete; 9 when IN_PROGRESS lasts 1,024 frames,
+~20 s). A missing card floats the ports: ERROR is set, nothing hangs. Detection (`d_ndet`, at HOST or JOIN): REVD's
+status {02, 06, 04}, then INFO with no ERROR, OUTPUT, the command echoed, >= 16 bytes, and the NET bit (byte 3 bit 3).
+Commands used: STATUS, CREATE, JOIN, LEAVE, READY, SEND, POLL, HASH (not MSG / RECV).
+
+### 14.4 The lockstep (duel.asm P_lr d_net, called in d_loop after d_input)
+
+Per tick T (the relay's frame number, 16 bits from 0):
+
+1. NETHASH(T - 1, d_hashv): the 16-bit state hash after the previous tick (2 bytes: the hash of the 68 bytes of 11.7,
+   already computed every tick);
+   the relay compares the two machines' hashes of each frame and flags DESYNC.
+2. NETSEND(T + D, own byte) (4 bytes, the room's 1 used).
+3. NETPOLL(T) until avail >= T; its two bytes become d_in1 (slot 0, the host) and d_in2 (slot 1). While waiting:
+   NETSTATUS every try (DESYNC, DROPPED, NO LINK end the match), BREAK, `WAITING` after 25 frames, CONNECTION LOST after
+   500 frames (10 s) since the wait began.
+4. The tick runs (d_tick) on those two bytes alone, then the drawing.
+
+The start: both send frames 0 .. D-1 without keys (BomberNet's net_match_start), so the first D ticks are keyless on
+both machines. **The logic sees only the agreed bytes**: d_net writes d_in1 / d_in2 and nothing else of the logic's
+state; WAITING and the error texts are drawing; prandom (the torches) is untouched; the network's variables are never
+hashed. The harness (d_script) feeds each machine's own player's byte from the script instead of the keys.
+
+**The leave**: NETLEAVE waits 1 s first (NET_LEAVEW). A quit is both machines' at one tick, and the device refuses
+NETPOLL as soon as its room is dropped: without the wait the slower machine, still polling the quit tick's input, saw
+OTHER PLAYER LEFT (found by tests/duel_net.py).
+
+### 14.5 The room (design 4.6, decision 1)
+
+| Field | Value |
+|---|---|
+| game id | 0x5050 ("PP") |
+| build | a CRC-16 (CCITT) of build/m4game.bin, build/m4ovl.bin and every piece of the patch (d_build 0 while computed), laid into d_build by tools/duelpatch.py (`the network's build id` in the build's output): two different disks are refused at JOIN (OTHER VERSION) |
+| slots, bytes a slot | 2, 1 (the input byte; no delay byte: the delay stays the lobby's) |
+| settings | 1 byte: the input delay D (the host's NET_DELAY = 1; the joiner takes it) |
+
+### 14.6 Speed
+
+Local play is unchanged (tests/duel_z80.py match.txt: **5.50 / 5.22 / 4.90 frames a tick at 512 KB / 1 MB / 16 MB**,
+as phase 3). The network's own work a tick, without waiting: **1,470-2,180 T (0.03 frames)**: NETHASH, NETSEND, one
+NETPOLL and its read, in the emulator's NET device.
+
+**At a real MZ-800's speed** (`tests/duel_net.py --realtime`: each emulator advanced one frame per 20 ms of wall time,
+both through the local relay over TCP; the headless emulator's own "normal" speed is throttled to ~0.6 frames a
+second and cannot be used):
+
+| Script, D (1 MB, the local relay) | Local (duel_z80) | Host A | Joiner B | Frames waited in d_net a tick (A / B) |
+|---|---|---|---|---|
+| match.txt (573 ticks), D = 1 | 5.22 | 5.24 | 5.50 | 0.03 / 0.82 |
+| p1_wins.txt (149 ticks), D = 1 | 5.35 | 5.29 | 5.31 | 0.09 / 0.13 |
+| p1_wins.txt, D = 2 | 5.35 | 5.28 | 5.47 | 0.01 / 0.43 |
+| p1_wins.txt, D = 3 | 5.35 | 5.28 | 5.48 | 0.01 / 0.59 |
+
+So a networked match plays at the local pace within ~5 % (the frames of the two machines differ a little because the
+harness paces two emulators from Python threads, not because of the duel). A larger delay brings nothing: with no tick
+clock (decision 6) the pace is the slower machine's drawing, and D only has to cover the one-way trip within a tick
+(~105 ms at 5.3 frames); on a local relay that is ~1 ms, through mzpico.com ~65 ms (section 4.2). The poll loop spins
+on NETPOLL without a halt, so the input is taken within microseconds of its arrival; a different strategy would gain
+nothing measurable. **Recommendation: keep D = 1**; raise NET_DELAY to 2 only if real-hardware play through mzpico.com
+shows WAITING often.
+
+**The ~13-16 frames a tick of the full-speed test runs are the harness's, not the duel's.** At full speed the headless
+emulator runs ~1,000 frames a second (50 frames in 0.05 s, measured), so 1 ms of wall time is one emulated frame: a
+line through the local relay's TCP (the emulator's NET device writes the line and its newline in two send() calls:
+Nagle's algorithm and the delayed ACK hold the second for up to ~40 ms), the Python relay and the other emulator's
+thread scheduling are tens of ms, so tens of frames in which the waiting machine spins in NETPOLL (the debug trace:
+waits ending at the 50-frame step boundaries of the driver). At 50 Hz the same wall time is a frame or two, inside
+the tick's ~5 frames of drawing.
+
+### 14.7 Tests
+
+- **tests/duel_net.py** (new; PR tier b and the full regression's pixels-m6 part, so at 512K, 1M, 16M): the relay
+  (BomberNet relay/relay.py's JSON-lines TCP server on a free port of 127.0.0.1; a stand-in for its fastapi import when
+  that is missing; CI fetches relay.py at a pinned BomberNet commit, `BOMBERNET_COMMIT`), two emulators
+  (`POP800_NET_RELAY`: emu/mz800emu-pop.sh writes the INI's `net_relay`), the game and the patch laid in as
+  duel_z80.py does with the menu kept (d_hnet = 1): A presses 2, B presses 3, types X, DEL and A's code, ENTER; both play
+  match.txt (573 ticks), each machine its own player's byte of the script. **Both machines' kid, G, N and D lines equal
+  duelsim's trace of the script delayed by D, every tick, 0 differing lines**; both hashes equal their states. Then
+  with fresh machines: another build id (OTHER VERSION, the menu again), a hashed byte changed on B (DESYNC on both,
+  the title), B closed (OTHER PLAYER LEFT), B paused (WAITING, then CONNECTION LOST 500 frames after the wait began),
+  no relay (NO LINK, the menu, then 1 LOCAL plays). Never the public relay.
+- tests/duel_z80.py: unchanged scripts, the harness's d_script skips the menu; all seven scripts 0 differing lines at
+  512K, 1M, 16M; the code log over the new holes: no hole reached.
+- tests/duel_boot.py: from the floppy, the menu over the arena, 1 LOCAL, then as before.
+
+### 14.8 What only real hardware can show
+
+1. The MZPico doing the RAM disk (pico_rd, port 0x45, ~100 KB a second of art in a duel) and the NET device at once:
+   the firmware's NET commands answer from ring buffers; whether the art streaming delays them is untested.
+2. The detection on a real MZPico (REVD / INFO's NET bit) and on a machine without one (floating ports: NO NETWORK CARD).
+3. The round trip through mzpico.com's production relay (WebSocket, Pico W): the delay D = 1 is sized for its ~130 ms
+   (section 4.2); `WAITING` showing often would mean D = 2.
+4. Two players on the two keyboards: the lobby's key decoding (the digits 1-3, letters, DEL) on a real MZ-800 matrix.
+5. A long session: the frame number is 16 bits, so a room plays ~65,000 ticks (~1.8 h at 5 frames a tick); after that
+   the device has no frame to give and the match ends with CONNECTION LOST.
+
+### 14.9 Decisions for the user (defaults chosen)
+
+1. The menu: `1 LOCAL  2 HOST  3 JOIN` after Ctrl+D, over the drawn arena; the room code shown as `ROOM CODE ABCD`.
+2. The input delay **D = 1 tick** (NET_DELAY; the room's settings carry it). See 14.6 for D = 2 and 3.
+3. The texts: `WAITING`, `NO NETWORK CARD`, `NO LINK`, `OTHER VERSION`, `NO SUCH ROOM`, `NETWORK ERROR`, `DESYNC`,
+   `OTHER PLAYER LEFT`, `CONNECTION LOST`; lobby errors return to the menu after 2 s, match errors to the title after 3 s.
+4. Over the network a player's own fighter takes either local key set (cursor keys / SHIFT / joystick 1 and W A S D /
+   Q / joystick 2).
+5. The hash goes to the relay every tick (the design had every 16th): ~2 lines a tick more, the desync seen at once.
+6. NETLEAVE 1 s after a quit (14.4).
+7. No in-match delay adaptation and no MSG-based RTT measure in the lobby (design 4.4): the delay byte is not sent; a
+   phase 5 option if real play shows waits.
+
+The native mz800emu reaches only a relay over TCP (relay.py, `net_relay` in [UNICARD]); the production relay at
+mzpico.com is WebSocket-only, so two emulators play through a relay.py on a LAN or one PC (docs/duel-net-howto.md).
