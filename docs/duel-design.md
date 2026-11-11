@@ -122,8 +122,9 @@ strings through the game's font: ~120-150 B, counted in the rounds line of the t
 | Rule 2: the dropped features stay droppable | trap, door, button, loose-floor, AI code is not merged into routines the arena runs; when the speed work moves such code into an overlay, the bytes it frees in main RAM count as holes just the same | the holes total ~5.0 KB, the duel needs ~2.0 KB | the patch's build asserts catch a shortfall at once |
 | Rule 3: the logic stays drawing-independent | no logic reading the drawing's state, the frame counter or the live PSG | true today (kidsim has no drawing; PACE_MODE 1 skips drawings) | lockstep (section 5) |
 
-Cheap follow-ups that make the reservation stick (not in this PR): `tools/mkgamedisk.py` asserts that
-`DUEL_BLOCKS = 40` blocks stay free; launch.inc names `ACT_DUEL equ 0x20`. The loose-floor speed work is unaffected:
+Phase 0 (2026-11-11, PLAN status 80) makes the reservation stick: `tools/mkgamedisk.py` asserts that `DUEL_BLOCKS =
+40` blocks stay free behind the last file (it prints the figure) and that PRES keeps `DUEL_PRES_BYTES = 64` bytes free;
+launch.inc names `ACT_DUEL equ 0x20` and `LN_DUEL_RESERVE equ 100`, which boot.asm asserts against LN_MAX. The loose-floor speed work is unaffected:
 loose floors are among the dropped features, so whatever it adds there only enlarges a hole; nothing here touches its
 files or its overlay space.
 

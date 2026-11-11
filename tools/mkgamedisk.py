@@ -41,6 +41,12 @@ B = os.path.join(ROOT, 'build'); A = os.path.join(B, 'assets')
 CACHE = os.path.join(B, 'pzcache')
 RD_BLOCK = 16384            # RAM-disk records: output buffer 0x2000-0x5FFF, input 0x6000-0x9FFF
 MAIN_BLOCK = 8192           # main-RAM records: input buffer 0x8000-0x9FFF
+# The duel easter egg (docs/duel-design.md 1.5, phase 0): its patch and one-shot overlay will go into a third file
+# POP800.PR3 after POP800.PR2; keep this many 256-byte blocks free behind the last file (40 tracks x 2 sides x 16
+# sectors = 1280 blocks), and this many bytes of PRES's main RAM free for its key and handoff.
+DISK_BLOCKS = 1280
+DUEL_BLOCKS = 40
+DUEL_PRES_BYTES = 64
 FILE_MAX = 0xFF00           # MZF size field is 16 bits; files are padded to whole 256-byte blocks
 BAR = 32                    # progress bar width in bytes
 NPAGES = 8
@@ -257,14 +263,24 @@ def title_entries(P):
             bands.append((name, b, r1 - r0, pz))
     # the free places (first fit, largest bands first; tests/m5_boot.py compares the game's main RAM only to block2_end since
     # 2026-11-01: PRES's art may stay between it and 0xEC00)
-    free = [[0x1200, 0x2000], [P['end_of_pres'], 0x8000], [P['ART2_START'], P['ART2_END']]]
-    addr = {}
     fixed = [t for t in bands if t[0] not in TITLE_TEXTS]; texts = [t for t in bands if t[0] in TITLE_TEXTS]
     assert all(t[1] == 0 for t in texts), 'a story text in more than one band'
     tmax = max(len(t[3]) for t in texts)
-    for t in sorted(fixed + [('TEXT', 0, 0, bytes(tmax))], key=lambda t: -len(t[3])):
-        place = next(f for f in free if f[1] - f[0] >= len(t[3]))
-        addr[t[0], t[1]] = place[0]; place[0] += len(t[3])
+    order = sorted(fixed + [('TEXT', 0, 0, bytes(tmax))], key=lambda t: -len(t[3]))
+    def place_all(pres_end):
+        free = [[0x1200, 0x2000], [pres_end, 0x8000], [P['ART2_START'], P['ART2_END']]]
+        addr = {}
+        for t in order:
+            place = next((f for f in free if f[1] - f[0] >= len(t[3])), None)
+            if place is None: return None, free
+            addr[t[0], t[1]] = place[0]; place[0] += len(t[3])
+        return addr, free
+    addr, free = place_all(P['end_of_pres'])
+    assert addr is not None, 'the title art does not fit in PRES'
+    # the duel's PRES code (DUEL_PRES_BYTES, docs/duel-design.md 1.5) will lengthen PRES: the same first fit must still
+    # place every band with end_of_pres moved by the reserve (the placement above stays as it is)
+    assert place_all(P['end_of_pres'] + DUEL_PRES_BYTES)[0] is not None, \
+        'the title art leaves PRES less than DUEL_PRES_BYTES for the duel (docs/duel-design.md 1.5)'
     out = {}
     for ent, slots in TITLE_ENTRIES:
         recs = []
@@ -331,7 +347,19 @@ def main():
     args = sys.argv[1:]
     mzd = os.path.join(ROOT, 'external', 'mzdisk', 'build')
     if '--mzdisk' in args: i = args.index('--mzdisk'); mzd = args[i + 1]; del args[i:i + 2]
-    out, boot = args
+    target, boot = args
+    # built under a temporary name and moved into place only when every check below has passed, so a failed check
+    # never leaves a target that make would take as up to date
+    out = target + '.tmp'
+    if os.path.exists(target): os.remove(target)
+    try:
+        build_disk(out, boot, mzd)
+    except BaseException:
+        if os.path.exists(out): os.remove(out)
+        raise
+    os.replace(out, target)
+
+def build_disk(out, boot, mzd):
     files, st = build_stream()
     print('data stream: %d records (%d stored), %d bytes raw -> %d bytes packed (%.1f%%), %d bytes in %d files' % (
         st['records'], st['stored'], st['raw'], st['packed'], 100.0 * st['packed'] / st['raw'], st['stream'], len(files)))
@@ -371,6 +399,10 @@ def main():
     for f in d['files']:
         print('  %-10s block %4d, %4d blocks (%d bytes)' % (f['name'], f['block'], f['block_count'], f['size']))
     assert [f['name'] for f in d['files']] == names, d
+    end = max(f['block'] + f['block_count'] for f in d['files'])
+    print('  %d blocks free after block %d (the duel keeps %d)' % (DISK_BLOCKS - end, end, DUEL_BLOCKS))
+    assert DISK_BLOCKS - end >= DUEL_BLOCKS, 'the floppy: %d blocks free, the duel keeps %d (docs/duel-design.md 1.5)' % (
+        DISK_BLOCKS - end, DUEL_BLOCKS)
 
 if __name__ == '__main__':
     main()

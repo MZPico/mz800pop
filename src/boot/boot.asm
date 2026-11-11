@@ -932,6 +932,9 @@ end_of_image:
                 if end_of_image - LOAD > LN_MAX
                 .error the launcher's image is larger than its RAM-disk area
                 endif
+                if end_of_image - LOAD > LN_MAX - LN_DUEL_RESERVE
+                .error the launcher's image leaves less than LN_DUEL_RESERVE bytes for the duel (docs/duel-design.md 1.5)
+                endif
 ; variables (not in the image)
 f_tab:          ds      F_MAX * 4       ; start block, block count
 s_blk:          ds      2
