@@ -142,6 +142,15 @@ KEY_C_VIEW_L, KEY_C_VIEW_R, KEY_C_VIEW_U, KEY_C_VIEW_D, KEY_C_BACK, KEY_C_BLIND,
 VERSION_TEXT = 'PRINCE OF PERSIA V1.0'
 
 class KidSim:
+    # The duel (tools/duelsim.py, docs/duel-design.md "Phase 1: the rules as built"): its subclass DuelSim sets duel.
+    # The sites marked '(duel Dn)' are the only places where the duel changes a rule of the game; with duel False
+    # (every game test) each one is the SDLPoP code as before. Dn = the patch site the Z80 duel patch needs (phase 2).
+    duel = False                          # the shadow plays by the kid's rules (kid_rules), sees the kid (D11), ...
+    duel_kid_frames = False               # (duel D1) the shadow's frames 150-189 from the kid's frame table, not the guard's
+    def kid_rules(self):
+        """the character being played follows the kid's rules (SDLPoP's charid == charid_0_kid tests): the kid, and in
+        the duel the shadow too (player 2: the kid's sword sequences, parry rule and sounds)"""
+        return self.Char.charid == CHARID_KID or (self.duel and self.Char.charid == CHARID_SHADOW)
     def __init__(self, level, notraps=False, seed=12345, patches=(), guards=False, place=(), sword=False, time=None,
                  multi_level=False, trace_state=False, start=None, sound='silent', level1_music=False):
         self.guards = guards              # False: no guards anywhere (POP800_NOGUARDS, applied at the first control tick)
@@ -340,7 +349,8 @@ class KidSim:
     # ---- frame / position helpers
     def load_frame(self):
         C = self.Char; f = C.frame; add_frame = 0
-        if C.charid in (CHARID_KID, CHARID_MOUSE): tbl, i = self.frames, f
+        if C.charid in (CHARID_KID, CHARID_MOUSE) or (C.charid == CHARID_SHADOW and self.duel_kid_frames):   # (duel D1)
+            tbl, i = self.frames, f
         elif C.charid in (CHARID_GUARD, CHARID_SKELETON):
             if 102 <= f < 107: add_frame = 70                 # (guard falling frames)
             tbl, i = self.frames_guard, f + add_frame - 149
@@ -825,7 +835,7 @@ class KidSim:
             self.control_forward = IGNORE; self.seqtbl_offset_char(SEQ['crouch_hop'])
     def control_standing(self):
         if self.control_shift2 == HELD and self.control_shift == HELD and self.check_get_item(): return
-        if self.Char.charid != CHARID_KID and self.control_down == HELD and self.control_forward == HELD:
+        if not self.kid_rules() and self.control_down == HELD and self.control_forward == HELD:     # (duel D2)
             self.draw_sword(); return
         offguard_skip = False                 # C: goto loc_6213 (skip the shift branch)
         if self.have_sword:
@@ -836,7 +846,7 @@ class KidSim:
                     self.holding_sword = 1
                     if (distance & 0xFFFF) < 0xFFFA:                     # (word)distance < (word)-6
                         O = self.Opp
-                        if O.charid == CHARID_SHADOW and (O.action == A_MIDAIR or 107 <= O.frame < 118):
+                        if (O.charid == CHARID_SHADOW or self.duel) and (O.action == A_MIDAIR or 107 <= O.frame < 118):   # (duel D3)
                             self.offguard = 0
                         else:
                             self.draw_sword(); return
@@ -1010,12 +1020,12 @@ class KidSim:
     def forward_with_sword(self):
         if self.Char.frame in (158, 170, 171):
             self.control_forward = IGNORE
-            if self.Char.charid != CHARID_KID: self.seqtbl_offset_char(SEQ['guard_forward_with_sword'])
+            if not self.kid_rules(): self.seqtbl_offset_char(SEQ['guard_forward_with_sword'])     # (duel D4)
             else: self.seqtbl_offset_char(SEQ['forward_with_sword'])
     def draw_sword(self):
         seq = SEQ['draw_sword']
         self.control_forward = self.control_shift2 = self.release_arrows()
-        if self.Char.charid == CHARID_KID: self.play_sound(19); self.offguard = 0
+        if self.kid_rules(): self.play_sound(19); self.offguard = 0                             # (duel D5)
         elif self.Char.charid != CHARID_SHADOW: seq = SEQ['en_garde']
         self.Char.sword = SWORD_DRAWN
         self.seqtbl_offset_char(seq)
@@ -1028,7 +1038,7 @@ class KidSim:
                 elif distance < 0:
                     if (distance & 0xFFFF) < 0xFFFC: self.seqtbl_offset_char(SEQ['turn_with_sword']); return   # < (word)-4
                     else: self.swordfight(); return
-            if C.charid == CHARID_KID and C.alive < 0: self.holding_sword = 0
+            if self.kid_rules() and C.alive < 0: self.holding_sword = 0                           # (duel D6)
             if C.charid < CHARID_GUARD:
                 if C.frame == 171: C.sword = SWORD_SHEATHED; self.seqtbl_offset_char(SEQ['put_sword_away'])
             else: self.swordfight()
@@ -1044,7 +1054,7 @@ class KidSim:
             if frame in (158, 170, 171):
                 self.control_down = IGNORE
                 C.sword = SWORD_SHEATHED
-                if charid == CHARID_KID:
+                if self.kid_rules():                                                    # (duel D7)
                     self.offguard = 1; self.guard_refrac = 9; self.holding_sword = 0; seq = SEQ['put_sword_away_fast']
                 elif charid == CHARID_SHADOW: seq = SEQ['put_sword_away']
                 else: seq = SEQ['guard_become_inactive']
@@ -1055,22 +1065,22 @@ class KidSim:
     def sword_strike(self):
         frame = self.Char.frame
         if frame in (157, 158, 170, 171, 165):
-            seq = SEQ['strike'] if self.Char.charid == CHARID_KID else SEQ['guard_strike']
+            seq = SEQ['strike'] if self.kid_rules() else SEQ['guard_strike']                   # (duel D8)
         elif frame in (150, 161): seq = SEQ['strike_after_parry']
         else: return
         self.control_shift2 = IGNORE
         self.seqtbl_offset_char(seq)
     def parry(self):
-        char_frame = self.Char.frame; opp_frame = self.Opp.frame; char_charid = self.Char.charid
+        char_frame = self.Char.frame; opp_frame = self.Opp.frame; kid = self.kid_rules()   # (duel D9)
         seq = SEQ['parry']; do_play_seq = 0
         if char_frame in (158, 170, 171, 168, 165):
-            if self.char_opp_dist() >= 32 and char_charid != CHARID_KID:
+            if self.char_opp_dist() >= 32 and not kid:
                 self.back_with_sword(); return
-            elif char_charid == CHARID_KID:
+            elif kid:
                 if opp_frame == 168: return
                 if opp_frame not in (151, 152, 162):
                     if opp_frame == 153: do_play_seq = 1
-                    elif char_charid != CHARID_KID: self.back_with_sword(); return
+                    elif not kid: self.back_with_sword(); return
             else:
                 if opp_frame != 152: return
         else:
@@ -1310,7 +1320,10 @@ class KidSim:
             L, R, U, D = self.links(self.drawn_room) if self.drawn_room else (0, 0, 0, 0)
             if D: BL, BR = self.links(D)[0], self.links(D)[1]
             else: BL, BR = (self.links(L)[3] if L else 0), (self.links(R)[3] if R else 0)   # (load_room_links)
-            if self.curr_room in (L, BL): xpos -= TILE_SIZEX * 10
+            # (duel D15: both links are room 0 in the arena: its wall at column 0 is the right neighbour's, not the
+            # left one's; SDLPoP takes room 0 for the left room and puts the right edge's wall 140 units too far left)
+            if self.duel and self.curr_room == 0 and self.tile_col == 0: xpos += TILE_SIZEX * 10
+            elif self.curr_room in (L, BL): xpos -= TILE_SIZEX * 10
             elif self.curr_room in (R, BR): xpos += TILE_SIZEX * 10
         return xpos
     def bumped(self, delta_x, push_direction):
@@ -1319,7 +1332,11 @@ class KidSim:
             C.x = (C.x + delta_x) & 0xFF
             if push_direction < RIGHT:
                 if self.curr_tile2 == T.wall:
-                    self.tile_col -= 1; self.get_tile(self.curr_room, self.tile_col, self.tile_row)
+                    self.tile_col -= 1
+                    # (duel D14: a wall of room 0 at the right edge: the room's own last column, as SDLPoP does for
+                    # the left edge just below; without it a player bumping the arena's right edge falls back, bumpfall)
+                    if self.duel and self.curr_room == 0 and self.tile_col == -1: self.curr_room = C.room; self.tile_col = 9
+                    self.get_tile(self.curr_room, self.tile_col, self.tile_row)
             else:
                 if self.curr_tile2 in (T.doortop, T.doortop_with_floor, T.wall):
                     self.tile_col += 1
@@ -1860,7 +1877,8 @@ class KidSim:
         """0: the guard can't see the kid, 1: sees him but won't come, 2: sees him and will come"""
         K, G = self.Kid, self.Guard; kid_frame = K.frame
         if G.charid == CHARID_MOUSE: self.can_guard_see_kid = 0; return
-        if ((G.charid != CHARID_SHADOW or self.level.number == 12) and kid_frame != 0 and (kid_frame < 219 or kid_frame >= 229) and
+        # (duel D11: in the duel the shadow is not blind outside level 12; tools/duelsim.py)
+        if ((G.charid != CHARID_SHADOW or self.level.number == 12 or self.duel) and kid_frame != 0 and (kid_frame < 219 or kid_frame >= 229) and
                 G.direction != DIR_NONE and K.alive < 0 and G.alive < 0 and K.room == G.room and K.curr_row == G.curr_row):
             self.can_guard_see_kid = 2
             left_pos = X_BUMP[K.curr_col + FIRST_ONSCREEN_COLUMN] + TILE_MIDX
@@ -2132,7 +2150,7 @@ class KidSim:
         if killed:                                          # C: loc_4276
             if self.get_tile_behind_char() != 0 or (distance := self.distance_to_edge_weight()) < 4:
                 self.seqtbl_offset_char(SEQ['stabbed_to_death'])
-                if (C.charid != CHARID_KID and C.direction < RIGHT and
+                if (not self.kid_rules() and C.direction < RIGHT and                      # (duel D10)
                         (self.curr_tile2 == T.gate or self.get_tile_at_char() == T.gate)):
                     C.x = X_BUMP[self.tile_col - (1 if self.curr_tile2 != T.gate else 0) + FIRST_ONSCREEN_COLUMN] + TILE_MIDX
                     C.x = self.char_dx_forward(10)
@@ -2141,7 +2159,7 @@ class KidSim:
                 C.x = self.char_dx_forward(distance - 20)   # killed and pushed off the ledge
                 self.load_fram_det_col(); self.inc_curr_row()
                 self.seqtbl_offset_char(SEQ['kid_pushed_off_ledge'])
-        self.play_sound(13 if C.charid == CHARID_KID else 12)
+        self.play_sound(13 if self.kid_rules() else 12)                                    # (duel D10)
         self.play_seq()
     def play_death_music(self):
         self.play_sound(32 if self.Guard.charid == CHARID_SHADOW else 28 if self.holding_sword else 24)
