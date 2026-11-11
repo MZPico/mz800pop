@@ -184,7 +184,8 @@ M1 = Build(['build/m1test.*', 'build/m1.pack', 'build/m1.dir', 'build/m1.json'],
 M3 = Build(['build/m3test.*'], ['src/m3/**', 'src/m1/**', 'tools/gen_kernel.py'] + MAKE_SRC)
 M3DEMO = Build(['build/m3demo.*'], M3.src)
 M0 = Build(['build/m0.dsk', 'build/m0boot.*'], ['src/m0/**'] + MAKE_SRC)
-DUEL_PATCH = Build(['build/duel*'], CORE_SRC + ['src/duel/**', 'tools/duelpatch.py', 'tools/z80flow.py', 'tools/ovltool.py'])
+DUEL_PATCH = Build(['build/duel*'], CORE_SRC + ['src/duel/**', 'tools/duelpatch.py', 'tools/z80flow.py', 'tools/ovltool.py',
+                                             'tools/build_assets.py'])
 COLORBARS = Build(['build/colorbars.*'], ['src/test/**'] + MAKE_SRC)
 
 

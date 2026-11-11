@@ -41,6 +41,10 @@ INDIRECT = {
     'frm:fs_oj': [('chain', 'frm:fs_och')],    # (an overlay's site: 'overlay:label', the frames overlay's row chain)
 }
 LN_LAUNCH = 0xb003          # src/boot/launch.inc: the launcher (the duel's end: the level-start overlay's ho_swap)
+# The overlay the duel's pieces call into in window W2 (duel.asm d_hud: the text overlay, loaded by `call ovl_w2`
+# with OVL_TEXT first; its td_render, td_put, td_num called in place, build/duel_text.inc)
+PIECE_W2 = 'text'
+TEXT_W = 160                # the bottom line's bitmap (text.asm TXB: 20 bytes, x 80..239)
 
 
 def kernel_tables():
@@ -168,6 +172,9 @@ def call_graph(D, pieces, holes, data):
         if (sp, ins.a) in ind_at: return ind_at[(sp, ins.a)]
         if t == LN_LAUNCH: return None          # (the level-start overlay's ho_swap: the duel's end, the launcher)
         if sp == 'main' and t == S['rr_bkt_ent']: return ('room', t)   # (room.asm rr_table: only while the room overlay draws)
+        if sp == 'main' and in_piece(ins.a) and S['OVL_W2'] <= t < S['OVL_W2_END']:
+            assert t in I.ovl_sym[PIECE_W2].values(), 'a duel piece jumps to %04X in W2: not a label of the %s overlay' % (t, PIECE_W2)
+            return (PIECE_W2, t)
         r = I.resolve(sp, ins, t, ctx)
         if r and r[0] == 'main' and r[1] in cold and sp == 'main' and not in_piece(ins.a):
             if I.routine(ins.a) in [c for c, w in cold[r[1]]]:
@@ -206,9 +213,53 @@ def call_graph(D, pieces, holes, data):
     return errs, notes
 
 
+def font(path, label):
+    """{character: (width, rows)} of a generated font include (tools/build_assets.py build_font_text / _duel)"""
+    out = {}; on = False; consts = {}
+    for line in open(path):
+        m = re.match(r'(\w+)\s+equ\s+(\d+)', line)
+        if m: consts[m.group(1)] = int(m.group(2))
+        if line.startswith(label + ':'): on = True; continue
+        m = re.match(r'\s+db\s+(.*)', line)
+        if on and m:
+            v = [int(x) for x in m.group(1).split(',')]
+            if v == [0]: break
+            out[chr(v[0])] = (v[1], v[2:])
+    return out, consts
+
+
+def check_texts(D, pieces, data):
+    """every string of duel.asm d_strs: its glyphs in the font the duel draws with (the text overlay's txt_font with
+    d_font laid over its lowercase records, d_hud) and its width (SDLPoP draw_text: each glyph + 1, the space 3 + 1;
+    the numbers 1-3 as the widest two digits) within the line's TEXT_W pixels. -> (errors, {label: width})"""
+    game, gc = font(os.path.join(B, 'assets', 'font_text.inc'), 'txt_font')
+    duel, dc = font(os.path.join(B, 'assets', 'font_duel.inc'), 'd_font')
+    order = sorted(game)                         # (txt_font's order: build_font_text sorts the characters)
+    gone = order[dc['DFONT_OFS'] // 9:dc['DFONT_OFS'] // 9 + dc['DFONT_N']]
+    f = {c: v for c, v in game.items() if c not in gone}; f.update(duel)
+    num = 2 * max(f[c][0] + 1 for c in '0123456789')
+    piece = [(a, k) for a, e, k in pieces if a <= D['d_strs'] < e][0]
+    mem = lambda a: data[piece[1]][a - piece[0]]
+    inv = {v: k for k, v in D.items()}
+    errs = []; widths = {}; t = D['d_strs']
+    while mem(t) | (mem(t + 1) << 8):
+        a = mem(t) | (mem(t + 1) << 8); t += 2; w = 0; txt = ''
+        while mem(a):
+            c = mem(a); a += 1
+            if c < 4: w += num; txt += '<%d>' % c
+            elif chr(c) == ' ': w += gc['TXT_SPACE_W'] + 1; txt += ' '
+            elif chr(c) in f: w += f[chr(c)][0] + 1; txt += chr(c)
+            else: errs.append('the duel text %r: no glyph for %r' % (txt, chr(c))); txt += chr(c)
+        widths[txt] = w - 1
+        if w - 1 > TEXT_W: errs.append('the duel text %r: %d pixels, the line has %d' % (txt, w - 1, TEXT_W))
+    return errs, widths
+
+
 def build():
     D, pieces, holes, data = load()
     errs, where, order, stage = check_pieces(D, pieces, holes, data)
+    terrs, widths = check_texts(D, pieces, data)
+    errs += terrs
     if errs: sys.exit('duelpatch: ' + '\n  '.join(errs))
     cg_errs, notes = call_graph(D, pieces, holes, data)
     if cg_errs: sys.exit('duelpatch: the call graph reaches the holes:\n  ' + '\n  '.join(cg_errs))
@@ -220,6 +271,7 @@ def build():
           'data': stage.hex()}, 'holes': rep['holes'], 'figures': rep['figures'], 'call_graph': notes}
     json.dump(js, open(os.path.join(B, 'duel_patch.json'), 'w'), indent=1)
     print_report(rep)
+    print('texts (pixels of %d): %s' % (TEXT_W, ', '.join('%s %d' % kv for kv in widths.items())))
     print('call graph: %d instructions reached (overlays %s), no hole; cut by hand: %s; indirect jumps: %s' % (
         notes['reached'], ', '.join(notes['overlays']), '; '.join(notes['cut']) or 'none', ', '.join(notes['indirect']) or 'none'))
 

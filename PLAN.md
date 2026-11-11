@@ -1192,3 +1192,11 @@ piece used AND/XOR semantics.
    sword; duel.asm d_ppchar at overlay.asm's two pp_char calls, labels only in the game). 44 B in H_TICK, ~80 T a
    character a tick; tests/duel_z80.py checks the drawn images against duelsim through the same map every tick. No
    logic, hash or trace change; every game program byte-identical.
+84. Duel phase 3: the HUD, the texts, the sound (2026-11-11, docs/duel-design.md section 13): the bottom text line shows
+   ROUND n, then ROUND n + the score, P1 / P2 WINS ROUND, P1 / P2 WINS THE MATCH and after the match, in turn with the
+   winner, ENTER REMATCH  BREAK QUIT (duel.asm d_hud, through the game's text overlay called in place, four glyphs of
+   SDLPoP's font added over the loaded copy's lowercase ones; duelpatch.py checks every text's glyphs and width);
+   player 2's strip as player 1's with the icon in blue. Sound: the logic keeps the silent model (the N line as
+   duelsim's), the PSG applies the game's priorities to both players' effects and plays tune 37 after a round, 41 after
+   the match (d_snd, audio only). Holes 2,275 of 2,406 B used (H_FREE now too), floppy 8 blocks; 5.49 / 5.22 / 4.89
+   frames a tick (+0.03). tests/duel_z80.py checks the text and the tunes every tick. Every game program byte-identical.

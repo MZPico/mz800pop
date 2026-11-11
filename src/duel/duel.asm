@@ -27,7 +27,11 @@
 ; kid (its record's charid is the kid's while drawing: the kid's images, no XOR look, its strip at the right) with
 ; a blue suit and grey hair (a plane operation per cell: d_sdraw, DUEL_LOOK; overlay.asm duel_sd1 / duel_sd2). Pacing: mode 0, every tick drawn, at least 4 frames (game.asm's).
 ; The torches flicker as in the game (d_torches, process_trobs, view_redraw: prandom, never hashed).
-; Sound: the silent model (SND_MODE 0: nothing waits on a sound; the effects play).
+; The HUD (phase 3, docs/duel-design.md 13): player 2's strip as player 1's in blue (d_ghp), the bottom text line (the
+; round, the score, the round's and the match's result, the rematch / quit prompt: d_hud, through the game's text
+; overlay). Sound: the silent model for the logic (SND_MODE 0: nothing waits on a sound, the N line as duelsim's); the
+; PSG gets the effects of both players with the game's priorities and a tune at a round's and the match's end (d_snd:
+; audio only). The HUD and the audio only read the logic's state.
 ;
 ; Input (d_input; the byte of duel-design 11.6: bit 0 left, 1 right, 2 up, 3 down, 4 the button, 5 quit, 6 rematch):
 ; player 1 the game's (the cursor keys, SHIFT, joystick 1: read_inputs' INPUT), BREAK = quit, ENTER = rematch;
@@ -35,6 +39,7 @@
 ; RAM-disk page RD_LV_PAGE instead.
 
                 include "../../build/duel.inc"
+                include "../../build/duel_text.inc"     ; (the text overlay's labels: d_hud calls them in W2)
 
 ; ---- the arena and the rules (tools/duelsim.py)
 ARENA_ROOM      equ     3
@@ -44,6 +49,12 @@ P2_COL          equ     7
 ROUND_HP        equ     3
 WINS            equ     3
 ROUND_END_TICKS equ     36
+; ---- the HUD and the sound (phase 3: drawing and audio only, never read by the logic, never hashed)
+ROUND_TEXT_TICKS equ    20              ; "ROUND n" alone for a round's first ticks, then the score line
+HUD_ALT         equ     32              ; after the match: the winner and the prompt alternate (a bit of d_hcnt)
+JINGLE_DELAY    equ     3               ; the round's or match's tune: ticks after the deciding one (the hurt sound first)
+SND_ROUNDJ      equ     37              ; a round won: the guard's death tune (SDLPoP sound_37_victory, 4.1 s)
+SND_MATCHJ      equ     41              ; the match won: the level's end music (sound_41_end_level_music, 12.8 s)
 IN_QUIT         equ     5               ; (bits)
 IN_REMATCH      equ     6
 MATCH_QUIT      equ     3
@@ -113,6 +124,7 @@ db_r:           ld      a, e
 d_ptab:         dw      P_ai, P_ai_end - P_ai
                 dw      P_kt, P_kt_end - P_kt
                 dw      P_tick, P_tick_end - P_tick
+                dw      P_free, P_free_end - P_free
                 dw      P_d14, 3
                 dw      P_d15, 2
                 dw      P_sd1, 2
@@ -153,6 +165,9 @@ d_tend:         ld      a, (d_match)    ; (harness: the tick's end, the D line)
                 jr      z, dl_t
                 ld      (hl), a
                 call    draw_room_full
+                ld      a, 0xff         ; (the HUD drawn again after it)
+                ld      (d_key), a
+                ld      (d_ghps), a
                 jr      dl_d
 dl_t:           ld      a, 1            ; the torches' changed frames: into the shadow room, on the dirty list
                 ld      (RR_SHONLY), a  ; (game.asm gmt3: drawn with the people over them)
@@ -164,9 +179,10 @@ dl_t:           ld      a, 1            ; the torches' changed frames: into the 
 dl_d:           ld      hl, GUARD_REC + OF_CHARID      ; player 2 drawn as the kid (d_sdraw: its colours)
                 ld      (hl), 0
                 call    draw_objects
-                call    hp_draw
                 ld      hl, GUARD_REC + OF_CHARID
                 ld      (hl), CHARID_SHADOW
+                call    hp_draw         ; player 1's strip (ghp_draw: no shadow's strip off level 12)
+                call    d_hud           ; player 2's strip, the bottom text
 d_done:         jr      d_loop          ; (harness: the tick drawn)
 ; d_quit: back to PRES's title (the level-start overlay's handoff; without the launcher, the harness: it stops here)
 d_quit:         ld      a, GO_TITLE
@@ -198,6 +214,16 @@ d_entry:        ld      sp, STACK
                 ld      (d_result), a
                 ld      (d_match), a
                 call    erase_text
+                ld      de, d_hpicon    ; player 2's hit point icon: the kid's with planes I and II (B, R) swapped
+                ld      hl, hp_full + 5
+                ld      bc, 5
+                ldir
+                ld      hl, hp_full
+                ld      c, 5
+                ldir
+                ld      hl, hp_full + 10
+                ld      c, 10
+                ldir
                 ld      hl, LV_LINKS + (ARENA_ROOM - 1) * 4    ; the room's links: room 0, a wall on every side
                 ld      b, 4
 de_l:           ld      (hl), 0
@@ -258,7 +284,7 @@ d_mid:          ld      hl, (K_TICK)    ; (harness: the kid line)
                 call    sword_vs_sword
                 call    do_delta_hp_g
 d_gline:        call    d_round         ; (harness: the G line)
-                call    snd_next        ; (play_next_sound: the N line at snd_snap)
+                call    d_snd           ; (play_next_sound: the N line at snd_snap)
                 call    loadkid         ; (KV = the kid for the drawing)
                 jp      d_hash
 
@@ -413,8 +439,8 @@ d_reset:        ld      bc, P1_COL * 256 + 0           ; player 1: column, direc
                 ld      (hl), a         ; HITP_MAX
                 ld      (GUARDHP_CURR), a
                 ld      (GUARDHP_MAX), a
-                ld      (GHP_M), a      ; (the drawing: player 2's strip shows its hit points from the start)
                 xor     a
+                ld      (d_rtick), a    ; (the HUD's: drawing only)
                 ld      (HITP_DELTA), a
                 ld      (GUARDHP_DELTA), a
                 ld      (SND_SCREAM), a
@@ -425,6 +451,8 @@ d_reset:        ld      bc, P1_COL * 256 + 0           ; player 1: column, direc
 drs_z:          ld      (hl), a
                 inc     hl
                 djnz    drs_z
+                dec     a               ; (audio only: any sound may cut the last round's tune)
+                ld      (d_acur), a
                 ret
 ; dr_char: Char (KV) = a fresh record: B = column, C = direction, E = charid; then the stand sequence played
 dr_char:        ld      hl, KV
@@ -578,6 +606,62 @@ d_hashmap:      dw      KID_REC         ; the kid's and the shadow's records
                 dw      d_rounds        ; the round state
                 db      6
                 dw      0
+; d_snd: play_next_sound, the silent model for the logic (the N line: the request starts, nothing plays), the PSG
+; with the game's priorities against what the PSG really plays (audio only: d_acur, the player's SP_WAIT; never read
+; by the logic, so two machines may differ in it); and the round's or match's tune a few ticks after the deciding tick
+d_snd:          call    snd_playing     ; (the ring topped up, once a tick; A = 0: silent)
+                ld      a, (d_timer)
+                cp      ROUND_END_TICKS - JINGLE_DELAY
+                jr      nz, ds1
+                ld      a, (d_result)
+                cp      3
+                jr      z, ds1          ; (a draw: none)
+                ld      hl, d_rounds    ; the winner's score (d_score1 = d_rounds + 1): WINS, the match's tune
+                ld      e, a
+                ld      d, 0
+                add     hl, de
+                ld      a, (hl)
+                cp      WINS
+                ld      a, SND_MATCHJ
+                jr      nc, ds_j
+                ld      a, SND_ROUNDJ
+ds_j:           ld      (d_acur), a
+                ld      b, a
+                call    snd_again
+ds1:            ld      a, (SND_NEXT)
+                ld      c, a
+                ld      b, 0xff
+                inc     a
+                jr      z, ds_x         ; nothing asked for
+                ld      b, c            ; (the silent model: it starts)
+                ld      a, c
+                ld      (SND_CUR), a
+                ld      a, (SP_WAIT)    ; the PSG plays a sound the request may not cut?
+                or      a
+                jr      z, ds_go
+                ld      a, (d_acur)
+                inc     a
+                jr      z, ds_go        ; (0xff: any may)
+                dec     a
+                call    snd_ent
+                bit     7, a
+                jr      z, ds_x         ; (not interruptible)
+                and     0x7f
+                ld      d, a
+                ld      a, c
+                call    snd_ent
+                and     0x7f
+                cp      d
+                jr      z, ds_go
+                jr      nc, ds_x        ; (a lower priority)
+ds_go:          ld      a, c
+                ld      (d_acur), a
+                call    snd_again       ; (A = B = the id; keeps BC, DE)
+ds_x:           ld      a, 0xff
+                ld      (SND_NEXT), a
+                ld      e, 0            ; (the N line: playing 0, the silent model)
+                jp      snd_snap
+
 ; the duel's state (the round state in the hash's order)
 d_rounds:       db      0
 d_score1:       db      0
@@ -590,6 +674,10 @@ d_in2:          db      0
 d_hashv:        dw      0
 d_blk2:         ds      90              ; player 2's block: ctrl1 (5), grab_timer, have_sword, offguard, holding_sword,
                                         ; prev_collision_row, the collision rows (80, kid.asm PREV_ROOMS .. ABOVE_FLAGS)
+; the HUD's and the audio's (never read by the logic, never hashed)
+d_acur:         db      0xff            ; the sound the PSG was last given (0xff: none that must be kept)
+d_rtick:        db      0               ; ticks drawn since the round's start (to 255)
+d_hcnt:         db      0               ; ticks drawn (wraps)
 P_ai_end:
                 if P_ai_end > H_AI_END
                 .error the duel's piece P_ai is larger than its hole (the guard AI)
@@ -915,6 +1003,36 @@ dsd_nc:         exx
                 jp      nz, dsdrow
                 pop     ix              ; (the caller's descriptor pointer)
                 ret
+; d_ghp: player 2's hit point strip as player 1's, mirrored at the right (hpstrip.asm hp_strip: the kid's icons, full
+; and empty, the full one in blue: d_hpicon), drawn when the hit points change
+d_ghp:          ld      a, (GUARDHP_CURR)
+                ld      b, a
+                ld      a, (GUARDHP_MAX)
+                ld      c, a
+                ld      hl, (d_ghps)
+                ld      a, l
+                cp      b
+                jr      nz, dg1
+                ld      a, h
+                cp      c
+                ret     z
+dg1:            ld      l, b
+                ld      h, c
+                ld      (d_ghps), hl
+                ld      a, b
+                ld      (hp_nf), a
+                ld      a, c
+                ld      (hp_n), a
+                ld      hl, d_hpicon
+                ld      (hp_pf), hl
+                ld      a, 32
+                ld      (hp_base), a
+                ld      bc, 0x0820      ; bytes 32..39, then 31 (overlay.asm ghp_draw's chunks)
+                call    hp_strip
+                ld      bc, 0x011f
+                jp      hp_strip
+d_ghps:         dw      0xffff          ; player 2's hit points as drawn (current, max; 0xff: draw again)
+d_hpicon:       ds      20              ; the icon (5 rows x 4 planes, plane-major: hp_full's layout)
 P_kt_end:
                 if P_kt_end > H_KT_END
                 .error the duel's piece P_kt is larger than its hole (kid_tick)
@@ -1126,9 +1244,157 @@ dpp_x:          pop     af
 dpp_p1:         db      161, 158, 0                             ; player 1: the parry (161) as en garde (158)
 dpp_p2:         db      161, 157, 158, 157, 170, 157, 171, 157, 0   ; player 2: the parry and en garde as 157
 
+; the bottom texts (d_hud): 1, 2, 3 = d_key's numbers (0..99); tools/duelpatch.py checks that every one has its
+; glyphs (the game's font + d_font) and fits the line's 160 pixels with its widest numbers
+d_strs:         dw      dst_round, dst_score, dst_won, dst_draw, dst_match, dst_prompt, 0
+TX_ROUND        equ     0               ; (d_key's kind: the index here)
+TX_SCORE        equ     1
+TX_WON          equ     2
+TX_DRAW         equ     3
+TX_MATCH        equ     4
+TX_PROMPT       equ     5
+dst_round:      db      'ROUND ', 1, 0
+dst_score:      db      'ROUND ', 1, '   P1 ', 2, ' : ', 3, ' P2', 0
+dst_won:        db      'P', 1, ' WINS ROUND', 0
+dst_draw:       db      'DRAW', 0
+dst_match:      db      'P', 1, ' WINS THE MATCH', 0
+dst_prompt:     db      'ENTER REMATCH  BREAK QUIT', 0
+                include "../../build/assets/font_duel.inc"
 P_tick_end:
                 if P_tick_end > H_TICK_END
                 .error the duel's piece P_tick is larger than its hole (tick_pre .. check_skel)
+                endif
+
+; ================================================================ P_free: main RAM free below W1
+                org     H_FREE
+P_free:
+; d_hud (the match loop, after the drawing): player 2's strip, then the bottom text line as the round state says
+; (drawing only: it reads the round state, the logic never reads what it writes). The text: d_key = its kind (TX_*,
+; d_strs) and up to three numbers; drawn when the key changes, with the game's text overlay (src/m4/text.asm: loaded
+; into W2 as text_chk does, after the tick's drawing; its td_render / td_put / td_num called in place, the duel's
+; glyphs d_font laid over the copy's lowercase ones)
+d_hud:          call    d_ghp
+                ld      hl, d_hcnt
+                inc     (hl)
+                ld      hl, d_rtick
+                inc     (hl)
+                jr      nz, hu0
+                dec     (hl)            ; (stays at 255)
+hu0:            ld      hl, 0           ; L, H: the second and third numbers
+                ld      a, (d_match)
+                or      a
+                jr      z, hu_on
+                ld      c, a            ; the match over: its winner and the prompt in turn
+                ld      b, TX_MATCH
+                ld      a, (d_hcnt)
+                and     HUD_ALT
+                jr      z, hu_k
+                ld      b, TX_PROMPT
+                jr      hu_k
+hu_on:          ld      a, (d_timer)
+                or      a
+                jr      z, hu_play
+                ld      a, (d_result)   ; a round's end: its result
+                ld      c, a
+                ld      b, TX_DRAW
+                cp      3
+                jr      z, hu_k
+                ld      de, d_rounds    ; (d_score1 = d_rounds + 1)
+                add     a, e
+                ld      e, a
+                jr      nc, hu1
+                inc     d
+hu1:            ld      a, (de)
+                ld      b, TX_MATCH     ; (the winner's last round)
+                cp      WINS
+                jr      nc, hu_k
+                ld      b, TX_WON
+                jr      hu_k
+hu_play:        ld      a, (d_rounds)   ; a round on: its number, then the score too
+                inc     a
+                cp      100
+                jr      c, hu2
+                ld      a, 99
+hu2:            ld      c, a
+                ld      b, TX_ROUND
+                ld      a, (d_rtick)
+                cp      ROUND_TEXT_TICKS
+                jr      c, hu_k
+                ld      b, TX_SCORE
+                ld      hl, (d_score1)  ; (d_score1, d_score2)
+hu_k:           ld      a, b            ; the key: B, C, L, H
+                ld      de, d_key
+                ex      de, hl
+                cp      (hl)
+                jr      nz, hu_new
+                inc     hl
+                ld      a, c
+                cp      (hl)
+                jr      nz, hu_new
+                inc     hl
+                ld      a, e
+                cp      (hl)
+                jr      nz, hu_new
+                inc     hl
+                ld      a, d
+                cp      (hl)
+                ret     z
+hu_new:         ld      hl, d_key
+                ld      (hl), b
+                inc     hl
+                ld      (hl), c
+                inc     hl
+                ld      (hl), e
+                inc     hl
+                ld      (hl), d
+                ld      a, OVL_TEXT     ; the text overlay into W2 (only loaded: its entry is not run)
+                call    ovl_w2
+                ld      hl, d_font      ; the duel's glyphs over its lowercase ones
+                ld      de, TX_txt_font + DFONT_OFS
+                ld      bc, DFONT_N * 9
+                ldir
+                ld      hl, MASKBUF     ; the line's bitmap (text.asm TXB: 7 rows x 20 bytes) blank
+                ld      de, MASKBUF + 1
+                ld      bc, 7 * 20 - 1
+                ld      (hl), 0
+                ldir
+                ld      a, (d_key)      ; the string into td_str, the numbers in decimal
+                add     a, a
+                ld      l, a
+                ld      h, 0
+                ld      de, d_strs
+                add     hl, de
+                ld      a, (hl)
+                inc     hl
+                ld      h, (hl)
+                ld      l, a
+                ld      de, TX_td_str
+huf:            ld      a, (hl)
+                inc     hl
+                cp      4
+                jr      nc, huf_c
+                or      a
+                jr      z, huf_e
+                push    hl
+                ld      hl, d_key
+                add     a, l
+                ld      l, a
+                jr      nc, huf1
+                inc     h
+huf1:           ld      a, (hl)
+                call    TX_td_num
+                pop     hl
+                jr      huf
+huf_c:          ld      (de), a
+                inc     de
+                jr      huf
+huf_e:          ld      (de), a
+                call    TX_td_render    ; centred into the bitmap, then the screen (rows 193-199, x 80-239)
+                jp      TX_td_put
+d_key:          db      0xff, 0, 0, 0   ; the text drawn: kind, numbers (0xff: draw again)
+P_free_end:
+                if P_free_end > H_FREE_END
+                .error the duel's piece P_free is larger than its hole (main RAM below W1)
                 endif
 
 ; ================================================================ the patch sites

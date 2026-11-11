@@ -5,7 +5,9 @@ the scripted duels of tests/duel_scripts. Per tick the four lines duelsim writes
 1's frame: duel.asm d_mid), the G line (the shadow and the fight's globals, after the hit points: d_gline), the N line
 (play_next_sound: the game's snd_snap) and the D line (the round state, the 68-byte hash, both blocks: d_tend); and
 the state before the first tick (d_ready: the D 0 line's hash). The Z80's own hash (d_hashv) must equal the hash of
-the 68 bytes as the harness reads them, and duelsim's. Taken by tracepoints (tools/emu.py: the emulator never stops).
+the 68 bytes as the harness reads them, and duelsim's. Drawing and audio, every tick against duelsim's state: the
+images each player is drawn with (the blades, DRAW_MAP), the bottom text's key (duel.asm d_key: hud_key) and the
+round's and match's tunes (duel.asm ds_j: jingles). Taken by tracepoints (tools/emu.py: the emulator never stops).
 The inputs: the script's two bytes a tick in RAM-disk page 5 (game.asm RD_SCRIPT), read by duel.asm d_input (d_script).
 
   --cdl        the code log over every script (mz800emu's CDL): no byte of a hole outside the duel's pieces executed,
@@ -28,6 +30,26 @@ SHOT_TICKS = (1, 12, 27, 40, 80)
 DRAW_MAP = ({161: 158}, {161: 157, 158: 157, 170: 157, 171: 157})
 import build_assets as BA
 SWORD_TBL = BA.frame_tables()['sword']
+# the HUD and the tunes (duel.asm d_hud, d_snd; docs/duel-design.md 13): drawing and audio only
+TX_ROUND, TX_SCORE, TX_WON, TX_DRAW, TX_MATCH, TX_PROMPT = range(6)
+ROUND_TEXT_TICKS, HUD_ALT, JINGLE_DELAY, SND_ROUNDJ, SND_MATCHJ = 20, 32, 3, 37, 41
+
+
+def hud_key(sim, tick, rtick):
+    """the bottom text duel.asm d_hud shows after tick `tick` (rtick: ticks drawn since the round's start): (kind,
+    numbers)"""
+    if sim.match: return (TX_MATCH if tick & HUD_ALT == 0 else TX_PROMPT, sim.match, 0, 0)
+    if sim.timer:
+        if sim.result == DS.RES_DRAW: return (TX_DRAW, 3, 0, 0)
+        return (TX_MATCH if sim.score[sim.result - 1] >= DS.WINS else TX_WON, sim.result, 0, 0)
+    n = min(99, (sim.rounds & 0xFF) + 1)
+    return (TX_ROUND, n, 0, 0) if rtick < ROUND_TEXT_TICKS else (TX_SCORE, n, sim.score[0], sim.score[1])
+
+
+def jingle(sim):
+    """the tune duel.asm d_snd starts at this tick's end, or None"""
+    if sim.timer != DS.ROUND_END_TICKS - JINGLE_DELAY or sim.result == DS.RES_DRAW: return None
+    return SND_MATCHJ if sim.score[sim.result - 1] >= DS.WINS else SND_ROUNDJ
 
 
 def drawn_ids(sim, rec, p):
@@ -91,15 +113,25 @@ def ranges(S, D):
     dv = (D['d_rounds'], D['d_blk2'] + 90 - D['d_rounds'])
     return {'ready': [gv, ov, kv, dv], 'mid': [gv, ov, (S['LEVEL'], 1440)], 'g': [gv, ov],
             'n': [(S['SND_STOPS'], 1)], 'end': [gv, ov, kv, dv],
-            'drawn': [(S[k] + S['SD_FRAME'], 1) for k in ('SPR_A', 'SPR_S', 'SPR_G', 'SPR_GS')]}
+            'drawn': [(S[k] + S['SD_FRAME'], 1) for k in ('SPR_A', 'SPR_S', 'SPR_G', 'SPR_GS')] + [(D['d_key'], 4)],
+            'jingle': []}
 
 
 def run_script(e, S, D, path, shots=None):
     inputs, opts = DS.read_duel_script(path)
     ref, sim = DS.run_duel(path)
     exp = []; s2 = DS.DuelSim()                             # the images each tick's drawing must show (DRAW_MAP)
+    hud = []; jing = []; at_tick = [0]; reset = [0]         # the bottom text and the tunes each tick
+    rr = s2.round_reset
+    def round_reset():
+        reset[0] = at_tick[0] - 1; rr()                     # (a reset inside tick t: t's drawing counts 1)
+    s2.round_reset = round_reset
     for a, b in inputs:
+        at_tick[0] += 1; t = at_tick[0]
         s2.step(a, b); exp.append((drawn_ids(s2, s2.Kid, 0), drawn_ids(s2, s2.Guard, 1)))
+        hud.append(hud_key(s2, t, min(255, t - reset[0])))
+        j = jingle(s2)
+        if j: jing.append((t, j))
     script = b''.join(bytes(p) for p in inputs)
     G.setup(e, DS.ARENA_LEVEL, fs_run=False)
     patch_in(e, S, D, script)
@@ -113,9 +145,9 @@ def run_script(e, S, D, path, shots=None):
         assert r['stopped_by'] == 'breakpoint', r
         e.call('bp_clear'); e.call('cdl_start'); e.call('profiler_start')
     for k, a in (('ready', D['d_ready']), ('mid', D['d_mid']), ('g', D['d_gline']), ('n', S['snd_snap']), ('end', D['d_tend']),
-                 ('drawn', D['d_done'])):
-        e.trace_add(a, regs=('BC', 'DE') if k == 'n' else (), mem=R[k]); at[a] = k
-    got = []; tick = 0; stops = None; bad = 0; first = None; hash_ok = True; ends = []; dbad = []
+                 ('drawn', D['d_done']), ('jingle', D['ds_j'])):
+        e.trace_add(a, regs=('BC', 'DE') if k == 'n' else ('AF',) if k == 'jingle' else (), mem=R[k]); at[a] = k
+    jgot = []; got = []; tick = 0; stops = None; bad = 0; first = None; hash_ok = True; ends = []; dbad = []
     want_ticks = sum(1 for l in ref if l.startswith('D ')) - 1
     shot_at = set(t for t in SHOT_TICKS if t <= want_ticks) if shots else set()
     frames = 0
@@ -140,6 +172,9 @@ def run_script(e, S, D, path, shots=None):
                 (eb1, es1), (eb2, es2) = exp[tick - 1]
                 if (eb1 and a != eb1) or (es1 and sa != es1) or (eb2 and g != eb2) or (es2 and sg != es2):
                     dbad.append((tick, (a, sa, g, sg), (eb1, es1, eb2, es2)))
+                key = tuple(m.mem(D['d_key'], 4))
+                if key != hud[tick - 1]: dbad.append((tick, 'text %s' % (key,), 'text %s' % (hud[tick - 1],)))
+            elif k == 'jingle': jgot.append((tick, rec['regs']['AF'] >> 8))
             elif k == 'end':
                 ends.append(rec['frame'])
                 line, ok = duel_line(m, S, D, tick); hash_ok &= ok
@@ -157,7 +192,9 @@ def run_script(e, S, D, path, shots=None):
             if first is None: first = (i, ref[i], got[i])
     if len(ref) != len(got): bad += 1; first = first or (n, 'lines %d' % len(ref), 'lines %d' % len(got))
     if dbad:                                    # the images drawn (body, sword of each) against duelsim + DRAW_MAP
-        bad += len(dbad); first = first or (dbad[0][0], 'drawn images %s' % (dbad[0][2],), 'drawn images %s' % (dbad[0][1],))
+        bad += len(dbad); first = first or (dbad[0][0], 'drawn %s' % (dbad[0][2],), 'drawn %s' % (dbad[0][1],))
+    if jgot != jing:                            # the tunes (tick, sound id)
+        bad += 1; first = first or (0, 'tunes %s' % jing, 'tunes %s' % jgot)
     pace = (ends[-1] - ends[2]) / (len(ends) - 3) if len(ends) > 3 else 0     # (after the arena's draw)
     return bad, first, hash_ok, want_ticks, pace
 
