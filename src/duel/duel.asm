@@ -73,6 +73,10 @@ H_SD1           equ     duel_sd1 + 1
 H_SD1_END       equ     duel_sd1 + 3
 H_SD2           equ     duel_sd2 + 1
 H_SD2_END       equ     duel_sd2 + 3
+H_PP1           equ     duel_pp1 + 1
+H_PP1_END       equ     duel_pp1 + 3
+H_PP2           equ     duel_pp2 + 1
+H_PP2_END       equ     duel_pp2 + 3
 
 ; ================================================================ P_main: over the game's main loop (main RAM)
                 org     H_MAIN
@@ -113,6 +117,8 @@ d_ptab:         dw      P_ai, P_ai_end - P_ai
                 dw      P_d15, 2
                 dw      P_sd1, 2
                 dw      P_sd2, 2
+                dw      P_pp1, 2
+                dw      P_pp2, 2
                 dw      0
 d_script:       dw      0               ; (the harness: the next input pair's RAM-disk address in page RD_LV_PAGE; 0: live)
 
@@ -1093,6 +1099,33 @@ dr_tm:          dec     a
 dr_end:         ld      (d_match), a
                 ret
 
+; d_ppchar (overlay.asm people_place's calls of pp_char, duel_pp1 / duel_pp2): the blades (the user's choice
+; 2026-11-11, docs/duel-design.md 12.8): a character is drawn with another kid frame, body and sword together (the hilt
+; stays in the hand), so that a parry's blades meet and the en-garde blades sit at two heights. Drawing only: KV is the
+; drawing's copy of the record here (people_place restores it from PP_SAVE), the logic never sees it. B = the slot (0
+; player 1, 2 player 2), A = the hit point delta (kept)
+d_ppchar:       push    af
+                ld      hl, dpp_p1
+                ld      a, b
+                or      a
+                jr      z, dpp_l
+                ld      hl, dpp_p2
+dpp_l:          ld      a, (hl)
+                or      a
+                jr      z, dpp_x
+                inc     hl
+                ld      c, a
+                ld      a, (K_FRAME)
+                cp      c
+                ld      a, (hl)
+                inc     hl
+                jr      nz, dpp_l
+                ld      (K_FRAME), a
+dpp_x:          pop     af
+                jp      pp_char
+dpp_p1:         db      161, 158, 0                             ; player 1: the parry (161) as en garde (158)
+dpp_p2:         db      161, 157, 158, 157, 170, 157, 171, 157, 0   ; player 2: the parry and en garde as 157
+
 P_tick_end:
                 if P_tick_end > H_TICK_END
                 .error the duel's piece P_tick is larger than its hole (tick_pre .. check_skel)
@@ -1111,3 +1144,9 @@ P_sd1_end:
                 org     H_SD2
 P_sd2:          dw      d_sdraw
 P_sd2_end:
+                org     H_PP1
+P_pp1:          dw      d_ppchar
+P_pp1_end:
+                org     H_PP2
+P_pp2:          dw      d_ppchar
+P_pp2_end:

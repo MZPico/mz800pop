@@ -1186,3 +1186,9 @@ piece used AND/XOR semantics.
    scripts tick for tick equal to duelsim (state, hash) at 512K / 1M / 16M, with the code log's hole check;
    tests/duel_boot.py: the floppy path. 5.6 / 5.3 / 5.0 frames a tick with the torches flickering as in the game (prandom, not hashed; duelsim too). Launcher +17 B, PRES +23 B, floppy 6 blocks.
    Every game program byte-identical (labels only).
+83. Duel: the blades (2026-11-11, docs/duel-design.md 12.8; the user's choice after the playtest): kid against kid the
+   parry's blades missed and the en-garde blades overlapped (SDLPoP's poses meet a guard's). Drawing only, the hilt in
+   the hand: player 1's parry 161 drawn as kid frame 158, player 2's 161, 158, 170, 171 as 157 (whole frames, body and
+   sword; duel.asm d_ppchar at overlay.asm's two pp_char calls, labels only in the game). 44 B in H_TICK, ~80 T a
+   character a tick; tests/duel_z80.py checks the drawn images against duelsim through the same map every tick. No
+   logic, hash or trace change; every game program byte-identical.

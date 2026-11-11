@@ -728,7 +728,7 @@ pp1x:
                 jr      nz, pp_g
                 ld      a, (HITP_DELTA)
                 ld      b, 0
-                call    pp_char
+duel_pp1:       call    pp_char                 ; (the duel patch's sites PP1, PP2: the blades' drawn frames, src/duel/duel.asm)
 pp_g:           ld      a, (GUARD_REC + OF_DIR) ; the guard (draw_guard)
                 cp      DIR_NONE
                 jr      z, pp_order
@@ -739,7 +739,7 @@ pp_g:           ld      a, (GUARD_REC + OF_DIR) ; the guard (draw_guard)
                 call    loadshad
                 ld      a, (GUARDHP_DELTA)
                 ld      b, 2
-                call    pp_char
+duel_pp2:       call    pp_char
 pp_order:       ld      hl, PP_SAVE             ; the kid again
                 ld      de, KV
                 call    gcp16
