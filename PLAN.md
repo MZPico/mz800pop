@@ -1209,3 +1209,14 @@ piece used AND/XOR semantics.
    40 left). tests/duel_net.py: two emulators through BomberNet's relay.py run locally play match.txt, both traces equal
    duelsim's (delayed by D) every tick, plus the failures; --realtime measures 50 Hz play. Local play and every game
    program unchanged. How-to: docs/duel-net-howto.md.
+86. Duel: the random arenas (2026-11-12, docs/duel-design.md section 15; the user's decision "B"): per match a level of
+   1-14 (loaded in the duel: the blueprint, its type's art, the alter-mods pass; level_number 1 so the level's own rules
+   stay off), per round another room of its pool (72 grade-A rooms the user picked from tools/duelarenas.py's survey of
+   all 330 rooms: kidsim moves, random duels, contact sheets), from a 16-bit seed (local: the frame counter; network: the
+   host's, in the room's settings), the match's and the round's number; the room's traps, mechanisms and bottom-row holes
+   turned into floor at its setup; the arena's entry the hash's first byte (0 for the fixed arena: phases 1-4's traces
+   unchanged). The arenas' piece P_w2 (654 B: the choice, the setup, the level load, the table) is staged and copied into
+   W2's top at each use; resident holes 3,451 of 3,771 B (320 free), PR3 14 blocks (26 of 40 left), 0 resident game
+   bytes, launcher and PRES unchanged. A round's room change 51-85 frames (the full draw). duelsim's fixed-arena mode
+   keeps every earlier script and digest; two new scripts (a dungeon and a palace level, a rematch onto another level);
+   duel_z80 0 differing lines at 512 KB / 1 MB / 16 MB, duel_net with random arenas, duel_boot.

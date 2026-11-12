@@ -5,7 +5,8 @@ and the script's expectations hold: '# expect rounds 1,2,3' (the round results i
 '# expect score a:b' (at the end), '# expect match m' (the match state at the end), '# expect matches 1,0,3' (the match state's changes: 1 P1 won, 2 P2 won, 3 quit,
 0 a rematch), '# expect mirror other.txt' (every tick is the other script's tick with the players swapped and the room
 mirrored: x -> 270 - x), '# expect hurt none' (both keep their full hit points every tick), '# expect sheathe a,b' (the
-ticks at which the kid and the shadow first put their drawn swords away), '# expect digest <hex>' (the whole trace's sha256, 16 digits: any change of the duel's
+ticks at which the kid and the shadow first put their drawn swords away), '# expect arenas 12:1,12:16' (a '# seed'
+script's random arenas, docs/duel-design.md 15: the rounds' level:room in order), '# expect digest <hex>' (the whole trace's sha256, 16 digits: any change of the duel's
 logic or of kidsim's shows here; --update rewrites it after an intended change). Any other expectation key fails.
 usage: duel_test.py [--update] [script.txt ...]   (default: tests/duel_scripts/*.txt)"""
 import glob, os, sys
@@ -13,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import duelsim as D
 
-EXPECT_KEYS = {'rounds', 'score', 'match', 'matches', 'mirror', 'digest', 'hurt', 'sheathe'}
+EXPECT_KEYS = {'rounds', 'score', 'match', 'matches', 'mirror', 'digest', 'hurt', 'sheathe', 'arenas'}
 MIRROR_X = 270           # the arena's start columns 2 and 7 face each other around x = 135
 
 
@@ -30,7 +31,7 @@ def match_changes(lines):
 def records(path):
     """per tick, the end of the tick's (kid, shadow): frame x direction action alive hit points"""
     inputs, opts = D.read_duel_script(path)
-    sim = D.DuelSim(kid_frames=opts['p2_frames'] != 'shadow'); out = []
+    sim = D.DuelSim(kid_frames=opts['p2_frames'] != 'shadow', seed=opts['seed']); out = []
     for in1, in2 in inputs:
         sim.step(in1, in2); K, G = sim.Kid, sim.Guard
         out.append(((K.frame, K.x, K.direction, K.action, K.alive, sim.hitp_curr),
@@ -41,7 +42,7 @@ def records(path):
 def sheathed(path):
     """[the kid's, the shadow's first tick after the start with the sword sheathed again (0: never)]"""
     inputs, opts = D.read_duel_script(path)
-    sim = D.DuelSim(kid_frames=opts['p2_frames'] != 'shadow'); drawn = [False, False]; out = [0, 0]
+    sim = D.DuelSim(kid_frames=opts['p2_frames'] != 'shadow', seed=opts['seed']); drawn = [False, False]; out = [0, 0]
     for t, (in1, in2) in enumerate(inputs):
         sim.step(in1, in2)
         for p, c in enumerate((sim.Kid, sim.Guard)):
@@ -75,6 +76,9 @@ def check(path, update):
         errs.append('score %d:%d, expected %s' % (sim.score[0], sim.score[1], ex['score']))
     unknown = sorted(set(ex) - EXPECT_KEYS)
     if unknown: errs.append('unknown expectation(s): %s' % ', '.join(unknown))
+    if 'arenas' in ex:
+        got = ','.join('%d:%d' % la for la in sim.arena_log)
+        if got != ex['arenas']: errs.append('arenas %s, expected %s' % (got, ex['arenas']))
     if 'match' in ex and sim.match != int(ex['match']):
         errs.append('match %d, expected %s' % (sim.match, ex['match']))
     if 'matches' in ex and match_changes(lines) != [int(v) for v in ex['matches'].split(',')]:

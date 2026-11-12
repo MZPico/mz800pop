@@ -14,7 +14,8 @@ Script (tests/duel_scripts/*.txt): '# duel' first; then one line per tick 'x1 y1
 y -1 up 0 1 down, s 1 = the button; the screen's directions, as the kid's scripts) with optional tokens '*N' (the line
 N times), 'Q1' / 'Q2' (that player's quit bit), 'R1' / 'R2' (rematch); or 'b1 b2' as two input bytes in hex ('0x..').
 Options: '# p2 frames shadow' (player 2's frames 150-189 from the guard's frame table and the shadow's images, as
-SDLPoP's shadow; default: the kid's table, see DUEL_KID_FRAMES). Expectations (tests/duel_test.py): '# expect rounds
+SDLPoP's shadow; default: the kid's table, see DUEL_KID_FRAMES), '# seed 0x1234' (the random arenas from that seed,
+docs/duel-design.md 15; without it every round is in the fixed arena, level 1 room 3). Expectations (tests/duel_test.py): '# expect rounds
 1,2,3' (the round results in order), '# expect score 3:1', '# expect match 1' (at the end), '# expect matches 1,0,3' (the match state's changes),
 '# expect mirror other.txt', '# expect digest <hex>' (the trace's).
 
@@ -29,15 +30,132 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kidsim as K
 from kidsim import KidSim, Char, SEQ, X_BUMP, Y_LAND, FIRST_ONSCREEN_COLUMN, TILE_SIZEX, RIGHT, LEFT, HELD, RELEASED
 from kidsim import CHARID_KID, CHARID_SHADOW, A_HURT, A_STAND, DIR_NONE
-from popdata import Level
+from popdata import Level, T
 
 # ---- the arena and the rules (design sections 2.3, 6, 9; section 11 for the choices made here)
-ARENA_LEVEL, ARENA_ROOM, ARENA_ROW = 1, 3, 1     # the dungeon: level 1 room 3, the middle row (8 floor tiles)
+ARENA_LEVEL, ARENA_ROOM, ARENA_ROW = 1, 3, 1     # the fixed arena (entry 0): level 1 room 3, the middle row
 START = ((2, RIGHT), (7, LEFT))                  # (column, direction) of player 1 (the kid) and player 2 (the shadow)
 ROUND_HP = 3                                     # hit points of both at a round's start (hitp and guardhp, max = curr)
 WINS = 3                                         # rounds to win the match: best of 5 (draws are replayed: no limit)
 ROUND_END_TICKS = 36                             # the round end: ticks from the deciding tick to the reset
 DUEL_KID_FRAMES = True                           # player 2's frames 150-189 from the kid's table (False: SDLPoP's shadow)
+
+# ---- the random arenas (docs/duel-design.md 15; the user's decision "B", 2026-11-12): per match a level (any of 1-14),
+# per round a room of that level's pool, both from a 16-bit seed (local play: the frame counter at the duel's start; over
+# the network: the host's, in the room's settings), the match's number and the round's. The pool: the user's pick from
+# tools/duelarenas.py's survey (grade A: one row the players cannot leave, >= 8 tiles; 2026-11-12). Entry 0 of the
+# arena table is the fixed arena (level 1 room 3): the duel's entry draws it behind the menu, and a script without
+# '# seed' plays all its rounds there (the fixed-arena mode of the phase 1-4 scripts).
+ARENA_POOL = {1: (3, 2, 21, 19, 24), 2: (4, 11, 19, 23, 18), 3: (13, 9, 6, 2), 4: (2, 10, 14, 6, 1),
+              5: (12, 16, 18, 7), 6: (16, 12, 2, 4, 6), 7: (22, 2, 13, 6, 19, 12), 8: (6, 24, 16, 4, 3, 12),
+              9: (11, 13, 21, 9, 2, 5), 10: (21, 5, 2, 19, 15, 8), 11: (15, 19, 8, 14, 7), 12: (20, 2, 1, 19, 16),
+              13: (23, 16, 1, 19, 10), 14: (1, 2, 3, 4, 5)}
+ARENA_LEVELS = 14
+START_GAP = 5                   # the start columns' distance (as 2 and 7: inside the kid's draw distance)
+MIN_RUN = 6
+# the room's setup (duel.asm w_set): the traps and mechanisms (their code is the duel's holes) become plain floor, the
+# bottom row's tiles without a floor become floor too (the room's links are 0: below it there is nothing)
+TRAPS = {T.spike: 'spike', T.loose: 'loose', T.chomper: 'chopper', T.opener: 'button', T.closer: 'button',
+         T.stuck: 'button', T.gate: 'gate', T.doortop_with_floor: 'gate top', T.potion: 'potion', T.sword: 'sword',
+         T.mirror: 'mirror', T.level_door_left: 'level door', T.level_door_right: 'level door'}
+NOFLOOR = {T.empty: 'hole', T.doortop: 'hole (door top)', T.bigpillar_top: 'hole (pillar top)',
+           T.lattice_down: 'hole (lattice)', T.lattice_small: 'hole (lattice)', T.lattice_left: 'hole (lattice)',
+           T.lattice_right: 'hole (lattice)'}
+
+def tile_class(t):
+    """duel.asm w_cls: 1 a trap or mechanism (floor), 2 no floor (floor in the bottom row), 0 kept"""
+    return 1 if t in TRAPS else 2 if t in NOFLOOR else 0
+
+def substitute(level, room):
+    """the room's tiles as the duel sets them up (in place on level.fg / bg) -> [(pos, old tile, what)]"""
+    subs = []; base = (room - 1) * 30
+    for pos in range(30):
+        t = level.fg[base + pos] & 0x1F; c = tile_class(t)
+        if c == 1 or (c == 2 and pos >= 20):
+            level.fg[base + pos] = T.floor; level.bg[base + pos] = 0
+            subs.append((pos, t, TRAPS[t] if c == 1 else NOFLOOR[t]))
+    return subs
+
+def zero_links(level, room):
+    """the room's four links 0 (room 0: a wall on every side; its edges collide as walls, D14 / D15)"""
+    raw = bytearray(level.raw); o = 1952 + (room - 1) * 4; raw[o:o + 4] = bytes(4); level.raw = raw
+    level.roomlinks = list(level.roomlinks); level.roomlinks[room - 1] = (0, 0, 0, 0)
+
+def runs(tl):
+    """per row the runs of tiles a player can stand on: [(row, first col, last col)]"""
+    out = []
+    for r in range(3):
+        c = 0
+        while c < 10:
+            if KidSim.tile_is_floor(tl[r * 10 + c]):
+                a = c
+                while c < 10 and KidSim.tile_is_floor(tl[r * 10 + c]): c += 1
+                out.append((r, a, c - 1))
+            else: c += 1
+    return out
+
+def fight_run(rs):
+    """the longest run of MIN_RUN or more tiles (ties: the lower row), or None"""
+    ok = [x for x in rs if x[2] - x[1] + 1 >= MIN_RUN]
+    return max(ok, key=lambda x: (x[2] - x[1], x[0])) if ok else None
+
+def start_cols(run):
+    """player 1's and player 2's start columns: START_GAP apart, centred on the run"""
+    r, a, b = run
+    c1 = a + ((b - a + 1) - (START_GAP + 1)) // 2
+    return c1, c1 + START_GAP
+
+def level_fresh(n):
+    """level n as the duel loads it (duel.asm w_load: the blueprint, the alter-mods pass)"""
+    lv = Level(n); lv.fg = bytearray(lv.fg); lv.bg = bytearray(lv.bg)
+    for nm in ('guards_tile', 'guards_dir', 'guards_x', 'guards_seq_lo', 'guards_skill', 'guards_seq_hi', 'guards_color'):
+        setattr(lv, nm, bytearray(getattr(lv, nm)))
+    return lv
+
+def arena_geometry(n, room):
+    """(row, player 1's column) of a pool room: the fight run of the substituted room"""
+    lv = level_fresh(n); substitute(lv, room)
+    run = fight_run(runs([lv.fg[(room - 1) * 30 + p] & 0x1F for p in range(30)]))
+    return run[0], start_cols(run)[0]
+
+_ARENAS = []
+def arenas():
+    """the arena table: [(level, room, row, player 1's column)]; entry 0 the fixed arena, then the levels' pools in
+    order (duel.asm w_pool, w_lvtab: tools/duelarenas.py --asm)"""
+    if not _ARENAS:
+        _ARENAS.append((ARENA_LEVEL, ARENA_ROOM, ARENA_ROW, START[0][0]))
+        for n in range(1, ARENA_LEVELS + 1):
+            for room in ARENA_POOL[n]: _ARENAS.append((n, room) + arena_geometry(n, room))
+    return _ARENAS
+
+def level_slice(n):
+    """(first entry, count) of level n's pool in the arena table"""
+    first = 1 + sum(len(ARENA_POOL[k]) for k in range(1, n))
+    return first, len(ARENA_POOL[n])
+
+def xs16(x):
+    x ^= (x << 7) & 0xFFFF; x ^= x >> 9; x ^= (x << 8) & 0xFFFF
+    return x
+
+def arena_rnd(seed, mtch, b):
+    """duel.asm w_rnd: 8 bits from the seed, the match's number and b (the round's number; 0xFF: the level): three
+    times an xorshift16 (7, 9, 8) step (0 taken as 0xACE1) and + 0x7F4A (the carries make the mix non-linear: every
+    pair of levels and every triple of rooms comes out, near uniformly), then the high byte XOR the low"""
+    x = (seed ^ ((mtch & 0xFF) << 8) ^ (b & 0xFF)) & 0xFFFF
+    for _ in range(3): x = (xs16(x or 0xACE1) + RND_ADD) & 0xFFFF
+    return ((x >> 8) ^ x) & 0xFF
+RND_ADD = 0x7F4A
+
+def match_level(seed, mtch):
+    return 1 + arena_rnd(seed, mtch, 0xFF) % ARENA_LEVELS
+
+def round_arena(seed, mtch, level, k, prev):
+    """the arena entry of round k (the round state's 'rounds', draws included, modulo 256) from level's pool; prev: the
+    last round's entry. Round 0: any room of the pool; later rounds: another room than the last one"""
+    first, n = level_slice(level)
+    r = arena_rnd(seed, mtch, k)
+    if k & 0xFF == 0: return first + r % n
+    return first + (prev - first + 1 + r % (n - 1)) % n
 
 # ---- the input byte
 IN_LEFT, IN_RIGHT, IN_UP, IN_DOWN, IN_FIRE, IN_QUIT, IN_REMATCH = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40
@@ -85,37 +203,68 @@ def hash16(data):
 class DuelSim(KidSim):
     duel = True
 
-    def __init__(self, kid_frames=DUEL_KID_FRAMES, arena=(ARENA_LEVEL, ARENA_ROOM)):
-        KidSim.__init__(self, Level(arena[0]), sound='silent')
+    def __init__(self, kid_frames=DUEL_KID_FRAMES, seed=None):
+        """seed None: the fixed arena (level 1 room 3) every round; else the random arenas from that 16-bit seed"""
+        KidSim.__init__(self, Level(ARENA_LEVEL), sound='silent')
         self.duel_kid_frames = kid_frames
         if not kid_frames: self.guard_wh = self.image_sizes('shadow')     # chtab 5 = the shadow's images (level 12's)
-        self.arena = arena[1]
-        self.arena_setup()
+        self.fixed = seed is None; self.seed16 = (seed or 0) & 0xFFFF; self.mtch = 0
+        self.lvl = ARENA_LEVEL; self.aidx = None; self.arena_log = []
+        self.arena_set(0)                                 # (the duel's entry, duel.asm w_entry: the fixed arena)
         self.score = [0, 0]; self.rounds = 0; self.timer = 0; self.result = RES_NONE; self.match = MATCH_ON
         self.round_reset()
+        self.match_start()                                # (the lobby's end, duel.asm d_mstart: the match's arena)
         self.tick = 0
         self.duel_line = None
 
-    def arena_setup(self):
-        """design 6: the room's four links zeroed (room 0 is a wall: its edges draw and collide as walls), no guards,
-        no tile animations but the room's torches, no level texts; the level's tiles are not touched (a trap in the room
-        would stay: 10.1). The torches flicker as in the game (the user's choice 2026-11-11): the room's entry torch
-        step (anim_tile_modif: random first frames, trobs) and process_trobs every tick, drawing on prandom: lockstep
-        state the logic never reads, not hashed"""
-        L = self.level; room = self.arena
-        L.raw = bytearray(L.raw); o = 1952 + (room - 1) * 4; L.raw[o:o + 4] = bytes(4)
+    def arena_set(self, a, geometry=None):
+        """duel.asm w_set: arena entry a (arenas(); geometry: (room, row, the players' columns) instead, the survey's) set
+        up unless it is the last one: design 6's closed room (the four links zeroed: room 0 is a wall, its edges draw
+        and collide as walls; no guards; no tile animations but the room's torches; no level texts) and the random
+        arenas' substitution (the traps and mechanisms plain floor, the bottom row's holes filled). The torches
+        flicker as in the game (the user's choice 2026-11-11): the room's entry torch step (anim_tile_modif: random
+        first frames, trobs) and process_trobs every tick, drawing on prandom: lockstep state the logic never reads,
+        not hashed"""
+        if a == self.aidx and geometry is None: return
+        self.aidx = a
+        room, row, c1, c2 = geometry or (arenas()[a][1:] + (arenas()[a][3] + START_GAP,))
+        L = self.level
+        zero_links(L, room)
         for i in range(24): L.guards_tile[i] = 30
+        substitute(L, room)
         self.trobs = []; self.mobs = []
         self.need_level1_music = 0; self.erase_bottom_text(); self.is_show_time = 0
+        self.arena = room; self.arena_row = row; self.start = ((c1, RIGHT), (c2, LEFT))
         self.drawn_room = self.next_room = room; self.exit_room_timer = 0
         self.anim_tile_modif()                            # (the torches: random first frames, animated)
+
+    def level_load(self, n):
+        """duel.asm w_load: level n's blueprint fresh with its alter-mods pass (no level start: the duel's arena setup
+        follows), its number 1 for the logic (the level's own rules, e.g. level 12's coupled hit points, stay off: the
+        duel's rules were built and checked on level 1), the arena set up again at the next arena_set"""
+        lv = level_fresh(n); lv.number = 1
+        self.level = lv; self.dl1 = bytearray(lv.raw[1440:1696]); self.dl2 = bytearray(lv.raw[1696:1952]); lv.dl2 = self.dl2
+        self.lvl = n; self.aidx = None
+
+    def match_start(self):
+        """duel.asm w_match (a match's start, the rematch too): the match's level (loaded when another), its first round"""
+        n = ARENA_LEVEL if self.fixed else match_level(self.seed16, self.mtch)
+        if n != self.lvl: self.level_load(n)
+        self.next_round()
+
+    def next_round(self):
+        """duel.asm w_round: this round's arena (set up when another than the last), then the players' reset"""
+        a = 0 if self.fixed else round_arena(self.seed16, self.mtch, self.lvl, self.rounds & 0xFF, self.aidx)
+        self.arena_set(a)
+        self.arena_log.append((self.lvl, self.arena))
+        self.round_reset()
 
     def round_reset(self):
         """a round's start: both at their start tiles, standing, swords sheathed, full hit points, fresh blocks"""
         recs = []
-        for p, (col, d) in enumerate(START):
-            c = Char(); c.room = self.arena; c.curr_col = col; c.curr_row = ARENA_ROW
-            c.x = X_BUMP[col + FIRST_ONSCREEN_COLUMN] + TILE_SIZEX; c.y = Y_LAND[ARENA_ROW + 1]
+        for p, (col, d) in enumerate(self.start):
+            c = Char(); c.room = self.arena; c.curr_col = col; c.curr_row = self.arena_row
+            c.x = X_BUMP[col + FIRST_ONSCREEN_COLUMN] + TILE_SIZEX; c.y = Y_LAND[self.arena_row + 1]
             c.direction = d; c.alive = -1; c.charid = CHARID_KID if p == 0 else CHARID_SHADOW
             self.Char = c; self.seqtbl_offset_char(SEQ['stand']); self.play_seq()
             recs.append(c)
@@ -212,7 +361,8 @@ class DuelSim(KidSim):
         if (in1 | in2) & IN_QUIT and self.match != MATCH_QUIT: self.match = MATCH_QUIT; return
         if self.match != MATCH_ON:
             if self.match != MATCH_QUIT and (in1 | in2) & IN_REMATCH:
-                self.score = [0, 0]; self.rounds = 0; self.result = RES_NONE; self.match = MATCH_ON; self.round_reset()
+                self.score = [0, 0]; self.rounds = 0; self.result = RES_NONE; self.match = MATCH_ON
+                self.mtch = (self.mtch + 1) & 0xFF; self.match_start()      # (a new match: its own level)
             return
         if self.timer == 0:
             d1, d2 = self.hitp_curr == 0, self.guardhp_curr == 0
@@ -226,7 +376,7 @@ class DuelSim(KidSim):
             if self.timer == 0:
                 if self.score[0] >= WINS: self.match = MATCH_P1
                 elif self.score[1] >= WINS: self.match = MATCH_P2
-                else: self.round_reset()
+                else: self.next_round()
 
     # ---- the state the machines compare (design 4.3)
     def block_bytes(self, p):
@@ -238,7 +388,8 @@ class DuelSim(KidSim):
         """6 bytes; rounds counts draws too (no limit), so it is kept modulo 256, as the Z80's byte"""
         return [self.rounds & 0xFF, self.score[0], self.score[1], self.timer, self.result, self.match]
     def state_bytes(self):
-        """the hashed state, 68 bytes: the kid's and the shadow's records (16 each, the Z80's layout), hitp_curr,
+        """the hashed state, 69 bytes: the arena's entry (arenas(): 0 the fixed arena, first, so that the fixed arena's
+        hash is the 68 bytes' of phases 1-4), the kid's and the shadow's records (16 each, the Z80's layout), hitp_curr,
         hitp_max, guardhp_curr, guardhp_max, can_guard_see_kid, justblocked, guard_refrac, kid_sword_strike,
         guard_notice_timer, is_guard_notice, droppedout, guard_skill (12), player 1's block, player 2's block (9 each),
         the round state (6: rounds, score 1, score 2, timer, result, match). Not hashed: Opp, CHAR_SAVE (scratch
@@ -246,20 +397,22 @@ class DuelSim(KidSim):
         g = [self.hitp_curr, self.hitp_max, self.guardhp_curr, self.guardhp_max, self.can_guard_see_kid,
              self.justblocked, self.guard_refrac, self.kid_sword_strike, self.guard_notice_timer, self.is_guard_notice,
              self.droppedout, self.guard_skill]
-        return (rec_bytes(self.Kid) + rec_bytes(self.Guard) + [v & 0xFF for v in g] + self.block_bytes(0) +
+        return ([self.aidx & 0xFF] + rec_bytes(self.Kid) + rec_bytes(self.Guard) + [v & 0xFF for v in g] + self.block_bytes(0) +
                 self.block_bytes(1) + self.round_bytes())
     def state_hash(self): return hash16(self.state_bytes())
 
 
 # ---- scripts
 def read_duel_script(path):
-    """-> (inputs [(in1, in2)], options {'p2_frames': 'kid'|'shadow', 'expect': {key: value}})"""
-    inputs = []; opts = {'p2_frames': 'kid', 'expect': {}}; duel = False
+    """-> (inputs [(in1, in2)], options {'p2_frames': 'kid'|'shadow', 'seed': None or the random arenas' seed,
+    'expect': {key: value}})"""
+    inputs = []; opts = {'p2_frames': 'kid', 'seed': None, 'expect': {}}; duel = False
     for l in open(path):
         if l.startswith('#'):
             p = l[1:].split()
             if p[:1] == ['duel']: duel = True
             elif p[:2] == ['p2', 'frames']: opts['p2_frames'] = p[2]
+            elif p[:1] == ['seed'] and len(p) == 2: opts['seed'] = int(p[1], 0) & 0xFFFF
             elif p[:1] == ['expect'] and len(p) >= 3: opts['expect'][p[1]] = ' '.join(p[2:])
             continue
         p = l.split('#')[0].split()
@@ -281,7 +434,7 @@ def read_duel_script(path):
 def run_duel(path, out=None):
     """the trace of a duel script (the kid, G, D, N lines a tick); stops at a quit. -> (lines, sim)"""
     inputs, opts = read_duel_script(path)
-    sim = DuelSim(kid_frames=opts['p2_frames'] != 'shadow')
+    sim = DuelSim(kid_frames=opts['p2_frames'] != 'shadow', seed=opts['seed'])
     lines = ['D 0 0 0 0 0 0 0 0 0 %d' % sim.state_hash()]      # (the state before the first tick)
     for in1, in2 in inputs:
         lines.append(sim.step(in1, in2))

@@ -6,16 +6,20 @@ patch laid in as tests/duel_z80.py lays it, with the menu kept (duel.asm d_hnet 
 types A's room code from the keyboard and ENTER; both play the same scripted duel, each machine its own player's byte
 of the script (A player 1, B player 2) through the lockstep (duel.asm d_net: NETSEND tick + D, NETPOLL, NETHASH every
 tick). Both machines' traces (the kid, G, N and D lines a tick: tests/duel_z80.py's) must equal duelsim's trace of the
-script delayed by the input delay D (the first D ticks without keys, as the lockstep plays them).
+script delayed by the input delay D (the first D ticks without keys, as the lockstep plays them). The script's random
+arenas (docs/duel-design.md 15: default tests/duel_scripts/arenas_dungeon.txt, two matches on two levels) come from the
+host's seed: A starts with the script's, B with another one, and B must take A's from the room's settings.
 
 Then the failures, each with fresh machines: a joiner with another build id (OTHER VERSION, back to the menu), a
 desync (a hashed byte changed on B: DESYNC on both, the title), the other machine gone (OTHER PLAYER LEFT), the other
-machine silent (CONNECTION LOST after 10 s), no relay (NO LINK).
+machine silent (CONNECTION LOST after 10 s), no relay (NO LINK), and a join that fails after it took the host's seed
+(the host gone before the start: back to the menu) followed by HOST on that machine: the room must carry the seed its
+arenas now use (a third machine joins, both play without a desync, as duelsim with that seed).
 
   POP800_RELAY_PY      the relay (default ~/src/bomberman/relay/relay.py: BomberNet's)
   POP800_RELAY_PYTHON  the Python that runs it (default this one; without fastapi a stand-in: only its TCP side runs)
-usage: duel_net.py [--only match|version|desync|left|lost|nolink] [--realtime] [--delay N] [script.txt]
-       (default tests/duel_scripts/match.txt; --realtime and --delay: the speed at a real MZ-800's 50 Hz, docs/duel-design.md 14)"""
+usage: duel_net.py [--only match|version|desync|left|lost|nolink|rehost] [--realtime] [--delay N] [script.txt]
+       (default tests/duel_scripts/arenas_dungeon.txt; --realtime and --delay: the speed at a real MZ-800's 50 Hz, docs/duel-design.md 14)"""
 import os, socket, subprocess, sys, tempfile, threading, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
@@ -57,8 +61,11 @@ class Relay:
                 '    m = types.ModuleType("fastapi"); m.FastAPI = App; m.WebSocket = object\n'
                 '    m.WebSocketDisconnect = type("WebSocketDisconnect", (Exception,), {}); sys.modules["fastapi"] = m\n'
                 'import relay\n'
+                'async def tcp(r, w):\n'                  # (the session's end closes the connection, as a WebSocket's
+                '    try: await relay.tcp_client(r, w)\n'  # does: relay.py's TCP side leaves it open after a "leave",
+                '    finally: w.close()\n'                 # and the device's next room would never be answered)
                 'async def main():\n'
-                '    s = await asyncio.start_server(relay.tcp_client, "127.0.0.1", %d)\n'
+                '    s = await asyncio.start_server(tcp, "127.0.0.1", %d)\n'
                 '    print("ready", flush=True)\n'
                 '    await s.serve_forever()\n'
                 'asyncio.run(main())\n') % (os.path.dirname(os.path.abspath(RELAY_PY)), self.port)
@@ -76,12 +83,12 @@ class Relay:
 class Machine:
     """one MZ-800: the game, the duel patch, the script (both players' bytes: each machine sends its own player's), the
     menu kept (d_hnet 1); its NET device on the relay's port"""
-    def __init__(self, name, port, script):
+    def __init__(self, name, port, script, seed=None):
         self.name = name
         os.environ['POP800_NET_RELAY'] = '127.0.0.1:%d' % port
         self.e = Emu()
         G.setup(self.e, DS.ARENA_LEVEL, fs_run=False)
-        patch_in(self.e, S, D, script)
+        patch_in(self.e, S, D, script, seed)
         self.e.call('mem_write', addr=D['d_hnet'], data_hex='01')
     def run_to(self, addr, limit=600):
         e = self.e; e.call('bp_clear'); e.call('bp_add', addr=addr); n = 0
@@ -194,7 +201,7 @@ def ref_lines(path, delay):
     """duelsim's trace of the script with its first `delay` ticks without keys (the lockstep's start)"""
     inputs, opts = DS.read_duel_script(path)
     with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as f:
-        f.write('# duel\n# p2 frames %s\n' % opts['p2_frames'])
+        f.write('# duel\n# p2 frames %s\n' % opts['p2_frames'] + ('# seed %d\n' % opts['seed'] if opts['seed'] is not None else ''))
         for a, b in [(0, 0)] * delay + inputs: f.write('0x%02x 0x%02x\n' % (a, b))
     lines, sim = DS.run_duel(f.name); os.unlink(f.name)
     return lines, inputs
@@ -203,8 +210,9 @@ def ref_lines(path, delay):
 def pair(relay, path):
     inputs, opts = DS.read_duel_script(path)
     script = b''.join(bytes(p) for p in inputs) + bytes(1024)     # (past the script's end: no keys)
-    a = Machine('A', relay.port, script)
-    try: return a, Machine('B', relay.port, script)
+    seed = opts['seed']                                         # (B's own seed another: it must take A's)
+    a = Machine('A', relay.port, script, seed)
+    try: return a, Machine('B', relay.port, script, None if seed is None else seed ^ 0x5A5A)
     except BaseException: a.close(); raise
 
 
@@ -226,6 +234,8 @@ def test_match(relay, path):
         delay = a.mem(D['d_ndelay'], 1)[0]
         check('B has the host\'s delay (%d) and slot 1, A slot 0' % delay,
               b.mem(D['d_ndelay'], 1)[0] == delay and a.mem(D['d_netm'], 1)[0] == 1 and b.mem(D['d_netm'], 1)[0] == 2)
+        sa, sb = a.mem(D['d_seed'], 2), b.mem(D['d_seed'], 2)
+        check('B has the host\'s seed for the arenas (%s; its own was another)' % sa[::-1].hex(), sa == sb, (sa.hex(), sb.hex()))
         ref, inputs = ref_lines(path, delay)
         want = sum(1 for l in ref if l.startswith('D ')) - 1
         ta, tb = Trace(a), Trace(b)
@@ -324,7 +334,7 @@ def test_lost(relay, path):
 def test_nolink(path):
     print('6. no relay')
     inputs, opts = DS.read_duel_script(path)
-    m = Machine('A', free_port(), b''.join(bytes(p) for p in inputs))
+    m = Machine('A', free_port(), b''.join(bytes(p) for p in inputs), opts['seed'])
     try:
         menu(m); t = Trace(m); m.tap('2'); t.until(lambda: t.texts, 300)
         check('HOST without a relay: NO LINK', [x[1] for x in t.texts][:1] == ['dst_link'], t.texts)
@@ -335,18 +345,67 @@ def test_nolink(path):
         m.close()
 
 
+def test_rehost(relay, path, ticks=40):
+    print('7. a join that fails after it took the host\'s seed, then HOST on the same machine')
+    a, b = pair(relay, path)
+    c = None
+    try:
+        start(a, b)
+        sa = a.mem(D['d_seed'], 2)
+        check('B took A\'s seed (%s)' % sa[::-1].hex(), b.mem(D['d_seed'], 2) == sa)
+        a.close(); a = None                         # (A gone before the match starts: the room dropped)
+        b.run_to(D['dlb_mk'], 1500)
+        check('B: back to the menu, A\'s seed kept', b.mem(D['d_seed'], 2) == sa)
+        inputs, opts = DS.read_duel_script(path)
+        c = Machine('C', relay.port, b''.join(bytes(p) for p in inputs) + bytes(1024), 0x1111)
+        # (the relay ends a session at its "leave", the emulator's NET device keeps the closed socket: its next CREATE
+        # waits for the 1,024-frame timeout, NO LINK, back to the menu; the second HOST connects anew)
+        tries = []
+        for _ in range(2):
+            b.run_to(D['dlb_mk'], 300); b.tap('2')
+            e = b.e; e.call('bp_clear'); e.call('bp_add', addr=D['dlh_w']); e.call('bp_add', addr=D['dlb_e'])
+            n = 0
+            while n < 1500:
+                r = e.run(100); n += r['actual_frames']
+                if r['stopped_by'] == 'breakpoint': break
+            e.call('bp_clear'); pc = e.call('get_registers')['PC']
+            tries.append('the room' if pc == D['dlh_w'] else 'an error text (%04X)' % pc)
+            if pc == D['dlh_w']: break
+        code = b.mem(D['dst_code'] + 10, 4).decode()
+        print('     B\'s HOST attempts: %s' % ', '.join(tries))
+        check('B hosts again: its room carries the seed its arenas use',
+              b.mem(D['d_ncreate'] + 8, 2) == sa, b.mem(D['d_ncreate'] + 8, 2).hex())
+        typed = join(c, code); c.run_to(D['dlr_w'], 300)
+        check('C joins (%s) and takes B\'s seed' % typed, c.mem(D['d_seed'], 2) == sa, c.mem(D['d_seed'], 2).hex())
+        delay = b.mem(D['d_ndelay'], 1)[0]
+        ref, _ = ref_lines(path, delay)
+        tb, tc = Trace(b), Trace(c)
+        both(lambda: tb.until(lambda: tb.tick > ticks, 60 * ticks + 2000),
+             lambda: tc.until(lambda: tc.tick > ticks, 60 * ticks + 2000))
+        n = 4 * ticks; refl = ref[1:1 + n]
+        for name, t in (('B', tb), ('C', tc)):
+            got = t.lines[:n]
+            bad = sum(1 for x, y in zip(refl, got) if x != y) + abs(len(refl) - len(got))
+            check('%s: %d ticks as duelsim with that seed, no desync' % (name, ticks), bad == 0 and not t.errors(),
+                  (bad, t.errors()))
+    finally:
+        for m in (a, b, c):
+            if m: m.close()
+
+
 def main():
     global REALTIME, DELAY
     args = sys.argv[1:]; only = None
     if '--realtime' in args: args.remove('--realtime'); REALTIME = True
     if '--delay' in args: i = args.index('--delay'); DELAY = int(args[i + 1]); del args[i:i + 2]
     if '--only' in args: i = args.index('--only'); only = args[i + 1]; del args[i:i + 2]
-    path = args[0] if args else os.path.join(ROOT, 'tests', 'duel_scripts', 'match.txt')
+    path = args[0] if args else os.path.join(ROOT, 'tests', 'duel_scripts', 'arenas_dungeon.txt')
     relay = Relay()
     try:
         for name, f in (('match', lambda: test_match(relay, path)), ('version', lambda: test_version(relay, path)),
                         ('desync', lambda: test_desync(relay, path)), ('left', lambda: test_left(relay, path)),
-                        ('lost', lambda: test_lost(relay, path)), ('nolink', lambda: test_nolink(path))):
+                        ('lost', lambda: test_lost(relay, path)), ('nolink', lambda: test_nolink(path)),
+                        ('rehost', lambda: test_rehost(relay, path))):
             if only not in (None, name): continue
             try: f()
             except Exception as x:                      # (a scenario that broke: a failed check, the others still run)
