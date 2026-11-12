@@ -853,9 +853,11 @@ are phase 2's: the prompt only shows them.
 
 **Player 2's strip** is drawn like player 1's (d_ghp through the rare overlay's hp_strip): the full icons and the empty
 ones up to its maximum, mirrored from the right edge, the full icon the kid's with planes I and II (B, R) swapped: blue
-where player 1's is red (d_hpicon, made from hp_full at the duel's start). The game's guard strip (the guard's icon, only
+where player 1's is red (d_hpicon, made from hp_full at the duel's start; since 16.1 both icons swapped in place by
+d_bswap). The game's guard strip (the guard's icon, only
 the full ones) is no longer drawn: the match loop calls hp_draw with player 2's record's charid back to the shadow's,
-for which ghp_draw draws nothing off level 12. The empty icons are the game's (hp_empty, red outlines) for both.
+for which ghp_draw draws nothing off level 12. The empty icons are the game's (hp_empty, red outlines) for both
+(until 16.1: player 2's empty icons blue too).
 
 ### 13.2 The texts: the game's text overlay, called in place
 
@@ -966,7 +968,8 @@ blocks** (28 of the 40 reserved left). The code log and the static check cover t
 
 ### 14.2 What the player sees
 
-Ctrl+D on the title: the arena is drawn first (the full room draw, both players standing), then the bottom line
+(Since 16.2: a machine without a NET card goes straight into the local match, no menu.) Ctrl+D on the title: the
+arena is drawn first (the full room draw, both players standing), then the bottom line
 `1 LOCAL  2 HOST  3 JOIN` (BREAK: the title).
 
 - **1**: the local duel of phases 2-3, unchanged.
@@ -977,7 +980,7 @@ Ctrl+D on the title: the arena is drawn first (the full room draw, both players 
 - In the match: `WAITING` on the text line when the other machine's input is 0.5 s late (the HUD's text comes back
   after); BREAK while waiting gives up. Quit (BREAK) and rematch (ENTER) are the input byte's bits as in local play:
   both machines act on them at the same tick.
-- Errors in the lobby (2 s, then the menu): `NO NETWORK CARD`, `NO LINK` (error 9: no relay), `OTHER VERSION` (6: the
+- Errors in the lobby (2 s, then the menu): `NO NETWORK CARD` (removed in 16.2: no card, no menu), `NO LINK` (error 9: no relay), `OTHER VERSION` (6: the
   other disk's build id differs), `NO SUCH ROOM` (7), `NETWORK ERROR` (other). In the match (3 s, then the title):
   `DESYNC` (the relay saw two hashes differ), `OTHER PLAYER LEFT` (the room dropped), `CONNECTION LOST` (no link, a
   failed command, or 10 s without the other's input).
@@ -990,7 +993,8 @@ joystick 2, ORed), BREAK and ENTER.
 Ports 0x50 (command, status) and 0x51 (data). `n_do` (A command, HL parameters, B count) sends the command and its
 fixed-size parameters (otir), then `n_wait` reads the 4-byte status (STSR, inir) until it is neither IN_PROGRESS nor
 BUSY: Z = done, else A = the error (status byte 2; 10 parameters incomplete; 9 when IN_PROGRESS lasts 1,024 frames,
-~20 s). A missing card floats the ports: ERROR is set, nothing hangs. Detection (`d_ndet`, at HOST or JOIN): REVD's
+~20 s). A missing card floats the ports: ERROR is set, nothing hangs. Detection (`d_ndet`, at HOST or JOIN; since 16.2 once, before the
+menu): REVD's
 status {02, 06, 04}, then INFO with no ERROR, OUTPUT, the command echoed, >= 16 bytes, and the NET bit (byte 3 bit 3).
 Commands used: STATUS, CREATE, JOIN, LEAVE, READY, SEND, POLL, HASH (not MSG / RECV).
 
@@ -1246,3 +1250,82 @@ MB as before; the dungeon script's rooms (0-2 torches) 5.17 / 4.90 / 4.59; the p
 4. The menu keeps level 1 room 3 behind it; the match's own arena is drawn at its first tick (one more full draw, ~1.5 s).
 5. Local play's seed: the frame counter at Ctrl+D's duel entry.
 6. The level's own rules are off (level_number 1) on every level.
+
+## 16. Polish from the user's playtest (2026-11-12)
+
+Drawing and the lobby only: the logic, the hash, duelsim's trace and the network protocol are unchanged (duel_z80 0
+differing lines on all nine scripts). The game's own code is unchanged.
+
+### 16.1 Player 2's hit point icons: blue, the empty ones too
+
+Player 2's strip showed its full icons blue (d_hpicon: hp_full with planes I and II, B and R, exchanged) but its lost
+hit points as the game's empty icon, a red outline. Now **d_bswap** exchanges planes I and II of both game icons in
+place (hp_full and hp_empty in game.asm's tables, 5 bytes each) right before d_ghp's two hp_strip calls and again after
+them: player 2's full and empty icons are drawn blue, the game's own bytes are back before anything else draws (player
+1's strip, hp_draw, uses them red; the GAME image keeps its bytes). d_hpicon's 20-byte copy and the 25 bytes that built
+it at d_entry are gone: -38 B net with 16.2 (below).
+
+Checked by tests/duel_boot.py on the floppy build: both players poked to 1 of 3 hit points, after the strips' redraw
+player 2's strip (x 299-319, rows 194-198) has exactly player 1's colours with B and R exchanged, no red pixel, and
+hp_full / hp_empty are byte for byte the game's again.
+
+### 16.2 No network: the local duel at once
+
+d_lobby runs the detection (d_ndet: REVD's status, INFO's NET bit, 14.3) before anything else. **No NET card: straight
+into the local match** (dlb_go: the match's level and arena, no menu, the fixed arena behind the menu not drawn, so
+the match starts ~1.5 s sooner). With a card the menu is as before. The detection costs two commands on the card's
+ports, under a frame with a card; without one the floating ports set ERROR at the first status read (no wait at all).
+HOST and JOIN no longer detect (the menu only shows with a card), so `NO NETWORK CARD` and its text are gone.
+
+**"Card present but no link" (NETSTATUS state 0, NO_LINK) is not treated as no network** (checked, not adopted): the
+MZPico firmware answers it at once from the Wi-Fi state and the relay's host (unicard_net.cpp: linked() =
+cloud_wifi_state() CONNECTED and a relay host set), the browser emulator links when the page attaches the NET bridge
+(mz-catalog mznet.ts: _mz_wasm_net_link(1) as soon as the device reports the extension), but the native mz800emu
+connects to its relay only at the first NETCREATE / NETJOIN (unimgr_net.c transport_connect) and reports NO_LINK until
+then. Treating NO_LINK as no network would hide the menu on every native emulator (tests/duel_net.py, the two-PC setup
+of docs/duel-net-howto.md). With the native emulator linking at start (or at NETSTATUS) it would be 7 bytes (n_stat,
+`or a`, `jp z, dlb_go`).
+
+**The mz-catalog browser build keeps the menu**: the title's meta has `hardware: mzpico: true`, so the machine has the
+Unicard connected in MZPico mode (machine.ts `card: { connected: true, mzpicoMode: true }`, written as [UNICARD]
+`connected = 1`, `mzpico_mode = 1`); its device answers REVD as an MZPico and INFO with the NET bit (unimgr_net.c
+cmdX_INFO: features wifi | sound | NET, the same code in the WASM build), so d_ndet finds the card and the menu shows.
+
+**The emulator without the card**: `POP800_UNICARD=0` (emu/mz800emu-pop.sh: [UNICARD] `connected = 0` in the INI copy).
+tests/duel_boot.py runs the floppy path twice: without the Unicard Ctrl+D reaches d_ready first (no dlb_mk, no d_draw
+before it) and the match plays; with it the menu over the fixed arena, then 1 LOCAL, as before. tests/duel_net.py has
+an eighth scenario (nocard): a machine without the card plays local at once; the others keep the card.
+
+### 16.3 The local keys: SHIFT (investigated, not changed)
+
+- **Left and right SHIFT are one matrix bit** (strobe 8, bit 0) on the MZ-800: the game's read_inputs reads KEYMAT + 8
+  bit 0; mz800emu maps both host SHIFTs to it (iface_keyboard.c), its keyboard reference says so (docs/agent/
+  mz800_keyboard.md: "both are scanned on the same matrix bit and are indistinguishable"). Option "right SHIFT only"
+  is impossible.
+- The layout (mz800emu's virtual keyboard, ui_vkbd.c): the cursor keys are a separate block right of the main keys (up
+  at the Q row, left / right at the A row, down at the Z row), INST and DEL above it; the main block's right edge, next
+  to it: BREAK, BLANK, CR, the right SHIFT, with `/` and `?` left of the right SHIFT. The left SHIFT sits under A and
+  next to ALPHA / Z: player 2's hand.
+- Options (diagrams in the user's pop800-duel/keys/): A, player 1 also fires with `/` and `?` (7/0, 7/1: the cursor
+  keys' own matrix column), SHIFT kept (~10 bytes in d_input, the network and phone paths unchanged); B, INST / DEL
+  (7/7, 7/6) above the cursor block; C, player 2 moves (joystick 2, or E S D F + W).
+
+### 16.4 The blue player's blade (investigated, not changed)
+
+Player 2's separately drawn sword (the sword set, the descriptor SPR_GS) is never recoloured: d_sdraw changes only the
+body's descriptor SPR_G. The blade turns blue where it is **part of the kid's body image**: drawing the sword (frames
+209, 210: images 210, 211), the strike's start (152: image 176, the tip) and sheathing (237-240: images 169-172). Its
+pixels are white 15 like the suit, so the plane operation (where B is set, R and G cleared) makes them light blue 9 and
+no input colour can come out white. A fix needs the blade's pixels per image (a mask drawn white after the body, or
+pre-coloured copies of those seven images); the alternative of recolouring only light grey 7 leaves the suit white.
+Renders in the user's pop800-duel/sword/.
+
+### 16.5 Figures
+
+| | Before (15.6) | Now |
+|---|---|---|
+| Code holes | 3,451 of 3,771 B, 320 free | **3,413**, 358 free (H_KT 269 of 290, H_AI 1,022 of 1,073, H_OBJ 661 of 675, H_SPK 160 of 205) |
+| P_main, P_w2 | 256, 654 B | unchanged |
+| Staged (PRS_DUEL1) | 3,862 of 4,544 B | 3,824 |
+| Floppy (POP800.PR3) | 14 blocks | 14 (26 of the 40 reserved left) |
+| Resident game bytes, launcher, PRES | 0, unchanged | 0, unchanged |

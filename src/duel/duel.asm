@@ -276,16 +276,6 @@ d_entry:        ld      sp, STACK
                 ld      (d_result), a
                 ld      (d_match), a
                 call    erase_text
-                ld      de, d_hpicon    ; player 2's hit point icon: the kid's with planes I and II (B, R) swapped
-                ld      hl, hp_full + 5
-                ld      bc, 5
-                ldir
-                ld      hl, hp_full
-                ld      c, 5
-                ldir
-                ld      hl, hp_full + 10
-                ld      c, 10
-                ldir
                 ld      a, 2            ; the fixed arena (level 1 room 3) behind the menu, the seed (P_w2 w_entry)
                 call    d_arena
                 jp      d_lobby
@@ -739,6 +729,24 @@ d_blk2:         ds      90              ; player 2's block: ctrl1 (5), grab_time
 d_acur:         db      0xff            ; the sound the PSG was last given (0xff: none that must be kept)
 d_rtick:        db      0               ; ticks drawn since the round's start (to 255)
 d_hcnt:         db      0               ; ticks drawn (wraps)
+; d_bswap: the hit point icons (game.asm's hp_full and hp_empty: 5 rows x 4 planes, plane-major) with planes I and II
+; (B, R) exchanged in place: blue where the kid's are red. d_ghp calls it around player 2's strip, so the game's own
+; icons are red again for player 1's (hp_draw) and the GAME image keeps its bytes
+d_bswap:        ld      hl, hp_full
+                ld      de, hp_full + 5
+                call    dbs
+                ld      hl, hp_empty
+                ld      de, hp_empty + 5
+dbs:            ld      b, 5
+dbs_l:          ld      a, (de)
+                ld      c, (hl)
+                ld      (hl), a
+                ld      a, c
+                ld      (de), a
+                inc     hl
+                inc     de
+                djnz    dbs_l
+                ret
 P_ai_end:
                 if P_ai_end > H_AI_END
                 .error the duel's piece P_ai is larger than its hole (the guard AI)
@@ -1065,7 +1073,7 @@ dsd_nc:         exx
                 pop     ix              ; (the caller's descriptor pointer)
                 ret
 ; d_ghp: player 2's hit point strip as player 1's, mirrored at the right (hpstrip.asm hp_strip: the kid's icons, full
-; and empty, the full one in blue: d_hpicon), drawn when the hit points change
+; and empty, both in blue: d_bswap around the calls), drawn when the hit points change
 d_ghp:          ld      a, (GUARDHP_CURR)
                 ld      b, a
                 ld      a, (GUARDHP_MAX)
@@ -1084,16 +1092,17 @@ dg1:            ld      l, b
                 ld      (hp_nf), a
                 ld      a, c
                 ld      (hp_n), a
-                ld      hl, d_hpicon
+                ld      hl, hp_full
                 ld      (hp_pf), hl
                 ld      a, 32
                 ld      (hp_base), a
+                call    d_bswap         ; both icons blue for player 2's strip
                 ld      bc, 0x0820      ; bytes 32..39, then 31 (overlay.asm ghp_draw's chunks)
                 call    hp_strip
                 ld      bc, 0x011f
-                jp      hp_strip
+                call    hp_strip
+                jp      d_bswap         ; (the game's red icons again)
 d_ghps:         dw      0xffff          ; player 2's hit points as drawn (current, max; 0xff: draw again)
-d_hpicon:       ds      20              ; the icon (5 rows x 4 planes, plane-major: hp_full's layout)
 P_kt_end:
                 if P_kt_end > H_KT_END
                 .error the duel's piece P_kt is larger than its hole (kid_tick)
@@ -1432,7 +1441,8 @@ P_free_end:
 ; ================================================================ P_obj: over objects.asm's loose floors (the lobby)
                 org     H_OBJ
 P_obj:
-; d_lobby (d_entry's end): the menu (1 LOCAL, 2 HOST, 3 JOIN) over the arena drawn first, then the match loop. HOST: a
+; d_lobby (d_entry's end): no NET card (d_ndet: a machine without an MZPico): the local duel at once, no menu. Else the
+; menu (1 LOCAL, 2 HOST, 3 JOIN) over the arena drawn first, then the match loop. HOST: a
 ; room on the relay (NETCREATE: the game id, the build id, 2 slots of 1 byte, the settings: the delay), its code shown
 ; until the other player is in, then ready; JOIN: the code typed (letters, DEL, ENTER), NETJOIN, ready; both: the match
 ; starts when the relay says RUNNING (tick 0 on both), ticks 0 .. D-1 sent without keys. An error in words, then the
@@ -1444,7 +1454,9 @@ d_lobby:        ld      hl, (d_script)
                 ld      a, (d_hnet)
                 or      a
                 jp      z, dlb_go
-dlb_0:          call    d_draw          ; the arena first (the room's full draw)
+dlb_0:          call    d_ndet          ; no network card: the local duel at once (the menu only with a network)
+                jp      nz, dlb_go
+                call    d_draw          ; the arena first (the room's full draw)
 dlb_menu:       call    d_nleave        ; (after an error: out of the room)
                 ld      hl, dst_menu
                 call    d_text
@@ -1458,8 +1470,6 @@ dlb_mk:         call    d_key1
                 dec     a
                 jr      nz, dlb_mk
 ; JOIN: the code typed into the text (dst_code's dots)
-                call    d_ndet
-                jp      nz, dlb_nocard
                 ld      hl, dst_code + 10
                 ld      b, 4
 dlj_d:          ld      (hl), '.'
@@ -1541,8 +1551,6 @@ d_ready:        xor     a               ; (harness: the state before the first t
                 ld      hl, (FRAMES)
                 ld      (LAST_TICK), hl
                 jp      d_loop
-dlb_nocard:     ld      hl, dst_card
-                jr      dlb_e
 dlb_st:         call    d_smsg          ; A = a NETSTATUS state: its text
                 jr      dlb_e
 dlb_err:        ld      hl, dst_link    ; A = an error code: its text
@@ -1561,9 +1569,7 @@ dlb_ew:         halt
                 djnz    dlb_ew
                 jp      dlb_menu
 ; HOST: the room, its code shown until the other player is in
-dlb_host:       call    d_ndet
-                jr      nz, dlb_nocard
-                ld      hl, (d_seed)    ; settings[1, 2]: this machine's seed as it is now (after a failed join: the
+dlb_host:       ld      hl, (d_seed)    ; settings[1, 2]: this machine's seed as it is now (after a failed join: the
                 ld      (d_ncreate + 8), hl     ; other host's, which this machine's arenas use too)
                 ld      a, N_CREATE
                 ld      hl, d_ncreate
@@ -1940,7 +1946,6 @@ d_build:        dw      0
 dst_menu:       db      '1 LOCAL  2 HOST  3 JOIN', 0
 dst_code:       db      'ROOM CODE ....', 0     ; (+10: the code)
 dst_wait:       db      'WAITING', 0
-dst_card:       db      'NO NETWORK CARD', 0
 dst_link:       db      'NO LINK', 0
 dst_vers:       db      'OTHER VERSION', 0
 dst_room:       db      'NO SUCH ROOM', 0

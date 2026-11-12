@@ -1220,3 +1220,10 @@ piece used AND/XOR semantics.
    bytes, launcher and PRES unchanged. A round's room change 51-85 frames (the full draw). duelsim's fixed-arena mode
    keeps every earlier script and digest; two new scripts (a dungeon and a palace level, a rematch onto another level);
    duel_z80 0 differing lines at 512 KB / 1 MB / 16 MB, duel_net with random arenas, duel_boot.
+87. Duel polish from the user's playtest (2026-11-12, docs/duel-design.md section 16): player 2's empty hit point icons blue
+   like its full ones (d_bswap exchanges the game icons' planes I and II in place around player 2's strip and back); no
+   NET card (REVD / INFO's NET bit) -> Ctrl+D starts the local match at once, the menu only with a card (NO_LINK not
+   used: the native emulator links only at the first CREATE / JOIN); `NO NETWORK CARD` gone. Holes 3,413 of 3,771 B
+   (358 free, -38), PR3 14 blocks. emu/mz800emu-pop.sh POP800_UNICARD=0 (a machine without the card); duel_boot both
+   ways, duel_net's nocard scenario. Investigated, not changed: SHIFT (one matrix bit for both keys; options for player
+   1's fire with diagrams), the blue player's blade (the blade inside the kid's body images: draw, strike start, sheathe).

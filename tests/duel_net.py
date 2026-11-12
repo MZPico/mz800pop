@@ -12,13 +12,15 @@ host's seed: A starts with the script's, B with another one, and B must take A's
 
 Then the failures, each with fresh machines: a joiner with another build id (OTHER VERSION, back to the menu), a
 desync (a hashed byte changed on B: DESYNC on both, the title), the other machine gone (OTHER PLAYER LEFT), the other
-machine silent (CONNECTION LOST after 10 s), no relay (NO LINK), and a join that fails after it took the host's seed
+machine silent (CONNECTION LOST after 10 s), no relay (NO LINK: the native emulator's NET device links only at the first
+CREATE / JOIN, so the menu shows and HOST fails), a machine without the Unicard (POP800_UNICARD=0: no NET card, the
+local duel at once, no menu), and a join that fails after it took the host's seed
 (the host gone before the start: back to the menu) followed by HOST on that machine: the room must carry the seed its
 arenas now use (a third machine joins, both play without a desync, as duelsim with that seed).
 
   POP800_RELAY_PY      the relay (default ~/src/bomberman/relay/relay.py: BomberNet's)
   POP800_RELAY_PYTHON  the Python that runs it (default this one; without fastapi a stand-in: only its TCP side runs)
-usage: duel_net.py [--only match|version|desync|left|lost|nolink|rehost] [--realtime] [--delay N] [script.txt]
+usage: duel_net.py [--only match|version|desync|left|lost|nolink|rehost|nocard] [--realtime] [--delay N] [script.txt]
        (default tests/duel_scripts/arenas_dungeon.txt; --realtime and --delay: the speed at a real MZ-800's 50 Hz, docs/duel-design.md 14)"""
 import os, socket, subprocess, sys, tempfile, threading, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -82,11 +84,15 @@ class Relay:
 
 class Machine:
     """one MZ-800: the game, the duel patch, the script (both players' bytes: each machine sends its own player's), the
-    menu kept (d_hnet 1); its NET device on the relay's port"""
-    def __init__(self, name, port, script, seed=None):
+    menu kept (d_hnet 1); its NET device on the relay's port (card False: a machine without the Unicard / MZPico,
+    POP800_UNICARD=0)"""
+    def __init__(self, name, port, script, seed=None, card=True):
         self.name = name
         os.environ['POP800_NET_RELAY'] = '127.0.0.1:%d' % port
-        self.e = Emu()
+        if card: os.environ.pop('POP800_UNICARD', None)
+        else: os.environ['POP800_UNICARD'] = '0'
+        try: self.e = Emu()
+        finally: os.environ.pop('POP800_UNICARD', None)
         G.setup(self.e, DS.ARENA_LEVEL, fs_run=False)
         patch_in(self.e, S, D, script, seed)
         self.e.call('mem_write', addr=D['d_hnet'], data_hex='01')
@@ -141,7 +147,7 @@ def join(b, code):
 
 class Trace:
     """the trace lines one machine plays (tests/duel_z80.py's tracepoints), its lobby texts and its end"""
-    TEXTS = ('dst_desync', 'dst_left', 'dst_lost', 'dst_vers', 'dst_link', 'dst_room', 'dst_err', 'dst_card', 'dst_wait')
+    TEXTS = ('dst_desync', 'dst_left', 'dst_lost', 'dst_vers', 'dst_link', 'dst_room', 'dst_err', 'dst_wait')
     def __init__(self, m):
         self.m = m; e = m.e; self.R = ranges(S, D); self.at = {}
         e.call('bp_clear'); e.trace_clear()
@@ -345,6 +351,25 @@ def test_nolink(path):
         m.close()
 
 
+def test_nocard(path):
+    print('8. no network card (the emulator without the Unicard): the local duel at once, no menu')
+    inputs, opts = DS.read_duel_script(path)
+    m = Machine('A', free_port(), b''.join(bytes(p) for p in inputs), opts['seed'], card=False)
+    try:
+        e = m.e; e.call('bp_clear')
+        for a in (D['dlb_mk'], D['d_draw'], D['d_ready']): e.call('bp_add', addr=a)
+        n = 0
+        while n < 1500:
+            r = e.run(100); n += r['actual_frames']
+            if r['stopped_by'] == 'breakpoint': break
+        e.call('bp_clear'); pc = e.call('get_registers')['PC']
+        check('straight into the match (d_ready; no menu, no arena drawn before it)', pc == D['d_ready'], '%04X' % pc)
+        m.run_to(D['d_tend'], 300)
+        check('the local match runs (d_netm 0)', m.mem(D['d_netm'], 1)[0] == 0)
+    finally:
+        m.close()
+
+
 def test_rehost(relay, path, ticks=40):
     print('7. a join that fails after it took the host\'s seed, then HOST on the same machine')
     a, b = pair(relay, path)
@@ -405,7 +430,7 @@ def main():
         for name, f in (('match', lambda: test_match(relay, path)), ('version', lambda: test_version(relay, path)),
                         ('desync', lambda: test_desync(relay, path)), ('left', lambda: test_left(relay, path)),
                         ('lost', lambda: test_lost(relay, path)), ('nolink', lambda: test_nolink(path)),
-                        ('rehost', lambda: test_rehost(relay, path))):
+                        ('rehost', lambda: test_rehost(relay, path)), ('nocard', lambda: test_nocard(path))):
             if only not in (None, name): continue
             try: f()
             except Exception as x:                      # (a scenario that broke: a failed check, the others still run)
