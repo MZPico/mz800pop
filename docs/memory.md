@@ -110,7 +110,10 @@ game.asm's main loop (level_ready .. flip_now), kid.asm kid_tick, guard.asm tick
 the network (phase 4, section 14), objects.asm make_loose_fall .. foh2 and check_spiked .. start_chompers, kid.asm
 leave_room .. kid_tick, evres.asm death_text .. draw_game_frame, plus six patched operands (kid.asm duel_d14 / duel_d15, overlay.asm
 duel_sd1 / duel_sd2, duel_pp1 / duel_pp2); the staged pieces wait in RAM-disk page 6 0x16C0- (the chopper pictures' pool, runtime scratch)
-from the launcher to the game's level_ready. The next game start restores the clean GAME image.
+from the launcher to the game's level_ready. The random arenas' piece (P_w2, section 15: 654 B) stays staged there during
+the whole duel (the arenas have no choppers or spikes, so the pool is never used) and is copied into W2's top (OVL_WF
+0xAA00-0xAFFF, the fill overlay's window: no level start's fill runs in a duel) at each match's and round's start; the
+level-start overlay is loaded below it (0xA000-) for its alter_mods. The next game start restores the clean GAME image.
 
 ## Code overlays (src/m4/ovl.asm, 2026-10-29)
 

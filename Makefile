@@ -255,7 +255,13 @@ $(BUILD)/duel_text.inc: $(BUILD)/ovl_text.bin tools/ovltool.py
 DUEL_GLYPHS = $(foreach c,1075 1081 1087 1058 1074 1089 1090,external/SDLPoP/data/font/res$(c).png)
 $(BUILD)/assets/font_duel.inc: tools/build_assets.py $(DUEL_GLYPHS)
 	$(PY) tools/build_assets.py --font-duel
-$(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc $(BUILD)/duel_text.inc $(BUILD)/assets/font_duel.inc
+# the random arenas (docs/duel-design.md 15): the level-start overlay's alter_mods (duel.asm w_load) and the arena table
+# (tools/duelarenas.py --asm from tools/duelsim.py's pool)
+$(BUILD)/duel_level.inc: $(BUILD)/ovl_level.bin tools/ovltool.py
+	$(PY) tools/ovltool.py equp $(BUILD)/ovl_level.sym LV_ $@ alter_mods ovl_end
+$(BUILD)/duel_arenas.inc: tools/duelarenas.py tools/duelsim.py tools/kidsim.py tools/popdata.py
+	$(PY) tools/duelarenas.py --asm $@
+$(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc $(BUILD)/duel_text.inc $(BUILD)/duel_level.inc $(BUILD)/duel_arenas.inc $(BUILD)/assets/font_duel.inc
 	cd src/m1 && $(PASMO)$(if $(DUEL_LOOK), --equ DUEL_LOOK=$(DUEL_LOOK)) --bin ../duel/duel.asm ../../$(BUILD)/duel.bin ../../$(BUILD)/duel.sym
 $(BUILD)/duel_main.bin $(BUILD)/duel_stage.bin &: $(BUILD)/duel.bin $(BUILD)/m4ovl.bin tools/duelpatch.py tools/z80flow.py
 	$(PY) tools/duelpatch.py build

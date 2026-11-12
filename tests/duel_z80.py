@@ -3,9 +3,9 @@
 src/duel/duel.asm laid in as the launcher lays it: build/duel_patch.json) against tools/duelsim.py, tick for tick, on
 the scripted duels of tests/duel_scripts. Per tick the four lines duelsim writes: the kid line (mid-tick, after player
 1's frame: duel.asm d_mid), the G line (the shadow and the fight's globals, after the hit points: d_gline), the N line
-(play_next_sound: the game's snd_snap) and the D line (the round state, the 68-byte hash, both blocks: d_tend); and
+(play_next_sound: the game's snd_snap) and the D line (the round state, the 69-byte hash, both blocks: d_tend); and
 the state before the first tick (d_ready: the D 0 line's hash). The Z80's own hash (d_hashv) must equal the hash of
-the 68 bytes as the harness reads them, and duelsim's. Drawing and audio, every tick against duelsim's state: the
+the 69 bytes as the harness reads them, and duelsim's. Drawing and audio, every tick against duelsim's state: the
 images each player is drawn with (the blades, DRAW_MAP), the bottom text's key (duel.asm d_key: hud_key) and the
 round's and match's tunes (duel.asm ds_j: jingles). Taken by tracepoints (tools/emu.py: the emulator never stops).
 The inputs: the script's two bytes a tick in RAM-disk page 5 (game.asm RD_SCRIPT), read by duel.asm d_input (d_script).
@@ -63,15 +63,18 @@ def drawn_ids(sim, rec, p):
 s8 = lambda v: v - 256 if v > 127 else v
 
 
-def patch_in(e, S, D, script_bytes):
+def patch_in(e, S, D, script_bytes, seed=None):
     """as the launcher (src/boot/boot.asm ACT_DUEL): the staged pieces into the RAM-disk scratch, the main piece over
-    the game's main loop; then the harness's script and its pointer"""
+    the game's main loop; then the harness's script and its pointer, and the arenas: the script's seed (d_seed), or
+    none: the fixed arena every round (d_afix)"""
     j = json.load(open(os.path.join(B, 'duel_patch.json')))
     st = j['stage']; write_pack(e, bytes.fromhex(st['data']), st['page'], st['addr'])
     for addr, hx in j['main']:
         e.call('mem_write', addr=addr, data_hex=hx)
     write_pack(e, script_bytes, S['RD_LV_PAGE'], RD_SCRIPT)
     e.call('mem_write', addr=D['d_script'], data_hex='%02x%02x' % (RD_SCRIPT & 255, RD_SCRIPT >> 8))
+    e.call('mem_write', addr=D['d_seed'], data_hex='%02x%02x' % ((seed or 0) & 255, (seed or 0) >> 8))
+    e.call('mem_write', addr=D['d_afix'], data_hex='00' if seed is not None else '01')
 
 
 def kid_line(m, S, tick):
@@ -91,9 +94,9 @@ def guard_line(m, S):
 
 
 def state_bytes(m, S, D):
-    """the 68 hashed bytes (duelsim state_bytes) as the Z80 has them"""
+    """the 69 hashed bytes (duelsim state_bytes) as the Z80 has them"""
     g = m.mem(S['g_glob'], 14); blk1 = list(m.mem(S['CTRL1'], 6)) + [m.mem(S['HAVE_SWORD'], 1)[0], g[11], g[5]]
-    return (list(m.mem(S['KID_REC'], 32)) + list(m.mem(S['HITP_CURR'], 2)) + [g[0], g[1], g[4]] + list(g[6:11]) +
+    return (list(m.mem(D['d_aidx'], 1)) + list(m.mem(S['KID_REC'], 32)) + list(m.mem(S['HITP_CURR'], 2)) + [g[0], g[1], g[4]] + list(g[6:11]) +
             [g[12], g[13]] + blk1 + list(m.mem(D['d_blk2'], 9)) + list(m.mem(D['d_rounds'], 6)))
 
 
@@ -102,7 +105,7 @@ def duel_line(m, S, D, tick):
     sb = state_bytes(m, S, D); hv = h[0] | (h[1] << 8)
     own = DS.hash16(sb)
     line = 'D %d %d %d %d %d %d %d %d %d %d %s %s' % (tick, i[0], i[1], r[0], r[1], r[2], r[3], r[4], r[5], hv,
-                                                    ' '.join(map(str, sb[44:53])), ' '.join(map(str, sb[53:62])))
+                                                    ' '.join(map(str, sb[45:54])), ' '.join(map(str, sb[54:63])))
     return line, own == hv
 
 
@@ -110,7 +113,7 @@ def ranges(S, D):
     gv = (S['KID_REC'], 82)                         # the records, CHAR_SAVE, the globals
     ov = (S['HITP_CURR'], 16)                       # OV: hit points, have_sword, TROBS_N, MOBS_N
     kv = (S['CTRL1'], 6)
-    dv = (D['d_rounds'], D['d_blk2'] + 90 - D['d_rounds'])
+    dv = (D['d_aidx'], D['d_blk2'] + 90 - D['d_aidx'])
     return {'ready': [gv, ov, kv, dv], 'mid': [gv, ov, (S['LEVEL'], 1440)], 'g': [gv, ov],
             'n': [(S['SND_STOPS'], 1)], 'end': [gv, ov, kv, dv],
             'drawn': [(S[k] + S['SD_FRAME'], 1) for k in ('SPR_A', 'SPR_S', 'SPR_G', 'SPR_GS')] + [(D['d_key'], 4)],
@@ -120,7 +123,7 @@ def ranges(S, D):
 def run_script(e, S, D, path, shots=None):
     inputs, opts = DS.read_duel_script(path)
     ref, sim = DS.run_duel(path)
-    exp = []; s2 = DS.DuelSim()                             # the images each tick's drawing must show (DRAW_MAP)
+    exp = []; s2 = DS.DuelSim(seed=opts['seed'])                             # the images each tick's drawing must show (DRAW_MAP)
     hud = []; jing = []; at_tick = [0]; reset = [0]         # the bottom text and the tunes each tick
     rr = s2.round_reset
     def round_reset():
@@ -134,7 +137,7 @@ def run_script(e, S, D, path, shots=None):
         if j: jing.append((t, j))
     script = b''.join(bytes(p) for p in inputs)
     G.setup(e, DS.ARENA_LEVEL, fs_run=False)
-    patch_in(e, S, D, script)
+    patch_in(e, S, D, script, opts['seed'])
     R = ranges(S, D); at = {}
     e.call('bp_clear'); e.trace_clear()
     if CDL[0]:                                  # the code log and the profiler from the duel's entry on (the level start

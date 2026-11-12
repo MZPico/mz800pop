@@ -26,7 +26,7 @@
 ; The drawing: the game's (the full room draw once, draw_objects, the hit point strips); player 2 is drawn as the
 ; kid (its record's charid is the kid's while drawing: the kid's images, no XOR look, its strip at the right) with
 ; a blue suit and grey hair (a plane operation per cell: d_sdraw, DUEL_LOOK; overlay.asm duel_sd1 / duel_sd2). Pacing: mode 0, every tick drawn, at least 4 frames (game.asm's).
-; The torches flicker as in the game (d_torches, process_trobs, view_redraw: prandom, never hashed).
+; The torches flicker as in the game (P_w2 at an arena's setup, process_trobs, view_redraw: prandom, never hashed).
 ; The HUD (phase 3, docs/duel-design.md 13): player 2's strip as player 1's in blue (d_ghp), the bottom text line (the
 ; round, the score, the round's and the match's result, the rematch / quit prompt: d_hud, through the game's text
 ; overlay). Sound: the silent model for the logic (SND_MODE 0: nothing waits on a sound, the N line as duelsim's); the
@@ -40,12 +40,11 @@
 
                 include "../../build/duel.inc"
                 include "../../build/duel_text.inc"     ; (the text overlay's labels: d_hud calls them in W2)
+                include "../../build/duel_level.inc"    ; (the level-start overlay's labels: w_load calls its alter_mods)
 
-; ---- the arena and the rules (tools/duelsim.py)
-ARENA_ROOM      equ     3
-ARENA_ROW       equ     1
-P1_COL          equ     2
-P2_COL          equ     7
+; ---- the arena and the rules (tools/duelsim.py). The random arenas (docs/duel-design.md 15): per match a level, per
+; round a room of its pool (build/duel_arenas.inc, tools/duelarenas.py --asm), set up by P_w2 (the arena piece: staged,
+; copied into W2's top by d_arena for each use)
 ROUND_HP        equ     3
 WINS            equ     3
 ROUND_END_TICKS equ     36
@@ -124,6 +123,19 @@ H_SPK           equ     check_spiked            ; objects.asm the spikes
 H_SPK_END       equ     start_chompers
 H_TIME          equ     death_text              ; evres.asm the death text, the clock (show_time)
 H_TIME_END      equ     draw_game_frame
+; the arenas' piece (docs/duel-design.md 15): not a hole of the game's code but W2's top (OVL_WF: the fill overlay's
+; window, used only by a level start's fill; the duel never runs one). P_w2 is staged after the pieces of d_ptab and
+; copied there by d_arena at each use (the compose buffers overwrite it at the next drawing)
+H_W2A           equ     OVL_WF
+H_W2A_END       equ     OVL_W2_END
+                if LV_ovl_end > H_W2A
+                .error the level-start overlay reaches the arenas' piece in W2 (w_load loads it below P_w2)
+                endif
+DSTAGE_W2       equ     DUEL_STAGE_ADDR + P_ai_end - P_ai + P_kt_end - P_kt + P_tick_end - P_tick + P_free_end - P_free + 13 + P_obj_end - P_obj + P_lr_end - P_lr + P_spk_end - P_spk + P_time_end - P_time
+DIR_DUNGEON     equ     0xd100          ; (src/m4/ovl_level.asm load_level: the env's and the wall's directories in
+DIR_DUNGEON_W   equ     0xd800          ; page RD_LV_PAGE, dungeon and palace)
+DIR_PALACE      equ     0xdb00
+DIR_PALACE_W    equ     0xe200
 
 ; ================================================================ P_main: over the game's main loop (main RAM)
                 org     H_MAIN
@@ -175,6 +187,9 @@ d_ptab:         dw      P_ai, P_ai_end - P_ai
 d_script:       dw      0               ; (the harness: the next input pair's RAM-disk address in page RD_LV_PAGE; 0: live)
 d_hnet:         db      0               ; (the harness with d_script: 0 local play at once, tests/duel_z80.py; 1 the menu
                                         ; and the lobby as a player has them, tests/duel_net.py)
+d_seed:         dw      0               ; the arenas' seed (P_w2 w_entry: the frame counter; the joiner: the host's,
+                                        ; from the room's settings; the harness: its own, kept with d_script set)
+d_afix:         db      0               ; (the harness: 1 the fixed arena, level 1 room 3, every round)
 
 ; d_loop: the match loop (game.asm mainloop's mode 0: a tick every 4 frames at most, every tick drawn)
 d_loop:         ld      hl, (FRAMES)
@@ -251,7 +266,7 @@ d_entry:        ld      sp, STACK
                 xor     a
                 ld      (SND_MODE), a   ; the silent sound model (duel-design 11.4)
                 ld      (NEED_L1M), a   ; (no level 1 music crouch)
-                ld      (TROBS_N), a    ; no tile animations but the torches (d_torches), no falling floors
+                ld      (TROBS_N), a    ; no tile animations but the torches (P_w2), no falling floors
                 ld      (MOBS_N), a
                 ld      (IS_SHOW_TIME), a
                 ld      (EXIT_TIMER), a
@@ -271,25 +286,9 @@ d_entry:        ld      sp, STACK
                 ld      hl, hp_full + 10
                 ld      c, 10
                 ldir
-                ld      hl, LV_LINKS + (ARENA_ROOM - 1) * 4    ; the room's links: room 0, a wall on every side
-                ld      b, 4
-de_l:           ld      (hl), 0
-                inc     hl
-                djnz    de_l
-                ld      hl, LV_GTILE    ; no guards
-                ld      b, 24
-de_g:           ld      (hl), 30
-                inc     hl
-                djnz    de_g
-                ld      a, ARENA_ROOM
-                ld      (DRAWN_ROOM), a
-                ld      (NEXT_ROOM), a
-                call    d_torches
-                call    d_reset
-                call    d_hash
-                ld      hl, (FRAMES)
-                ld      (LAST_TICK), hl
-d_ready:        jp      d_lobby         ; (harness: the state before the first tick)
+                ld      a, 2            ; the fixed arena (level 1 room 3) behind the menu, the seed (P_w2 w_entry)
+                call    d_arena
+                jp      d_lobby
 
 ; d_tick: one tick (duelsim DuelSim.step) with the input bytes d_in1, d_in2
 d_tick:         xor     a
@@ -467,11 +466,15 @@ dh_x:           ld      hl, (HITP_CURR) ; HITP_CURR <-> GUARDHP_CURR, HITP_DELTA
 
 ; d_reset: a round's start (duelsim round_reset): both at their start tiles, standing, swords sheathed, full hit
 ; points, fresh blocks
-d_reset:        ld      bc, P1_COL * 256 + 0           ; player 1: column, direction right; charid the kid
-                ld      e, 0
+d_reset:        ld      a, (d_c1)                       ; player 1: column, direction right; charid the kid
+                ld      b, a
+                ld      c, 0
+                ld      e, c
                 call    dr_char
                 call    savekid
-                ld      bc, P2_COL * 256 + 0xff        ; player 2: left, the shadow
+                ld      a, (d_c2)                       ; player 2: left, the shadow
+                ld      b, a
+                ld      c, 0xff
                 ld      e, CHARID_SHADOW
                 call    dr_char
                 call    saveshad
@@ -520,13 +523,13 @@ drc_z:          ld      (hl), 0
                 call    k_tbl
                 add     a, TILE_SIZEX
                 ld      (K_X), a
-                ld      a, ARENA_ROW
+                ld      a, (d_arow)
                 ld      (K_ROW), a
                 inc     a
                 ld      hl, y_land
                 call    k_tbl
                 ld      (K_Y), a
-                ld      a, ARENA_ROOM
+                ld      a, (d_room)
                 ld      (K_ROOM), a
                 ld      a, 0xff
                 ld      (K_ALIVE), a
@@ -628,7 +631,9 @@ dhs_2:          inc     de
                 jr      dhs_r
 dhs_x:          ld      (d_hashv), hl
                 ret
-d_hashmap:      dw      KID_REC         ; the kid's and the shadow's records
+d_hashmap:      dw      d_aidx          ; the arena's entry (first: 0, the fixed arena, leaves the 68 bytes' hash as it was)
+                db      1
+                dw      KID_REC         ; the kid's and the shadow's records
                 db      32
                 dw      HITP_CURR       ; hitp_curr, hitp_max
                 db      2
@@ -709,7 +714,16 @@ ds_x:           ld      a, 0xff
                 ld      e, 0            ; (the N line: playing 0, the silent model)
                 jp      snd_snap
 
-; the duel's state (the round state in the hash's order)
+; the arena (P_w2): the level loaded, the match's number, the arena's entry (build/duel_arenas.inc w_pool; 0xff: set it up
+; again), its room, row and the players' start columns
+d_lvl:          db      1               ; (the game's start loaded level 1)
+d_mtch:         db      0
+d_room:         db      0
+d_arow:         db      0
+d_c1:           db      0
+d_c2:           db      0
+; the duel's state (the arena's entry, then the round state in the hash's order)
+d_aidx:         db      0xff
 d_rounds:       db      0
 d_score1:       db      0
 d_score2:       db      0
@@ -1158,40 +1172,6 @@ di_k1:          sla     c
                 ret
 di_keys:        db      4, 0x80, 4, 0x10, 2, 0x02, 2, 0x20, 2, 0x80     ; A left, D right, W up, S down, Q fire
 
-; d_torches: the arena's torches start flickering as at a room entry (genter.asm anim_tile_modif's torch part: a
-; random first frame, a trob each; the room on the left is room 0 here: none there)
-d_torches:      xor     a
-                ld      (dt_pos), a
-dt_l:           ld      a, ARENA_ROOM
-                ld      (CURR_ROOM), a
-                ld      a, (dt_pos)
-                call    get_curr_tile
-                cp      T_TORCH
-                jr      z, dt_t
-                cp      T_TORCH_DEBRIS
-                jr      nz, dt_n
-dt_t:           ld      a, 8
-                call    prandom
-                ld      b, a
-                ld      a, (dt_pos)
-                ld      c, a
-                ld      a, ARENA_ROOM
-                call    o_ptrs
-                ld      a, b
-                ld      (de), a
-                ld      b, ARENA_ROOM
-                ld      a, (dt_pos)
-                ld      c, a
-                ld      a, 1
-                call    add_trob
-dt_n:           ld      hl, dt_pos
-                inc     (hl)
-                ld      a, (hl)
-                cp      30
-                jr      nz, dt_l
-                ret
-dt_pos:         db      0
-
 ; d_round: the rounds (duelsim round_step), after the tick's hit points are final
 d_round:        ld      a, (d_in1)
                 ld      hl, d_in2
@@ -1211,13 +1191,15 @@ dr1:            or      a
                 ret     z
                 bit     IN_REMATCH, b
                 ret     z
-                xor     a               ; rematch
+                xor     a               ; rematch: a new match, its own level (P_w2 w_match)
                 ld      (d_rounds), a
                 ld      (d_score1), a
                 ld      (d_score2), a
                 ld      (d_result), a
                 ld      (d_match), a
-                jp      d_reset
+                ld      hl, d_mtch
+                inc     (hl)
+                jp      d_arena
 dr_on:          ld      a, (d_timer)
                 or      a
                 jr      nz, dr_tm
@@ -1260,7 +1242,8 @@ dr_tm:          dec     a
                 cp      WINS
                 ld      a, 2
                 jr      nc, dr_end
-                jp      d_reset
+                ld      a, 1            ; the next round: its arena (P_w2 w_round)
+                jp      d_arena
 dr_end:         ld      (d_match), a
                 ret
 
@@ -1460,7 +1443,7 @@ d_lobby:        ld      hl, (d_script)
                 jr      z, dlb_0
                 ld      a, (d_hnet)
                 or      a
-                jp      z, d_loop
+                jp      z, dlb_go
 dlb_0:          call    d_draw          ; the arena first (the room's full draw)
 dlb_menu:       call    d_nleave        ; (after an error: out of the room)
                 ld      hl, dst_menu
@@ -1543,13 +1526,16 @@ dlj_go:         ld      a, b
                 call    n_in
                 ld      a, (nb_out + 4) ; settings[0]: the host's delay
                 ld      (d_ndelay), a
+                ld      hl, (nb_out + 5); settings[1, 2]: the host's seed (the arenas)
+                ld      (d_seed), hl
                 ld      a, 2            ; slot 1: player 2
                 ld      (d_netm), a
                 ld      hl, dst_wait
                 call    d_text
                 jp      dlb_ready
-dlb_go:         xor     a               ; the match: its first tick with the HUD's text drawn again
-                ld      (d_rtick), a
+dlb_go:         call    d_mstart        ; the match's level and its first arena (P_w2), the hash
+d_ready:        xor     a               ; (harness: the state before the first tick) the match: its first tick with
+                ld      (d_rtick), a    ; the HUD's text drawn again
                 dec     a
                 ld      (d_key), a
                 ld      hl, (FRAMES)
@@ -1577,6 +1563,8 @@ dlb_ew:         halt
 ; HOST: the room, its code shown until the other player is in
 dlb_host:       call    d_ndet
                 jr      nz, dlb_nocard
+                ld      hl, (d_seed)    ; settings[1, 2]: this machine's seed as it is now (after a failed join: the
+                ld      (d_ncreate + 8), hl     ; other host's, which this machine's arenas use too)
                 ld      a, N_CREATE
                 ld      hl, d_ncreate
                 ld      b, 23
@@ -1944,9 +1932,10 @@ P_spk:
 ; settings
 d_ncreate:      dw      NET_GAME
 d_build:        dw      0
-                db      2, 1, 1
+                db      2, 1, 3         ; (the settings' length)
                 db      NET_DELAY       ; settings[0]: the input delay
-                ds      15
+                dw      0               ; settings[1, 2]: the arenas' seed (dlb_host: d_seed)
+                ds      13
 ; the lobby's and the network's texts (tools/duelpatch.py checks every dst_ string: its glyphs, its width)
 dst_menu:       db      '1 LOCAL  2 HOST  3 JOIN', 0
 dst_code:       db      'ROOM CODE ....', 0     ; (+10: the code)
@@ -1968,6 +1957,21 @@ P_spk_end:
                 org     H_TIME
 P_time:
                 include "../../build/assets/font_duel.inc"
+; d_mstart (the lobby's end, every mode): the match's level and its first arena, then the state's hash
+d_mstart:       xor     a
+                call    d_arena
+                jp      d_hash
+; d_arena: A = 0 a match's start, 1 the next round, 2 the duel's entry: the arenas' piece P_w2 from the RAM disk into W2's
+; top (after any composed chunk still waiting there), then run (it ends in d_reset)
+d_arena:        push    af
+                call    pend_flush
+                ld      a, DUEL_STAGE_PAGE
+                ld      de, DSTAGE_W2
+                ld      hl, P_w2
+                ld      bc, P_w2_end - P_w2
+                call    far_copy
+                pop     af
+                jp      P_w2
 ; the network's state (never hashed: the logic never reads it)
 d_netm:         db      0               ; 0 local, 1 the host (slot 0, player 1), 2 the joiner (slot 1, player 2)
 d_ndelay:       db      NET_DELAY       ; the input delay (ticks)
@@ -1984,6 +1988,278 @@ nb_out:         ds      20              ; a command's output
 P_time_end:
                 if P_time_end > H_TIME_END
                 .error the duel's piece P_time is larger than its hole (evres.asm death_text, show_time)
+                endif
+
+; ================================================================ P_w2: the arenas (W2's top; staged, copied by d_arena)
+; The random arenas (docs/duel-design.md 15; tools/duelsim.py match_start, next_round, arena_set, level_load): per
+; match a level of 1-14, per round a room of its pool, both from the seed (d_seed), the match's number (d_mtch) and the
+; round's (d_rounds); the room set up as an arena when it is another than the last one. Entry 0 of the table is the
+; fixed arena (level 1 room 3): the duel's entry draws it behind the menu, and the harness's d_afix plays every round
+; there. The logic's state it changes (the level, the room's tiles, the records through d_reset) is the same on both
+; machines: the seed is the host's, the rest the agreed ticks. A = 0 a match's start, 1 the next round, 2 the entry.
+                org     H_W2A
+P_w2:           dec     a
+                jr      z, w_round
+                dec     a
+                jp      z, w_entry
+; w_match: the match's level (the seed, the match; the fixed arena: level 1), loaded when another, then its first round
+                ld      a, (d_afix)
+                or      a
+                ld      a, 1
+                jr      nz, wm_l
+                ld      a, 0xff
+                call    w_rnd
+                ld      c, W_LEVELS
+                call    w_mod
+                inc     a
+wm_l:           ld      hl, d_lvl
+                cp      (hl)
+                call    nz, w_load
+; w_round: the round's arena: round 0 any room of the level's pool, later rounds another than the last one
+w_round:        ld      a, (d_afix)
+                or      a
+                ld      a, 0
+                jr      nz, w_set
+                ld      a, (d_lvl)      ; E, C = the pool's first entry and its count (w_lvtab)
+                add     a, a
+                ld      hl, w_lvtab - 2
+                add     a, l
+                ld      l, a
+                jr      nc, wr1
+                inc     h
+wr1:            ld      e, (hl)
+                inc     hl
+                ld      c, (hl)
+                ld      a, (d_rounds)
+                ld      b, a
+                call    w_rnd
+                inc     b
+                dec     b
+                jr      z, wr_0
+                dec     c               ; ((the last entry - first) + 1 + rnd mod (n - 1)) mod n
+                call    w_mod
+                inc     c
+                inc     a
+                ld      hl, d_aidx
+                add     a, (hl)
+                sub     e
+wr_0:           call    w_mod           ; (round 0: rnd mod n)
+                add     a, e
+; w_set: A = the arena's entry: set up unless it is the last one, then the players' reset
+w_set:          ld      hl, d_aidx
+                cp      (hl)
+                jp      z, d_reset
+                ld      (hl), a
+                ld      l, a            ; w_pool[A]: the room + 32 x the row, player 1's column
+                ld      h, 0
+                add     hl, hl
+                ld      de, w_pool
+                add     hl, de
+                ld      a, (hl)
+                and     0x1f
+                ld      (d_room), a
+                ld      a, (hl)
+                rlca
+                rlca
+                rlca
+                and     3
+                ld      (d_arow), a
+                inc     hl
+                ld      a, (hl)
+                ld      (d_c1), a
+                add     a, W_GAP
+                ld      (d_c2), a
+                ld      a, (d_room)     ; the room's links: room 0, a wall on every side (D14, D15)
+                dec     a
+                add     a, a
+                add     a, a
+                ld      l, a
+                ld      h, 0
+                ld      de, LV_LINKS
+                add     hl, de
+                ld      b, 4
+ws_k:           ld      (hl), 0
+                inc     hl
+                djnz    ws_k
+                ld      hl, LV_GTILE    ; no guards
+                ld      b, 24
+ws_g:           ld      (hl), 30
+                inc     hl
+                djnz    ws_g
+                ld      a, (d_room)     ; the traps and mechanisms plain floor, the bottom row's holes filled
+                call    tile_base       ; (duelsim substitute: w_cls 1 anywhere, 2 in the bottom row)
+                ld      c, 0
+ws_t:           ld      a, (hl)
+                and     0x1f
+                push    hl
+                ld      hl, w_cls
+                add     a, l
+                ld      l, a
+                jr      nc, ws_t1
+                inc     h
+ws_t1:          ld      a, (hl)
+                pop     hl
+                dec     a
+                jr      z, ws_f
+                dec     a
+                jr      nz, ws_n
+                ld      a, c
+                cp      20
+                jr      c, ws_n
+ws_f:           ld      (hl), T_FLOOR
+                xor     a
+                ld      (de), a
+ws_n:           inc     hl
+                inc     de
+                inc     c
+                ld      a, c
+                cp      30
+                jr      nz, ws_t
+                xor     a               ; no tile animations but the torches, no falling floors; drawn in full
+                ld      (TROBS_N), a
+                ld      (MOBS_N), a
+                ld      (SHOWN_ROOM), a
+                dec     a
+                ld      (vs_built), a   ; (the view's tile addresses: rebuilt)
+                ld      (HP_SHOWN), a   ; (player 1's strip: drawn again)
+                ld      a, (d_room)
+                ld      (DRAWN_ROOM), a
+                ld      (NEXT_ROOM), a
+; the torches start flickering as at a room entry (genter.asm anim_tile_modif's torch part: a random first frame, a
+; trob each; the room on the left is room 0 here: none there)
+                xor     a
+                ld      (w_pos), a
+wt_l:           ld      a, (d_room)
+                ld      (CURR_ROOM), a
+                ld      a, (w_pos)
+                call    get_curr_tile
+                cp      T_TORCH
+                jr      z, wt_t
+                cp      T_TORCH_DEBRIS
+                jr      nz, wt_n
+wt_t:           ld      a, 8
+                call    prandom
+                ld      b, a
+                ld      a, (w_pos)
+                ld      c, a
+                ld      a, (d_room)
+                call    o_ptrs
+                ld      a, b
+                ld      (de), a
+                ld      a, (d_room)
+                ld      b, a
+                ld      a, (w_pos)
+                ld      c, a
+                ld      a, 1
+                call    add_trob
+wt_n:           ld      hl, w_pos
+                inc     (hl)
+                ld      a, (hl)
+                cp      30
+                jr      nz, wt_l
+                jp      d_reset
+; w_entry: the duel's entry: the seed (the frame counter; the harness keeps its own; HOST puts it into the room's
+; settings, dlb_host); the fixed arena behind the menu
+w_entry:        ld      hl, (d_script)
+                ld      a, h
+                or      l
+                jr      nz, we1
+                ld      hl, (FRAMES)
+                ld      (d_seed), hl
+we1:            xor     a
+                jp      w_set
+; w_load: A = the level: its blueprint (src/m4/ovl_level.asm load_level's copy and directories, no level start), the
+; alter-mods pass (the level-start overlay's, loaded into W2 below this piece), its number 1 for the logic (the duel's
+; rules were built on level 1: level 12's coupled hit points, its hidden floors, level 13's and 4's specials stay off)
+w_load:         ld      (hl), a         ; (HL = d_lvl)
+                ld      e, a            ; RD_LV_ADDR + 2305 x the level
+                ld      d, 0
+                add     a, a
+                add     a, a
+                add     a, a
+                add     a, e
+                ld      h, a
+                ld      l, 0
+                add     hl, de
+                ld      de, RD_LV_ADDR
+                add     hl, de
+                ex      de, hl
+                ld      a, RD_LV_PAGE
+                ld      hl, LEVEL
+                ld      bc, 2305
+                call    far_copy
+                ld      a, (d_lvl)
+                ld      hl, level_type_tbl
+                call    k_tbl
+                ld      (LEVEL_TYPE), a
+                or      a
+                ld      hl, DIR_DUNGEON
+                ld      de, DIR_DUNGEON_W
+                jr      z, wl1
+                ld      hl, DIR_PALACE
+                ld      de, DIR_PALACE_W
+wl1:            ld      (dir_tab + 3 * CH_ENV + 1), hl
+                ld      (dir_tab + 3 * CH_WALL + 1), de
+                ld      a, OVL_LEVEL
+                call    ovl_w2
+                call    LV_alter_mods
+                ld      a, 1
+                ld      (level_number), a
+                ld      a, 0xff
+                ld      (d_aidx), a
+                ret
+; w_rnd: A = b (the round, 0xff the level) -> A = 8 bits (duelsim arena_rnd): x = the seed ^ the match << 8 ^ b, three
+; times an xorshift16 (7, 9, 8) step (0 taken as 0xACE1) and + W_RND_ADD, then H ^ L. Keeps BC, DE
+w_rnd:          push    bc
+                ld      c, a
+                ld      hl, (d_seed)
+                ld      a, (d_mtch)
+                xor     h
+                ld      h, a
+                ld      a, l
+                xor     c
+                ld      l, a
+                ld      b, 3
+wrn1:           ld      a, h
+                or      l
+                jr      nz, wrn2
+                ld      hl, 0xace1
+wrn2:           ld      a, h            ; x ^= x << 7
+                rra
+                ld      a, l
+                rra
+                xor     h
+                ld      h, a
+                ld      a, l
+                and     1
+                rrca
+                xor     l
+                ld      l, a
+                ld      a, h            ; x ^= x >> 9
+                srl     a
+                xor     l
+                ld      l, a
+                xor     h               ; x ^= x << 8
+                ld      h, a
+                push    de
+                ld      de, W_RND_ADD
+                add     hl, de
+                pop     de
+                djnz    wrn1
+                ld      a, h
+                xor     l
+                pop     bc
+                ret
+; w_mod: A = A mod C (C >= 1)
+w_mod:          sub     c
+                jr      nc, w_mod
+                add     a, c
+                ret
+w_pos:          db      0
+                include "../../build/duel_arenas.inc"
+P_w2_end:
+                if P_w2_end > H_W2A_END
+                .error the arenas' piece P_w2 is larger than W2's top
                 endif
 
 ; ================================================================ the patch sites

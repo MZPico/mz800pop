@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **phase 4 built (network play: section 14, PLAN status 85); phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **the random arenas built (section 15, PLAN status 86); phase 4 built (network play: section 14, PLAN status 85); phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -19,7 +19,7 @@ protocol's game id gets a fixed value for PoP (proposed in section 4.6, to be co
 | Second player | The shadow (charid 1, GUARD_REC) runs the **kid's** frame (SDLPoP play_kid_frame) with its own copy of the kid-only globals (9 bytes, swapped around its frame; its hit points stay GUARDHP_*), a duel visibility rule and a fair simultaneous-hit rule, keys instead of autocontrol_shadow, and the kid's sword rules (section 2). |
 | Speed | A duel tick costs what the level 12 shadow fight costs: **8.6 frames (512 KB), 8.0 (1 MB), 7.2 (16 MB)** mean, p90 10-12 (measured, section 5). The logic is 0.3 of it. |
 | Lockstep | Fits well: a tick is 100-170 ms, so an input delay of **1 tick** covers the production relay's ~130 ms round trip (2 x D x tick >= rtt). Every tick is drawn and the slower machine sets the pace (the user's decision 6; a fixed clock with skipped drawings was the alternative, section 5). |
-| Arena | Level 1 room 3 (dungeon) or level 10 room 21 (palace): 8 plain floor tiles between pillars, walls above and below, no objects; the room's links are zeroed, so its edges are walls (section 6). |
+| Arena | Level 1 room 3 (dungeon) or level 10 room 21 (palace): 8 plain floor tiles between pillars, walls above and below, no objects; the room's links are zeroed, so its edges are walls (section 6). **Since section 15: a random level per match, a random room of its pool of 4-6 per round, traps and holes turned into floor.** |
 | Oracle | kidsim.py with a duel mode (two input streams); SDLPoP cannot be the oracle for the changed rules (section 7). |
 | Effort | ~4 weeks in five phases; the risks: patch sites drifting with the speed work (caught at build time), the drawing speed, the real MZPico's NET path (section 8). |
 
@@ -1100,3 +1100,149 @@ the tick's ~5 frames of drawing.
 
 The native mz800emu reaches only a relay over TCP (relay.py, `net_relay` in [UNICARD]); the production relay at
 mzpico.com is WebSocket-only, so two emulators play through a relay.py on a LAN or one PC (docs/duel-net-howto.md).
+
+## 15. The random arenas, as built (2026-11-12)
+
+The user's decision "B": **per match a level (any of 1-14), per round a random room of that level**, the same on both
+machines and in duelsim. The rooms' traps and mechanisms become plain floor at the room's setup (their game code is the
+duel's holes), the bottom row's holes are filled, the room's links are zeroed as before (its edges are walls: D14,
+D15). Code: src/duel/duel.asm P_w2 (the arenas' piece), d_arena, d_mstart; tools/duelsim.py (the pool, the choice, the
+setup: the oracle); tools/duelarenas.py (the survey, the contact sheets, the arena table for the Z80). The game's own
+code is unchanged (m4game.bin, every overlay, the launcher and PRES byte-identical).
+
+### 15.1 The survey and the pool
+
+tools/duelarenas.py grades every room of levels 1-14 after the substitutions: the fight run (the longest run of at
+least 6 tiles a player can stand on; the start columns 5 apart, centred: today's 2 and 7 on a full row), the kid's own
+moves between the runs played by kidsim (climb up, jump, run off an edge, climb down, standing and running jumps: a run
+reached that cannot get back is a trap), random duels (6 seeds x 1,200 ticks of mostly approach-and-strike input, plus a
+seed starting on each other run reached: a player leaving the room fails it) and the duel scripts. Grades: A one row,
+the run >= 8; B one row, 6-7; C several rows, safe; D a 2-row drop (a hit point); X unusable. Of the 330 rooms: A 107,
+B 17, C 48, D 14, X 144. The random duels found what the move graph missed: in a narrow pit next to an interior thick
+wall (level 2 room 5, level 1 room 6) a pushed-back player falls out of the room (SDLPoP's bumpfall in a closed room).
+The contact sheets (2x, both players at their start tiles, as the duel draws them) went to the user; renders are not in
+git (`duelarenas.py --render-from`).
+
+**The pool (the user's pick, 2026-11-12: the proposal, grade A only), 72 rooms**, duelsim ARENA_POOL:
+
+| Level | Rooms | Level | Rooms |
+|---|---|---|---|
+| 1 (dungeon) | 3, 2, 21, 19, 24 | 8 (dungeon) | 6, 24, 16, 4, 3, 12 |
+| 2 (dungeon) | 4, 11, 19, 23, 18 | 9 (dungeon) | 11, 13, 21, 9, 2, 5 |
+| 3 (dungeon) | 13, 9, 6, 2 | 10 (palace) | 21, 5, 2, 19, 15, 8 |
+| 4 (palace) | 2, 10, 14, 6, 1 | 11 (palace) | 15, 19, 8, 14, 7 |
+| 5 (palace) | 12, 16, 18, 7 | 12 (dungeon) | 20, 2, 1, 19, 16 |
+| 6 (palace) | 16, 12, 2, 4, 6 | 13 (dungeon) | 23, 16, 1, 19, 10 |
+| 7 (dungeon) | 22, 2, 13, 6, 19, 12 | 14 (palace) | 1, 2, 3, 4, 5 |
+
+`duelarenas.py --asm` writes the table the Z80 reads (build/duel_arenas.inc, a make dependency of the patch): entry 0 the
+fixed arena (level 1 room 3), then each level's pool (the room + 32 x the row, player 1's column: 2 bytes an entry, 146
+B), w_lvtab (each level's first entry and count, 28 B) and w_cls (per tile type: 1 a trap or mechanism, 2 no floor; 32
+B). The rows and columns come from duelsim's own fight-run rule, so the pool is the only hand-written part.
+
+### 15.2 The choice (duelsim arena_rnd, match_level, round_arena; duel.asm w_rnd, w_match, w_round)
+
+From the 16-bit seed, the match's number (d_mtch, +1 at every rematch) and a byte b: x = seed ^ (match << 8) ^ b; three
+times an xorshift16 step (7, 9, 8; 0 taken as 0xACE1) and + 0x7F4A; the result's high byte XOR its low. The carries of
+the addition make it non-linear (with two plain xorshift steps only 56 of the 196 level pairs of two matches ever came
+out); over all seeds every pair of levels and every triple of rooms comes out, within about +-20 % of uniform.
+
+- the match's level: 1 + rnd(b = 0xFF) mod 14 (a rematch: the next match number, so a new level);
+- round k (the round state's `rounds`, draws included, modulo 256): round 0 the pool's entry rnd(k) mod n; later
+  rounds (last + 1 + rnd(k) mod (n - 1)) mod n: **never the same room twice in a row** (a drawn round, replayed, gets a
+  new room too).
+
+The arena's entry (0 the fixed arena, else its index in the table) is **the first byte of the state hash** (69 bytes):
+0 leaves the hash of the 68 bytes as it was, so the fixed arena's traces and digests are those of phases 1-4.
+
+### 15.3 The room's setup (duelsim arena_set; duel.asm w_set)
+
+Unless the entry is the last one set up: the room, row and columns into d_room, d_arow, d_c1, d_c2 (d_reset reads them
+instead of phase 2's constants); the room's four links 0; no guards; every tile of class 1 (spike, loose floor, chopper,
+the three buttons, gate, its door top with floor, potion, sword, mirror, both level door halves) and every bottom-row tile
+of class 2 (empty, door top, big pillar top, the four lattice pieces) becomes floor (the byte 1) with modifier 0;
+TROBS_N, MOBS_N 0; SHOWN_ROOM 0 (the full draw), vs_built and HP_SHOWN 0xff; DRAWN_ROOM, NEXT_ROOM; the torches as at a
+room entry (phase 2's d_torches, now here: a random first frame and a trob each); then d_reset. The substitution changes
+only the duel's copy of the level in main RAM.
+
+### 15.4 The level per match (duelsim level_load; duel.asm w_load)
+
+When the match's level is not the one loaded (d_lvl): the blueprint from the RAM disk (page RD_LV_PAGE, as load_level
+copies it), LEVEL_TYPE and the env's and wall's directories (dungeon or palace), the alter-mods pass (the level-start
+overlay loaded into W2 below P_w2, its alter_mods called in place: build/duel_level.inc), then **level_number = 1**: the
+level's own rules stay off (level 12's coupled hit points in do_delta_hp and its guard strip, its hidden floors, level
+13's and level 4's specials); the duel's rules were built and checked on level 1. duelsim does the same (the level's
+number 1; the survey found the coupling: level 12's rooms played only 5 of 7 scripts as level 1 room 3 before it). No
+level start runs (no guards, no events, no cutscene, no frame store fill: player 2 is drawn with the kid's images). The
+guard image set of the level the game started with stays in the frame store, unused.
+
+The duel's entry is unchanged in what the player sees: the fixed arena (level 1 room 3, the game started level 1) behind
+the menu; after the lobby (`1 LOCAL`, or the network's start) d_mstart sets up the match's level and first arena, which is
+drawn at the first tick.
+
+### 15.5 The seed
+
+- Local play: the frame counter at the duel's entry (w_entry; it varies with how long the title ran).
+- The network: the host's seed goes into NETCREATE's settings (now 3 bytes: the delay, the seed), written from d_seed
+  right before NETCREATE (dlb_host), so a machine whose join failed after it took another host's seed advertises the
+  seed its arenas now use (found by review: an entry-time copy would have desynced); the joiner takes it from NETJOIN's
+  answer (settings[1, 2]) and both choose the same levels and rooms. **The level is not sent**: it follows
+  from the seed and the match's number, so a rematch's level agrees too. The relay's NETREADY seed was not used: READY
+  answers 0xFFFF while the room waits, and the match starts the moment the relay runs it (one more command to read it).
+- The harness: its own seed (d_seed, kept while d_script is set) and d_afix (1: the fixed arena every round, the scripts
+  without `# seed`).
+
+### 15.6 Where it lives
+
+| | Before (phase 4) | Now |
+|---|---|---|
+| Code holes (resident while a duel runs) | 3,481 of 3,771 B, 290 free | **3,451**, 320 free (phase 2's d_torches and d_entry's room setup moved into P_w2; added: d_arena 22 B, d_mstart 7, 7 variables, the joiner's seed 6, HOST's settings seed 6, d_reset's variables, d_round's calls of d_arena, the hash map's entry) |
+| P_main (main RAM over the main loop) | 253 B | 256 (d_seed, d_afix: the harness writes them before d_boot) |
+| **P_w2, the arenas' piece** | - | **654 B** (code ~448, tables 206): staged, copied by d_arena into W2's top (OVL_WF 0xAA00, 1,536 B: the fill overlay's window, used only by a level start's fill) at a match's and a round's start (after pend_flush); the level-start overlay is loaded below it (it ends at 0xA905: asserted) |
+| Staged (PRS_DUEL1, RAM-disk page 6 0x16C0-) | 3,241 of 4,544 B | 3,862 (the staging area stays untouched during the duel: no chopper or spike in an arena) |
+| Floppy (POP800.PR3) | 12 blocks | 14 (26 of the 40 reserved left) |
+| Resident game bytes, launcher, PRES, overlay windows of the game | 0, unchanged | **0, unchanged** |
+
+tools/duelpatch.py: P_w2 must lie in H_W2A (not a dropped hole: no checks of the game's code against it) and be staged
+right after d_ptab's pieces (DSTAGE_W2); the call graph walks it (a jump from d_arena into W2 is P_w2, a call from P_w2
+into W2 the level-start overlay's label) and the level overlay's alter_mods: no hole reached.
+
+### 15.7 Speed
+
+The room change is the full room draw of a new room: **51-85 frames (1.0-1.7 s) for the round's first tick** at every
+RAM-disk size (arenas_dungeon / arenas_palace at 512 KB, 1 MB, 16 MB; level 12 room 16: 51, level 5 room 12: 85), right
+after the 36-tick round end; copying P_w2 and the setup are well under a frame. A level change at a rematch adds a few
+frames (82 for level 10 room 2, whose draw alone the op-count fit estimates at ~74). In play a room's ticks cost what
+its torches cost (each ~0.2 frames): match.txt in level 1 room 3 5.50 / 5.22 / 4.90 frames a tick at 512 KB / 1 MB / 16
+MB as before; the dungeon script's rooms (0-2 torches) 5.17 / 4.90 / 4.59; the palace script's (2-4 torches) 5.67 /
+5.39 / 5.07.
+
+### 15.8 duelsim and the tests
+
+- duelsim: DuelSim(seed=None) the fixed arena (every phase 1-4 script and digest unchanged); DuelSim(seed=s) the random
+  arenas: the entry's fixed arena (as the Z80's w_entry, the torches drawing on prandom in the same order), then
+  match_start; next_round at every round's end, match_start after a rematch. Scripts: `# seed 0x..`; `# expect arenas
+  12:1,12:16,...` (the rounds' level:room in order).
+- tests/duel_scripts/arenas_dungeon.txt (seed 0xCA: level 12, the rematch level 10) and arenas_palace.txt (0x18: level 5,
+  then 13): match.txt's moves, four rounds and a rematch, a new room every round, a level loaded in the duel.
+- tests/duel_z80.py (the seed and d_afix poked; the hash's 69 bytes): all nine scripts 0 differing lines at 512 KB, 1 MB
+  and 16 MB; the code log over all of them: no hole reached.
+- tests/duel_net.py: arenas_dungeon.txt over the relay; A starts with the script's seed, B with another: B takes A's from
+  the room, both traces equal duelsim's every tick; the failures as before; and a join that fails after it took the
+  host's seed (the host gone before the start), then HOST on that machine: a third machine joins, takes that seed, and
+  both play 40 ticks as duelsim, no DESYNC (without dlb_host's refresh: DESYNC, checked). The harness's relay now closes
+  a TCP connection at its session's end, as a WebSocket closes (relay.py's TCP side leaves it open after a "leave",
+  and the emulator's NET device would send its next room into a dead connection: a test setup matter).
+- tests/duel_boot.py: from the floppy, the fixed arena behind the menu, then 1 LOCAL: the level and room duelsim chooses
+  for the seed the duel took, loaded and drawn, the players at its start tiles.
+- tests/duel_test.py: the nine scripts (determinism, results, arenas, digests).
+
+### 15.9 Decisions for the user (defaults chosen)
+
+1. Only the seed travels in the room's settings; the level follows from the seed and the match's number (the brief
+   named both: the level would be redundant and could not cover the rematch's new level).
+2. A rematch is a new match: a new level (and its rooms).
+3. A round never gets the room of the round before; a drawn round, replayed, gets a new room as well.
+4. The menu keeps level 1 room 3 behind it; the match's own arena is drawn at its first tick (one more full draw, ~1.5 s).
+5. Local play's seed: the frame counter at Ctrl+D's duel entry.
+6. The level's own rules are off (level_number 1) on every level.

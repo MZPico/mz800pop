@@ -62,8 +62,8 @@ pr [--part a] [-j 4]` runs the same commands through the local runner: in parall
 | b | `tools/cut_suite.py` | cutsim against SDLPoP, all 63 cutscene cases | ~5 s |
 | b | `tests/duel_test.py` | the duel's logic (tools/duelsim.py) on tests/duel_scripts: determinism, results, mirror, trace digest | ~1 s |
 | b | `tests/duel_z80.py --cdl` | the Z80 duel (src/duel/duel.asm over the game) against duelsim on tests/duel_scripts, every tick; the code log: no hole reached | ~1.5 min |
-| b | `tests/duel_net.py` | the duel over the network: two emulators through BomberNet's relay.py run locally (CI fetches it pinned, `POP800_RELAY_PY`): a scripted match, both traces against duelsim; another build, a desync, the other gone or silent, no relay | ~2.5 min |
-| c | `tests/duel_boot.py` | the duel from the floppy: Ctrl+D, the launcher's ACT_DUEL, the input bytes, BREAK back to the title | ~0.5 min |
+| b | `tests/duel_net.py` | the duel over the network: two emulators through BomberNet's relay.py run locally (CI fetches it pinned, `POP800_RELAY_PY`): a scripted match in random arenas (the host's seed to the joiner), both traces against duelsim; another build, a desync, the other gone or silent, no relay, a failed join then HOST | ~2.5 min |
+| c | `tests/duel_boot.py` | the duel from the floppy: Ctrl+D, the launcher's ACT_DUEL, the random arena of the seed taken, the input bytes, BREAK back to the title | ~0.5 min |
 | c | `tests/m7_launch.py` | the launcher: boot -> PRES -> game round trips, the level-end handoff through a cutscene, game over and restart | ~13 min |
 | c | `tests/m7_cut.py --quick` | PRES's level cutscenes 2 and 8 against cutsim: every frame's state, VRAM, the timing, the music | ~4.5 min |
 | d | `tests/m7_title.py --quick` | PRES's title, part 1 (steps a-g): VRAM against tools/titleref.py at every step, fade pass and wipe column, the step timing, the PSG against sndsim (bank A, the looping title theme) | ~8 min |
