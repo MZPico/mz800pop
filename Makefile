@@ -261,7 +261,9 @@ $(BUILD)/duel_level.inc: $(BUILD)/ovl_level.bin tools/ovltool.py
 	$(PY) tools/ovltool.py equp $(BUILD)/ovl_level.sym LV_ $@ alter_mods ovl_end
 $(BUILD)/duel_arenas.inc: tools/duelarenas.py tools/duelsim.py tools/kidsim.py tools/popdata.py
 	$(PY) tools/duelarenas.py --asm $@
-$(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc $(BUILD)/duel_text.inc $(BUILD)/duel_level.inc $(BUILD)/duel_arenas.inc $(BUILD)/assets/font_duel.inc
+$(BUILD)/duel_blades.inc $(BUILD)/duel_blades_tab.inc &: tools/duelblade.py $(BUILD)/assets/kid.pack
+	$(PY) tools/duelblade.py --asm $(BUILD)/duel_blades.inc $(BUILD)/duel_blades_tab.inc
+$(BUILD)/duel.bin: src/duel/duel.asm $(BUILD)/duel.inc $(BUILD)/duel_text.inc $(BUILD)/duel_level.inc $(BUILD)/duel_arenas.inc $(BUILD)/assets/font_duel.inc $(BUILD)/duel_blades.inc $(BUILD)/duel_blades_tab.inc
 	cd src/m1 && $(PASMO)$(if $(DUEL_LOOK), --equ DUEL_LOOK=$(DUEL_LOOK)) --bin ../duel/duel.asm ../../$(BUILD)/duel.bin ../../$(BUILD)/duel.sym
 $(BUILD)/duel_main.bin $(BUILD)/duel_stage.bin &: $(BUILD)/duel.bin $(BUILD)/m4ovl.bin tools/duelpatch.py tools/z80flow.py
 	$(PY) tools/duelpatch.py build

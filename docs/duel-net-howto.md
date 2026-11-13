@@ -59,7 +59,7 @@ emulators must boot the same disk build: the room checks a build id.
 1. On both: wait for the title, press **Ctrl+D**. The arena appears with `1 LOCAL  2 HOST  3 JOIN`.
 2. Emulator A: **2** (HOST). It shows `ROOM CODE ABCD`.
 3. Emulator B: **3** (JOIN), type the four letters (DEL deletes), **ENTER**. It shows `WAITING`, then both start.
-4. A plays the kid (player 1), B the shadow in blue (player 2), each with the cursor keys + SHIFT (or W A S D + Q, or a
+4. A plays the kid (player 1), B the shadow in blue (player 2), each with the cursor keys + SHIFT (or `/`, `?`; or W A S D + Q, or a
    joystick). ENTER after a match: a rematch; BREAK: both back to the title.
 
 Messages: `NO LINK` (no relay at net_relay), `NO SUCH ROOM` (a wrong code), `OTHER VERSION` (another disk build),

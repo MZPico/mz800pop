@@ -1234,3 +1234,9 @@ piece used AND/XOR semantics.
    duelsim and the Z80 alike); d_tick exchanges HITP / GUARDHP around player 2's frame so any take_hp there is its
    own. P_w2 704 B, holes 3,419 of 3,771 B, staged 3,880; two climbing scripts; duel_z80 0 differing lines at 512 KB /
    1 MB / 16 MB, duel_net with a multi-row arena, duel_boot.
+89. Duel polish 2 (2026-11-13, docs/duel-design.md 16.3-16.5): SHIFT is one matrix bit for both keys, so player 1 also
+   fires with `/` and `?` (the user's option A, SHIFT kept); player 2's blade white again where it is part of the kid's
+   body image (drawing, the strike's start, sheathing: 7 images, tools/duelblade.py's pixel data staged with P_w2,
+   duel.asm d_blade sets them white per compose chunk; the user's choice S1). With #67's multi-row arenas: holes 3,598 of 3,771 B (173 free), P_w2 931 B, staged
+   4,286 of 4,544, PR3 15 blocks (25 of 40 left), 0 resident game bytes. duel_z80 (with a 14-pair blade check on the
+   screen), duel_boot (`/`, `?`), duel_net.
