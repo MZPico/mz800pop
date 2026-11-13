@@ -50,6 +50,12 @@ ARENA_POOL = {1: (3, 2, 21, 19, 24), 2: (4, 11, 19, 23, 18), 3: (13, 9, 6, 2), 4
               5: (12, 16, 18, 7), 6: (16, 12, 2, 4, 6), 7: (22, 2, 13, 6, 19, 12), 8: (6, 24, 16, 4, 3, 12),
               9: (11, 13, 21, 9, 2, 5), 10: (21, 5, 2, 19, 15, 8), 11: (15, 19, 8, 14, 7), 12: (20, 2, 1, 19, 16),
               13: (23, 16, 1, 19, 10), 14: (1, 2, 3, 4, 5)}
+# the multi-row arenas (docs/duel-design.md 16; the user's pick 2026-11-13: grade C, several rows the kid's own moves
+# connect both ways, no 2-row drop, a chase of at most ~84 ticks, not starting against a wall), after each level's
+# one-row rooms (the A rooms' table entries stay where they were)
+ARENA_POOL_C = {1: (9,), 2: (3, 6, 13, 16, 20, 24), 5: (6, 10, 13), 6: (13,), 7: (4, 7), 8: (8, 14, 23),
+                9: (1, 4, 10), 11: (24,), 12: (7, 23, 24), 13: (7, 20)}
+ARENA_POOL = {n: rooms + ARENA_POOL_C.get(n, ()) for n, rooms in ARENA_POOL.items()}
 ARENA_LEVELS = 14
 START_GAP = 5                   # the start columns' distance (as 2 and 7: inside the kid's draw distance)
 MIN_RUN = 6

@@ -110,7 +110,8 @@ def macros(d):
     ]
 
 def play_macro(base, row, col, d, inputs, settle=80):
-    """-> (row, col, dir, hit points lost, dead, left the room) where the kid stands after the move"""
+    """-> (row, col, dir, hit points lost, dead, left the room) where the kid stands after the move; sim.macro_ticks:
+    the ticks it took (the inputs and the settling)"""
     sim = base.clone(); place(sim, row, col, d)
     try:
         for x, y, s in inputs:
@@ -128,6 +129,7 @@ def play_macro(base, row, col, d, inputs, settle=80):
         else: still = 0
         if still >= 3: break
     k = sim.Kid
+    base.macro_ticks = sim.tick
     if still < 3: return None, 3 - sim.hitp_curr, False, False
     return (k.curr_row, k.curr_col, k.direction), 3 - sim.hitp_curr, False, False
 
@@ -137,8 +139,9 @@ def run_of(rs, row, col):
     return None
 
 def moves_graph(base, rs, start_run):
-    """the runs reached from start_run by the kid's moves: {run: {run2: (macro, hp lost)}}, deaths, exits"""
-    graph = {}; todo = [start_run]; deaths = []; exits = []
+    """the runs reached from start_run by the kid's moves: {run: {run2: (macro, hp lost)}}, deaths, exits; base.moves:
+    every move between runs (run, column, run2, its column, ticks, hp lost)"""
+    graph = {}; todo = [start_run]; deaths = []; exits = []; base.moves = []
     while todo:
         i = todo.pop()
         if i in graph: continue
@@ -154,8 +157,35 @@ def moves_graph(base, rs, start_run):
                     j = run_of(rs, pos[0], pos[1])
                     if j is None or j == i: continue
                     if j not in graph[i] or graph[i][j][1] > hp: graph[i][j] = (name, hp)
+                    base.moves.append((i, col, j, pos[1], base.macro_ticks, hp))
                     todo.append(j)
     return graph, deaths, exits
+
+WALK_TICKS = 4                  # a column walked or run (the running kid: ~3.5 ticks a tile)
+def chase(rs, reached, moves):
+    """the longest of the shortest routes (ticks) from the middle of a reached run to any tile of another one: walking
+    along runs (WALK_TICKS a column) and the kid's moves between them (their ticks); -> (ticks, from run, to run)"""
+    import heapq
+    nodes = [(i, c) for i in reached for c in range(rs[i][1], rs[i][2] + 1)]
+    adj = {n: [] for n in nodes}
+    for i, c in nodes:
+        for dc in (-1, 1):
+            if (i, c + dc) in adj: adj[(i, c)].append(((i, c + dc), WALK_TICKS))
+    for i, c, j, c2, t, hp in moves:
+        if (i, c) in adj and (j, c2) in adj: adj[(i, c)].append(((j, c2), t))
+    worst = (0, None, None)
+    for i in reached:
+        src = (i, (rs[i][1] + rs[i][2]) // 2); dist = {src: 0}; q = [(0, src)]
+        while q:
+            d, n = heapq.heappop(q)
+            if d > dist[n]: continue
+            for m, w in adj[n]:
+                if d + w < dist.get(m, 1 << 30): dist[m] = d + w; heapq.heappush(q, (d + w, m))
+        for j in reached:
+            if j == i: continue
+            best = min((dist.get((j, c), 1 << 30) for c in range(rs[j][1], rs[j][2] + 1)))
+            if best > worst[0]: worst = (best, i, j)
+    return worst
 
 def reach(graph, frm):
     seen = {frm}; todo = [frm]
@@ -266,6 +296,10 @@ def survey_room(level_no, room, scripts=True, fuzzing=True):
     res.update(reached=sorted(reached), traps=back, deaths=deaths, exits=exits, drop2=drop2)
     rows_used = sorted({rs[i][0] for i in reached})
     res['rows_used'] = rows_used
+    if len(reached) > 1 and not back:
+        ct, ci, cj = chase(rs, reached, base.moves)
+        res['chase'] = ct; res['chase_runs'] = (rs[ci], rs[cj]) if ci is not None else None
+        res['notes'].append('chase %d ticks (run %s to %s)' % (ct, rs[ci], rs[cj]) if ci is not None else 'chase -')
     L = fr[2] - fr[1] + 1
     if deaths: res['notes'].append('death by a move: %s' % (deaths[:2],))
     if exits: res['notes'].append('leaves the room: %s' % (exits[:2],))

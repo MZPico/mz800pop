@@ -7,7 +7,8 @@ types A's room code from the keyboard and ENTER; both play the same scripted due
 of the script (A player 1, B player 2) through the lockstep (duel.asm d_net: NETSEND tick + D, NETPOLL, NETHASH every
 tick). Both machines' traces (the kid, G, N and D lines a tick: tests/duel_z80.py's) must equal duelsim's trace of the
 script delayed by the input delay D (the first D ticks without keys, as the lockstep plays them). The script's random
-arenas (docs/duel-design.md 15: default tests/duel_scripts/arenas_dungeon.txt, two matches on two levels) come from the
+arenas (docs/duel-design.md 15: default tests/duel_scripts/arenas_dungeon.txt, two matches on two levels, then
+climb_dungeon.txt, a multi-row arena first, section 16) come from the
 host's seed: A starts with the script's, B with another one, and B must take A's from the room's settings.
 
 Then the failures, each with fresh machines: a joiner with another build id (OTHER VERSION, back to the menu), a
@@ -425,9 +426,11 @@ def main():
     if '--delay' in args: i = args.index('--delay'); DELAY = int(args[i + 1]); del args[i:i + 2]
     if '--only' in args: i = args.index('--only'); only = args[i + 1]; del args[i:i + 2]
     path = args[0] if args else os.path.join(ROOT, 'tests', 'duel_scripts', 'arenas_dungeon.txt')
+    climb = [] if args else [os.path.join(ROOT, 'tests', 'duel_scripts', 'climb_dungeon.txt')]   # (a multi-row arena)
     relay = Relay()
     try:
-        for name, f in (('match', lambda: test_match(relay, path)), ('version', lambda: test_version(relay, path)),
+        for name, f in (('match', lambda: [test_match(relay, q) for q in [path] + climb]),
+                        ('version', lambda: test_version(relay, path)),
                         ('desync', lambda: test_desync(relay, path)), ('left', lambda: test_left(relay, path)),
                         ('lost', lambda: test_lost(relay, path)), ('nolink', lambda: test_nolink(path)),
                         ('rehost', lambda: test_rehost(relay, path)), ('nocard', lambda: test_nocard(path))):

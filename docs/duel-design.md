@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **the random arenas built (section 15, PLAN status 86); phase 4 built (network play: section 14, PLAN status 85); phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **multi-row arenas built (section 17, PLAN status 88); the random arenas built (section 15, PLAN status 86); phase 4 built (network play: section 14, PLAN status 85); phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -477,6 +477,7 @@ the drawing keeps them flickering (11.9). **Decided 2026-11-11 (phase 2): they f
 | D13 | check_sword_hurt | **changed by the user 2026-11-11: a clash.** Both hurt in one tick (each one's strike reached the other: check_sword_hurting marked both AC_HURT): **nobody is hurt**, both react as an attacker whose strike was parried: check_hurting's own reaction, the sequence attack_was_parried (69) played at once, the kid first, then the shadow (check_sword_vs_sword then plays the clash sound on their frame 167). One hurt: hurt_by_sword as SDLPoP. (First built: both hurt, a double death a draw. SDLPoP cancels the kid's hurt and hurts only the shadow: it would favour player 1.) No guard_refrac |
 | D14 | bumped, pushed left into a wall of room 0 | **[choice]** the floor check uses the room's own column 9, as SDLPoP does for the left edge (`curr_room == 0 && tile_col == 10` -> the room's column 0). Without it a player bumping the arena's right edge falls back (seq 45 bumpfall) where the left edge gives a plain bump |
 | D15 | xpos_in_drawn_room for room 0 | **[choice]** with both links 0, SDLPoP takes room 0 for the left neighbour: the right edge's wall lands 140 units too far left and a player bumping it is thrown back ~28 units (the left edge: 3). The duel puts room 0's column 0 on the right |
+| D16 | land (seg005 land): the soft landing's sound 17 and is_guard_notice, a 2-row fall's hit point | **(section 17, 2026-11-13)** player 2 lands as the kid (its frame runs with the kid's charid in the Z80): the sound and the notice, and a 2-row fall costs it a hit point instead of SDLPoP's soft landing for the shadow |
 
 Not changed (charid tests that stay the shadow's / SDLPoP's): kid_sword_strike = 15 on a strike and justblocked = 4 on
 a parried strike (inputs of the guard AI only, which the duel never runs: they keep their value, they are hashed); land
@@ -1329,3 +1330,70 @@ Renders in the user's pop800-duel/sword/.
 | Staged (PRS_DUEL1) | 3,862 of 4,544 B | 3,824 |
 | Floppy (POP800.PR3) | 14 blocks | 14 (26 of the 40 reserved left) |
 | Resident game bytes, launcher, PRES | 0, unchanged | 0, unchanged |
+
+## 17. Multi-row arenas, as built (2026-11-13)
+
+The pools of section 15 had only one-row rooms (grade A). **25 rooms with several rows join them**: the survey's grade
+C (the kid's own moves connect every run reached both ways, no 2-row drop), the user's pick. Rows can differ in the
+fight: a sword fight needs both on one row, so a player on another row is chased. Both still start on one row, the
+survey's fight run, 5 columns apart. "Holes filled" is unchanged (the bottom row only; falling out of the room is not
+possible, and "falling out loses the round" stays undecided).
+
+### 17.1 The survey's new checks (tools/duelarenas.py)
+
+Besides 15.1's (no fall out of the room in random duels, no player standing in a wall, every run reached gets back to
+the fight run, so the players can always meet): each move between runs is timed, and **the chase** is the longest of
+the shortest routes from the middle of one reached run to another (walking 4 ticks a column, a climb, drop or jump its
+own ticks). Of the 48 C rooms (and 14 D rooms, a 2-row drop costing a hit point) on the user's contact sheets:
+
+| Kept out | Rooms | Why |
+|---|---|---|
+| all D rooms | 14 | the user's choice (a fall could decide a round); all of them long chases anyway (110-158 ticks) |
+| long chase | L1 R7, L1 R16, L2 R7, L3 R4, L3 R5, L4 R11, L5 R8, L5 R9, L5 R11, L5 R24, L7 R9, L9 R6, L9 R16, L10 R1, L11 R16, L13 R5 | over 100 ticks (~11 s) from one run to another |
+| start against a wall | L1 R17, L1 R23, L5 R2, L5 R15, L8 R19 | the fight run's centred start columns are 0 and 5 or 4 and 9 (the user's choice) |
+| a pit the moves never reach | L3 R3, L13 R15 | a random duel pushed a player into a 1-2 tile pit that no move of the kid's reaches: no proof he gets out |
+
+**The 25 rooms** (duelsim ARENA_POOL_C, after each level's one-row rooms; chase 54-84 ticks):
+
+| Level | Rooms | Level | Rooms |
+|---|---|---|---|
+| 1 | 9 | 8 | 8, 14, 23 |
+| 2 | 3, 6, 13, 16, 20, 24 | 9 | 1, 4, 10 |
+| 5 | 6, 10, 13 | 11 | 24 |
+| 6 | 13 | 12 | 7, 23, 24 |
+| 7 | 4, 7 | 13 | 7, 20 |
+
+Levels 3, 4, 10 and 14 keep their one-row pools. The arena table has 98 entries (entry 0 the fixed arena).
+
+### 17.2 Rules: player 2 lands as the kid (D16)
+
+Player 2's frame runs with the kid's charid in the Z80 (12.3), so its landings take the kid's branches; duelsim must
+take the same ones: **D16** (kidsim land, both marked): a soft landing plays the kid's sound 17 and sets
+is_guard_notice for player 2 too (it is hashed: the first climbing script found the difference, the Z80 played it,
+duelsim did not); a 2-row fall costs player 2 a hit point as the kid's (SDLPoP lets the shadow land softly). The pool
+has no 2-row drop, so the second is a safeguard, and so is the Z80's: **d_tick exchanges HITP and GUARDHP (dh_x)
+around player 2's frame**, so any take_hp in it (a 2-row fall, or anything later) takes player 2's own hit points
+(before, the kid's charid would have taken player 1's); d_frame's death check reads HITP_CURR then.
+
+### 17.3 Bytes, speed
+
+| | Before (16.5) | Now |
+|---|---|---|
+| Code holes | 3,413 of 3,771 B, 358 free | 3,419, 352 free (dh_x moved from H_AI to H_TIME, two calls in d_tick) |
+| P_w2 (W2's top) | 654 B | 704 (25 rooms x 2 B) |
+| Staged (PRS_DUEL1) | 3,824 of 4,544 B | 3,880 |
+| Floppy (POP800.PR3) | 14 blocks | 14 |
+
+No code for the rooms themselves: the table's row, columns and the setup were already per entry. A multi-row room's
+draw is a full room draw as any (the op-count estimates of the 25: 53-81 frames); its ticks cost what its torches and
+the two characters cost, the drawing of a character on another row included (climb_dungeon / climb_palace at 1 MB:
+5.61 / 5.66 frames a tick).
+
+### 17.4 Tests
+
+- tests/duel_scripts/climb_dungeon.txt (seed 0xB8: level 8 rooms 14, 4, 23) and climb_palace.txt (0x07: level 11
+  rooms 24, 14, 19): random keys (the survey's fuzz input style), 700 ticks, kept because both players change rows in
+  the first, multi-row room; arenas_palace.txt now meets two C rooms too (level 5 room 10, level 13 room 7).
+- tests/duel_z80.py --cdl: all eleven scripts 0 differing lines at 512 KB, 1 MB, 16 MB; the code log reaches no hole.
+- tests/duel_net.py: scenario 1 plays climb_dungeon.txt over the relay too (both traces as duelsim's every tick).
+- tests/duel_boot.py, tests/duel_test.py (11 of 11, the earlier digests unchanged).
