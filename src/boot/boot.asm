@@ -1,6 +1,7 @@
 ; pop-800 floppy loader (M5) and launcher (M7): the IPLPRO bootstrap of build/pop800.dsk (tools/mkgamedisk.py builds
 ; the disk). The ROM IPL reads it to 0x1200, moves it to LOAD and jumps to `boot`. It
-;   1. switches to 320x200/16 colours and shows the title and a progress bar,
+;   1. checks for the 32 KB VRAM (bootscr.asm: without the MZ-1R25 extension a message and a stop at vram_stop),
+;      switches to 320x200/16 colours and shows the title, the credit line and a progress bar,
 ;   2. probes the RAM disk (MZ-1R18 / STD protocol, ports E9-EB, F8): pages 0-7 must be distinct (512 KB or more),
 ;      else it shows a message and stops (rd_refuse); it measures the RAM disk's read speed (rd_speed, rdspeed.asm: a
 ;      table on the loading screen; too slow, or a timer that cannot be right: a message and a stop at rs_stop);
@@ -64,9 +65,7 @@ boot_main:      di
                 out     (0xe1), a       ; RAM at 0xE000-0xFFFF
                 call    psg_off         ; (M7: the PSG muted before the floppy reads with interrupts off)
                 call    zero_low
-                call    video_init
-                ld      hl, msg_title
-                call    print_at
+                call    boot_screen     ; (the boot only, bootscr.asm: the VRAM check, the title, the credit line)
                 call    rd_probe
 rd_probed:      jp      nz, rd_refuse   ; (harness breakpoint: rd_top is set)
                 call    rd_speed        ; the read speed (rd_spd) on the loading screen; too slow: stops there
@@ -905,8 +904,6 @@ bf_row:         ld      (hl), 0xff
                 djnz    bf_col
                 jp      draw_off
 
-msg_title:      dw      48 * 40 + 12
-                db      COL_TEXT, "PRINCE OF PERSIA", 0
 msg_load:       dw      100 * 40 + 4
                 db      7, "LOADING...", 0
 msg_rd1:        dw      112 * 40 + 4
@@ -967,10 +964,11 @@ end_of_vars:
                 if end_of_vars > STACK - 0x100
                 .error loader variables run into the stack
                 endif
-; the boot only (not in the image): rd_speed (src/boot/rdspeed.asm), assembled over the variables above (the later
+; the boot only (not in the image): rd_speed (src/boot/rdspeed.asm) and boot_screen (src/boot/bootscr.asm), assembled over the variables above (the later
 ; bytes win in the binary): it runs before any of them is used
                 org     end_of_image
                 include "rdspeed.asm"
+                include "bootscr.asm"
 end_of_boot:
                 if end_of_boot > STACK - 0x100
                 .error rd_speed runs into the stack

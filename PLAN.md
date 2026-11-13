@@ -1240,3 +1240,14 @@ piece used AND/XOR semantics.
    duel.asm d_blade sets them white per compose chunk; the user's choice S1). With #67's multi-row arenas: holes 3,598 of 3,771 B (173 free), P_w2 931 B, staged
    4,286 of 4,544, PR3 15 blocks (25 of 40 left), 0 resident game bytes. duel_z80 (with a 14-pair blade check on the
    screen), duel_boot (`/`, `?`), duel_net.
+90. Boot screen and VRAM check (2026-11-13): the loading screen gets a credit line under the title ("MZ-800 PORT BY
+   MZPICO", colour 7) and the RAM-disk report is one line under the bar: "RAM DISK 1M, 21.0 T/BYTE" (the size in M when
+   a whole number of MB, else K: 512K, 1M, 16M; the GAME mean; the per-area table no longer drawn, its values still in
+   rs_res; rd_top, rd_spd, HO_RDTOP, the limits unchanged). Before the screen is set up the boot checks for the VRAM
+   extension (src/boot/bootscr.asm, boot only): planes III and IV in 320x200 / 16 colours, two patterns each, the
+   complement in plane I at the same address, read back with RF SINGLE; a 16 KB machine (missing planes read FFh) gets
+   "SORRY, THIS GAME NEEDS 32 KB VRAM" / "(THE MZ-1R25 VRAM EXTENSION)." in 320x200 / 4 colours and halts at
+   vram_stop. The title moved out of the launcher's image with it: the image is 26 B smaller (2,397 B); the boot-only
+   part ends 49 B below the stack's limit. mz800emu has no setting for 16 KB (DEF_USE_EXTVRAM is a compile-time 1):
+   tests/m5_boot.py forces the check's read-back to FFh, and with MZ800EMU_BIN_16K (an emulator built with
+   DEF_USE_EXTVRAM 0) also boots a real 16 KB machine.

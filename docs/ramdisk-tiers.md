@@ -104,19 +104,16 @@ the averages of 16-32 to better than +-0.02; the calibration's 16 runs fix the f
 (into TRKBUF): nothing in the RAM disk or main RAM changes (m5_boot compares both with the harness setup). Time: the
 loader takes 719 frames instead of 708 (+0.22 s with the table's drawing; 5 KB read an area).
 
-**Screen** (the loading screen; "LOADING..." and the bar moved up 12 lines to make room, the floppy errors to line 84):
+**Screen** (the loading screen; "LOADING..." and the bar moved up 12 lines to make room, the floppy errors to line 84;
+since 2026-11-13 one line under the bar, the size in M when it is a whole number of MB, else in K, and the GAME mean):
 
-    RAM DISK 1024K, CLOCKS/BYTE
-     PAGE   MIN   MAX ALIGN MISAL  GAME
-     P0    21.0  21.0  21.0  21.0  21.0
-     P7    21.0  21.0  21.0  21.0  21.0
-     P8    21.0  21.0  21.0  21.0  21.0
-     P15   21.0  21.0  21.0  21.0  21.0
-     GAME 21.0 +0.0 WAIT  CHUNK 21.0 +0.0
+    RAM DISK 1M, 21.0 T/BYTE
 
-How to read it: GAME (last line: the mean over the areas) is the number to compare between machines; +x.x WAIT is the
-wait clocks a byte. MAX far above MIN, or MISAL above ALIGN, means non-uniform waits (window misses). The loader's font
-got the glyphs it lacked (3 4 6 7 9 J Q V X + /).
+How to read it: the number is the GAME mean over the areas ("T/BYTE" = clocks/byte; 21.0 = no wait states, the excess
+the wait clocks a byte), the number to compare between machines. The per-area table (MIN / MAX / ALIGN / MISAL / GAME
+for P0, P7, the middle and the last page) is no longer drawn (2026-11-13); its values stay in rs_res for tests/m5_boot.py (MAX
+far above MIN, or MISAL above ALIGN, would mean non-uniform waits: window misses). The loader's font got the glyphs it
+lacked (3 4 6 7 9 J Q V X + /).
 
 **The stop.** The GAME mean above `RD_SPEED_MAX` = 36.0 clocks/byte (x 10 = 360, the one constant in rdspeed.asm;
 user, 2026-11-03) stops the boot with "RAM DISK TOO SLOW: 37.5 CLOCKS/BYTE" / "GAME PATTERN, MAX 36.0, WORST P7 37.5"

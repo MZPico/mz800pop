@@ -64,9 +64,7 @@ rs_t0           equ     RSV + 77
 rs_mode         equ     RSV + 79        ; the stop: 1 too slow, 0 the timer; the worst area's page and value
 rs_wp           equ     RSV + 80
 rs_wv           equ     RSV + 82
-rs_row          equ     RSV + 84
 pd_any          equ     RSV + 86        ; put_dec: a digit written
-rs_num          equ     RSV + 87        ; (8)
 rs_txt          equ     RSV + 95        ; (44) a text line for print_at
 
 rd_speed:       in      a, (PORT_PPIC)  ; mute the CTC0 audio, start counter 0
@@ -482,89 +480,43 @@ rs_add:         dec     hl
                 inc     hl
                 ret
 
-; rs_show: the loading screen's table (rows 126-192, colour 7; ALIGN / MISAL / GAME the averages):
-;   RAM DISK 1024K, CLOCKS/BYTE (128 B CHUNKS)
-;   PAGE   MIN   MAX ALIGN MISAL  GAME
-;   P0    21.0  21.0  21.0  21.0  21.0      (one row an area)
-;   GAME 21.0 +0.0 WAIT, CHUNK 21.0 +0.0 WAIT     (the means over the areas; WAIT: the excess over INIR's 21)
-rs_show:        ld      hl, 126 * 40 + 1
+; rs_show: the loading screen's report, one line under the bar (row 126, colour 7): the size (in M when it is a whole
+; number of MB, else in K) and the GAME mean over the areas (clocks/byte, "T" a byte: 21.0 = no wait states):
+;   RAM DISK 1M, 21.0 T/BYTE
+; (the areas' MIN / MAX / ALIGN / MISAL / GAME stay in rs_res for the tests, docs/ramdisk-tiers.md section 1)
+rs_show:        ld      hl, 126 * 40 + 4
                 call    rs_line
                 ld      hl, s_rd
                 call    put_str
                 ld      a, (rd_top)
                 ld      l, a
                 ld      h, 0
-                inc     hl
-                add     hl, hl
-                add     hl, hl
-                add     hl, hl
-                add     hl, hl
-                add     hl, hl
-                add     hl, hl
+                inc     hl                      ; 64 KB pages (8-256)
+                ld      a, l
+                and     15
+                ld      c, 'M'
+                ld      b, 4
+                jr      z, sh_m                 ; a whole number of MB: pages / 16
+                ld      c, 'K'
+                ld      b, 6
+sh_k:           add     hl, hl                  ; else K: pages x 64
+                djnz    sh_k
+                jr      sh_p
+sh_m:           srl     h
+                rr      l
+                djnz    sh_m
+sh_p:           push    bc
                 call    put_dec
+                pop     bc
+                ld      a, c
+                ld      (de), a
+                inc     de
                 ld      hl, s_unit
                 call    put_str
-                call    rs_print
-                ld      hl, 136 * 40 + 2
-                call    rs_line
-                ld      hl, s_cols
-                call    put_str
-                call    rs_print
-                ld      hl, 146 * 40 + 2
-                ld      (rs_row), hl
-                ld      ix, rs_res
-                ld      hl, rs_pg
-rw_1:           push    hl
-                ld      hl, (rs_row)
-                call    rs_line
-                ld      bc, 10 * 40
-                add     hl, bc
-                ld      (rs_row), hl
-                ld      a, 'P'
-                ld      (de), a
-                inc     de
-                pop     hl
-                push    hl
-                ld      l, (hl)
-                ld      h, 0
-                call    put_dec
-rw_2:           ld      a, e                    ; the page column: 4 characters
-                cp      low (rs_txt + 3 + 4)
-                jr      nc, rw_3
-                ld      a, ' '
-                ld      (de), a
-                inc     de
-                jr      rw_2
-rw_3:           ld      b, 5
-rw_4:           push    bc
-                ld      l, (ix + 0)
-                ld      h, (ix + 1)
-                call    put_col
-                inc     ix
-                inc     ix
-                pop     bc
-                djnz    rw_4
-                inc     ix                      ; (AVG: in the last line only)
-                inc     ix
-                call    rs_print
-                pop     hl
-                inc     hl
-                ld      a, (rs_n)
-                ld      b, a
-                ld      a, l
-                sub     low rs_pg
-                cp      b
-                jr      c, rw_1
-                ld      hl, (rs_row)
-                call    rs_line
-                ld      hl, s_game
-                call    put_str
                 ld      hl, (rs_gav)
-                call    put_t10w
-                ld      hl, s_chunk
+                call    put_t10
+                ld      hl, s_tpb
                 call    put_str
-                ld      hl, (rs_cav)
-                call    put_t10w
 ; rs_print: print rs_txt (DE = its end)
 rs_print:       xor     a
                 ld      (de), a
@@ -576,54 +528,6 @@ rs_line:        ld      (rs_txt), hl
                 ld      (rs_txt + 2), a
                 ld      de, rs_txt + 3
                 ret
-; put_col: HL = clocks/byte x 10, right-aligned in 6 characters to DE
-put_col:        push    de
-                ld      de, rs_num
-                call    put_t10
-                ld      a, e
-                sub     low rs_num
-                ld      c, a
-                pop     de
-                ld      a, 6
-                sub     c
-                jr      z, pc_2
-                jr      c, pc_2
-                ld      b, a
-pc_1:           ld      a, ' '
-                ld      (de), a
-                inc     de
-                djnz    pc_1
-pc_2:           ld      hl, rs_num
-                ld      b, c
-pc_3:           ld      a, (hl)
-                ld      (de), a
-                inc     hl
-                inc     de
-                djnz    pc_3
-                ret
-; put_t10w: HL = clocks/byte x 10: "21.0 +0.0" (then the excess over INIR's 21: the wait clocks a byte)
-put_t10w:       push    hl
-                call    put_t10
-                ld      a, ' '
-                ld      (de), a
-                inc     de
-                pop     hl
-                ld      bc, -210
-                add     hl, bc
-                ld      a, '+'
-                jr      c, pw_1
-                ld      a, l                    ; negative: "-"
-                cpl
-                ld      l, a
-                ld      a, h
-                cpl
-                ld      h, a
-                inc     hl
-                ld      a, '-'
-pw_1:           ld      (de), a
-                inc     de
-                jp      put_t10
-
 ; put_str: HL = text (0-terminated) to DE. put_dec: HL = number, in decimal to DE. put_t10: HL = x 10 as "21.0" to
 ; DE. All advance DE.
 put_str:        ld      a, (hl)
@@ -689,10 +593,8 @@ dv_2:           djnz    dv_1
 rd_max:         dw      RD_SPEED_MAX    ; (tests/m5_boot.py patches these)
 rd_min:         dw      RD_SPEED_MIN
 s_rd:           db      "RAM DISK ", 0
-s_unit:         db      "K, CLOCKS/BYTE", 0
-s_cols:         db      "PAGE   MIN   MAX ALIGN MISAL  GAME", 0
-s_game:         db      "GAME ", 0
-s_chunk:        db      " WAIT  CHUNK ", 0
+s_unit:         db      ", ", 0
+s_tpb:          db      " T/BYTE", 0
 s_slow:         db      "RAM DISK TOO SLOW: ", 0
 s_fault:        db      "RAM DISK TIMER FAULT: ", 0
 s_cpb:          db      " CLOCKS/BYTE", 0
