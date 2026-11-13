@@ -42,6 +42,7 @@
                 include "../../build/duel.inc"
                 include "../../build/duel_text.inc"     ; (the text overlay's labels: d_hud calls them in W2)
                 include "../../build/duel_level.inc"    ; (the level-start overlay's labels: w_load calls its alter_mods)
+                include "../boot/launch.inc"            ; (the handoff block: PRES's seed, w_entry)
 
 ; ---- the arena and the rules (tools/duelsim.py). The random arenas (docs/duel-design.md 15): per match a level, per
 ; round a room of its pool (build/duel_arenas.inc, tools/duelarenas.py --asm), set up by P_w2 (the arena piece: staged,
@@ -212,7 +213,7 @@ nb_st           equ     d_blk2 + 90     ; the NET card's last status (4; written
 d_script:       dw      0               ; (the harness: the next input pair's RAM-disk address in page RD_LV_PAGE; 0: live)
 d_hnet:         db      0               ; (the harness with d_script: 0 local play at once, tests/duel_z80.py; 1 the menu
                                         ; and the lobby as a player has them, tests/duel_net.py)
-d_seed:         dw      0               ; the arenas' seed (P_w2 w_entry: the frame counter; the joiner: the host's,
+d_seed:         dw      0               ; the arenas' seed (P_w2 w_entry: PRES's frames at Ctrl+D; the joiner: the host's,
                                         ; from the room's settings; the harness: its own, kept with d_script set)
 d_afix:         db      0               ; (the harness: 1 the fixed arena, level 1 room 3, every round)
 
@@ -234,7 +235,7 @@ dl_go:          ld      hl, (FRAMES)
                 ld      hl, (TICKS)
                 inc     hl
                 ld      (TICKS), hl
-                call    view_snapshot   ; (the tiles before the tick: the torches' frames, game.asm's way)
+                call    d_vsnap         ; (the tiles before the tick: the torches' frames, game.asm's way)
                 call    dirty_reset
                 call    d_input
                 call    d_net           ; (the network: the agreed input bytes; local play: nothing)
@@ -245,7 +246,8 @@ d_tend:         ld      a, (d_match)    ; (harness: the tick's end, the D line)
                 call    d_draw
 d_done:         jr      d_loop          ; (harness: the tick drawn)
 ; d_draw: the tick's drawing (also the arena's first, before the lobby: d_lobby)
-d_draw:         ld      a, (DRAWN_ROOM) ; the arena, once
+d_draw:         call    d_lnk           ; (the drawing sees the arena's real neighbours: d_lnk)
+                ld      a, (DRAWN_ROOM) ; the arena, once
                 ld      hl, SHOWN_ROOM
                 cp      (hl)
                 jr      z, dl_t
@@ -268,6 +270,7 @@ dl_d:           ld      hl, GUARD_REC + OF_CHARID      ; player 2 drawn as the k
                 ld      hl, GUARD_REC + OF_CHARID
                 ld      (hl), CHARID_SHADOW
                 call    hp_draw         ; player 1's strip (ghp_draw: no shadow's strip off level 12)
+                call    d_lnk           ; (the logic's room 0 again)
                 jp      d_hud           ; player 2's strip, the bottom text
 ; d_quit: back to PRES's title (the level-start overlay's handoff; without the launcher, the harness: it stops here);
 ; out of the network's room first
@@ -710,15 +713,12 @@ d_hashv:        dw      0               ; (player 2's block d_blk2: over d_boot,
 d_acur:         db      0xff            ; the sound the PSG was last given (0xff: none that must be kept)
 d_rtick:        db      0               ; ticks drawn since the round's start (to 255)
 d_hcnt:         db      0               ; ticks drawn (wraps)
-; d_bswap: the hit point icons (game.asm's hp_full and hp_empty: 5 rows x 4 planes, plane-major) with planes I and II
-; (B, R) exchanged in place: blue where the kid's are red. d_ghp calls it around player 2's strip, so the game's own
-; icons are red again for player 1's (hp_draw) and the GAME image keeps its bytes
+; d_bswap: the hit point icons (game.asm's hp_full and hp_empty, 20 bytes each and adjacent: 5 rows x 4 planes, plane-
+; major) exchanged in place with player 2's (d_p2ic). d_ghp calls it around player 2's strip, so the game's own icons
+; are red again for player 1's (hp_draw) and the GAME image keeps its bytes
 d_bswap:        ld      hl, hp_full
-                ld      de, hp_full + 5
-                call    dbs
-                ld      hl, hp_empty
-                ld      de, hp_empty + 5
-dbs:            ld      b, 5
+                ld      de, d_p2ic
+                ld      b, 40
 dbs_l:          ld      a, (de)
                 ld      c, (hl)
                 ld      (hl), a
@@ -728,6 +728,14 @@ dbs_l:          ld      a, (de)
                 inc     de
                 djnz    dbs_l
                 ret
+; player 2's icons (docs/duel-design.md 22.2): the game's shapes (plane II, R: the full icon's triangle, the empty one's
+; outline) in light blue 9 (planes I and IV, B and I), full and empty alike; player 1's are light red 10 with a red 2
+; tip and a red 2 outline, read as one red. tests/duel_boot.py checks these bytes against the game's icons
+d_p2ic:         db      3, 15, 63, 15, 3,  0, 0, 0, 0, 0,  0, 0, 0, 0, 0,  3, 15, 63, 15, 3      ; full
+                db      3, 13, 49, 13, 3,  0, 0, 0, 0, 0,  0, 0, 0, 0, 0,  3, 13, 49, 13, 3      ; empty
+                if hp_empty != hp_full + 20
+                .error d_bswap: game.asm's hp_empty must follow hp_full
+                endif
 ; d_blade (d_sdraw's end, IY = player 2's descriptor): in the seven body images that carry the blade (drawing the
 ; sword, the strike's start, sheathing: tools/duelblade.py) the blade's pixels white again in this compose chunk, as
 ; player 1's; the suit's colours made them light blue. The pixels (dy, dx from the unmirrored image's left) are staged
@@ -1216,8 +1224,16 @@ di_live:        call    read_inputs     ; (game.asm: KEYMAT, player 1's INPUT: c
                 ld      hl, INPUT
                 or      (hl)
                 ld      c, a
-                ld      a, (KEYMAT + 7) ; / (7/0) and ? (7/1): player 1's button too, next to the right SHIFT
-                and     3               ; (the user's key option A, docs/duel-design.md 16.3; SHIFT stays the button)
+                ld      a, (d_netm)     ; the local duel (one keyboard): SHIFT is no button (the left SHIFT is under
+                or      a               ; player 2's hand): player 1's from joystick 1, / and ?; over the network
+                jr      nz, di_sh       ; SHIFT stays the button (the phone's touch overlay; docs/duel-design.md 22.4)
+                res     4, c
+                ld      a, (JOY)        ; (read_inputs: joystick 1, its fire in bit 4)
+                and     0x10
+                or      c
+                ld      c, a
+di_sh:          ld      a, (KEYMAT + 7) ; / (7/0) and ? (7/1): player 1's button, next to the right SHIFT
+                and     3               ; (the user's key option A, docs/duel-design.md 16.3)
                 ld      a, c
                 jr      z, di_p1
                 or      0x10
@@ -1787,6 +1803,19 @@ d_arena:        push    af
                 call    far_copy
                 pop     af
                 jp      P_w2
+; d_lnk: the arena room's four links (LV_LINKS) <-> d_rlnk. The logic sees room 0 on every side (w_set zeroes them: the
+; edges are walls, D14, D15); the drawing (d_draw, view_snapshot) sees the room's real neighbours, as the game draws
+; the room: the left room's column 9, the room above's bottom row, the rooms below and at the corners (seg008
+; load_room_links, load_leftroom, load_rowbelow; docs/duel-design.md 22.1). Called in pairs; w_set fills d_rlnk from
+; the level's blueprint in the RAM disk and points d_rlp at the room's links
+d_vsnap:        call    d_lnk
+                call    view_snapshot
+d_lnk:          ld      hl, (d_rlp)
+                ld      de, d_rlnk
+                ld      b, 4
+                jp      dbs_l           ; (d_bswap's exchange)
+d_rlp:          dw      d_rlnk          ; the arena room's links in LV_LINKS (before w_set's first: d_rlnk itself)
+d_rlnk:         ds      4               ; its real links while the logic runs, the logic's zeros while the drawing does
 ; the network's state (never hashed: the logic never reads it)
 d_netm:         db      0               ; 0 local, 1 the host (slot 0, player 1), 2 the joiner (slot 1, player 2)
 d_ndelay:       db      NET_DELAY       ; the input delay (ticks)
@@ -1883,14 +1912,29 @@ ws_new:
                 ld      (d_c1), a
                 add     a, W_GAP
                 ld      (d_c2), a
-                ld      a, (d_room)     ; the room's links: room 0, a wall on every side (D14, D15)
-                dec     a
-                add     a, a
+                ld      a, (d_room)     ; the room's links: room 0, a wall on every side (D14, D15), for the logic;
+                dec     a               ; the real ones from the level's blueprint (the RAM disk) into d_rlnk for
+                add     a, a            ; the drawing (d_lnk)
                 add     a, a
                 ld      l, a
                 ld      h, 0
                 ld      de, LV_LINKS
                 add     hl, de
+                ld      (d_rlp), hl
+                push    hl
+                ld      de, RD_LV_ADDR - LEVEL  ; (RD_LV_ADDR + 2305 x the level + the links' offset)
+                add     hl, de
+                ld      a, (d_lvl)
+                ld      de, 2305
+ws_lv:          add     hl, de
+                dec     a
+                jr      nz, ws_lv
+                ex      de, hl
+                ld      a, RD_LV_PAGE
+                ld      hl, d_rlnk
+                ld      bc, 4
+                call    far_copy
+                pop     hl
                 ld      b, 4
 ws_k:           ld      (hl), 0
                 inc     hl
@@ -2174,8 +2218,8 @@ ws_sp:          call    wp_ptr
                 ret     nz
                 ld      (hl), T_FLOOR
                 ret
-; w_entry: the duel's entry: the seed (the frame counter; the harness keeps its own; HOST puts it into the room's
-; settings, dlb_host); the fixed arena behind the menu
+; w_entry: the duel's entry: the seed (PRES's from the handoff, in K_TICK's place, plus the frame counter; the harness
+; keeps its own; HOST puts it into the room's settings, dlb_host); the fixed arena behind the menu
 w_entry:        xor     a
                 ld      (SND_MODE), a   ; the silent sound model (duel-design 11.4)
                 ld      (NEED_L1M), a   ; (no level 1 music crouch)
@@ -2193,7 +2237,12 @@ w_entry:        xor     a
                 ld      a, h
                 or      l
                 jr      nz, we1
-                ld      hl, (FRAMES)
+                ld      hl, (HO_MAIN + HO_KTICK)        ; PRES's seed (the title's frames at Ctrl+D, pres.asm p_duel),
+                ld      de, (FRAMES)                    ; plus this program's frames, R in the high byte (the floppy's
+                add     hl, de                          ; timing on a real machine; docs/duel-design.md 22.3)
+                ld      a, r
+                xor     h
+                ld      h, a
                 ld      (d_seed), hl
 we1:            xor     a
                 jp      w_set

@@ -374,11 +374,12 @@ class KidImages:
 
 _kimg = None
 def render(res):
-    """the arena at round start: the substituted room (EGA art, as the game shows it) and both players"""
+    """the arena at round start: the substituted room (EGA art, as the game shows it: its real neighbours, duelsim
+    drawing_level) and both players"""
     global _kimg
     if _kimg is None: _kimg = KidImages()
     sim = ArenaSim(res['level'], res['room'], res['row'], res['cols'])
-    rr = RoomRenderer(sim.level, ega=True)
+    rr = RoomRenderer(D.drawing_level(sim.level, res['level'], res['room']), ega=True)
     rr.draw_room(res['room'])
     rr.sets[2] = _kimg
     for p, c in enumerate((sim.Kid, sim.Guard)):

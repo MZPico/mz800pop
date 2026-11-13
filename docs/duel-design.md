@@ -1190,7 +1190,9 @@ drawn at the first tick.
 
 ### 15.5 The seed
 
-- Local play: the frame counter at the duel's entry (w_entry; it varies with how long the title ran).
+- Local play: the frame counter at the duel's entry (w_entry). **It did not vary** (found by the playtest, fixed in
+  section 22.3: the game program counts from its own start, so the count was the same at every entry): now PRES's
+  frames at Ctrl+D through the handoff.
 - The network: the host's seed goes into NETCREATE's settings (now 3 bytes: the delay, the seed), written from d_seed
   right before NETCREATE (dlb_host), so a machine whose join failed after it took another host's seed advertises the
   seed its arenas now use (found by review: an entry-time copy would have desynced); the joiner takes it from NETJOIN's
@@ -1252,7 +1254,7 @@ MB as before; the dungeon script's rooms (0-2 torches) 5.17 / 4.90 / 4.59; the p
 2. A rematch is a new match: a new level (and its rooms).
 3. A round never gets the room of the round before; a drawn round, replayed, gets a new room as well.
 4. The menu keeps level 1 room 3 behind it; the match's own arena is drawn at its first tick (one more full draw, ~1.5 s).
-5. Local play's seed: the frame counter at Ctrl+D's duel entry.
+5. Local play's seed: the frame counter at Ctrl+D's duel entry (since section 22.3: PRES's frames at Ctrl+D).
 6. The level's own rules are off (level_number 1) on every level.
 
 ## 16. Polish from the user's playtest (2026-11-12)
@@ -1317,6 +1319,7 @@ an eighth scenario (nocard): a machine without the card plays local at once; the
   is down (KEYMAT + 7 bits 0-1, read by read_inputs in the same scan as the cursor keys; 11 bytes in H_TICK). SHIFT,
   either key, stays the button, so the network (the own byte is the local sets ORed) and the phone's touch overlay
   (SHIFT as fire) are unchanged; over the network `/` and `?` fire as well. The game outside the duel is unchanged.
+  (Since 22.4: in the local duel SHIFT is no button any more; over the network it still is.)
   tests/duel_boot.py presses `/` and then `?` with the cursor keys (player 1's byte 0x12 and 0x11: the button) in the
   local duel.
 
@@ -1903,3 +1906,116 @@ D18 costs two tile lookups a tick (~1,000 T, 0.01 frames); the placed spikes cos
   hole.
 - tests/duel_net.py: spike_d18_draw.txt over the relay.
 - tests/duel_boot.py as before.
+
+## 22. Polish from the user's playtest: the rooms' edges, player 2's icons, the seed, SHIFT (2026-11-13)
+
+Four reports from the playtest of section 21's build; the drawing, the seed and the local keys only. The logic, the collisions, the state
+hash and duelsim's traces are unchanged (duel_z80 0 differing lines on all 26 scripts, every digest as before).
+
+### 22.1 The rooms' edges: the drawing sees the real neighbours
+
+**The report:** "imperfections in rooms, like cut vertical walls, arches etc." (the user's nine: L14 R2, L14 R3, L10 R8,
+L5 R16, L6 R16, L6 R2, L4 R2, L4 R6, L5 R12).
+
+**The cause:** w_set zeroes the arena room's four links for the logic (room 0 on every side: the edges are walls, D14,
+D15), and the drawing took its neighbours from the same links. The game's room drawing (seg008 load_room_links,
+load_leftroom, load_rowbelow) reads the left room's column 9, the room above's bottom row and the rooms below and at the
+corners; with room 0 it drew a wall's right face over the left edge (cutting the palace arches and pillars there) and a
+floor strip along the top (cutting walls and pillars that go on into the room above). Rendered over the whole pool
+(popdata's renderer, the duel's setup with the links zeroed against the same room with its real links): **89 of the 95
+pool rooms differ** at the left edge (x 0-31) or the top rows (y 0-2); the user's nine are the palace rooms where the
+cut shows most.
+
+**The fix (drawing only):** duel.asm **d_lnk** exchanges the arena room's four bytes in LV_LINKS with **d_rlnk** around
+the drawing: around view_snapshot (d_vsnap, in d_loop) and around d_draw's room, torch and character drawing (d_draw's
+first and last calls; d_hud draws no tiles). w_set keeps the logic's zeros in LV_LINKS as before and copies the room's
+real links from the level's blueprint in the RAM disk (RD_LV_PAGE, RD_LV_ADDR + 2305 x the level + 1952; the blueprint
+because a room met again already has zeros) into d_rlnk, its place into d_rlp. Between the drawings LV_LINKS holds
+exactly what it held before, so the logic, D14 / D15 and the hash cannot see the change. The neighbours are drawn as
+the level has them (a gate in the left room's column 9 is drawn at the edge as the game draws it, static: no trob);
+the logic still bumps at the edge.
+
+**Checked:** every pool room's first ticks from the emulator (the harness, a seed whose round 0 is that room) against
+popdata's drawing of the room with its real links, the round's potions and both players: **95 of 95 pixel-identical**
+(the same comparison of the old build against the zeroed links: identical too, so the old pictures were exactly the
+reported ones). **No room dropped.** Before / after of the nine in the user's pop800-duel/rooms_fix/. duelsim
+drawing_level gives the drawing's level (tools/duelarenas.py's contact sheets use it).
+
+### 22.2 Player 2's hit point icons: one light blue
+
+**The report:** "the blue life counter is not the same colour for full life and empty life."
+
+**The cause:** player 1's icons are the game's: the full one light red 10 with a red 2 tip, the empty one a red 2
+outline; red 2 (0xD03400) and light red 10 read as one red. Section 16.1 drew player 2's with planes I and II swapped:
+light blue 9 (0x008CE8) with a blue 1 tip, and a blue 1 (0x4040AC) outline, a violet next to the light blue: two
+colours.
+
+**The fix:** player 2's icons are their own 40 bytes, **d_p2ic**: the game's shapes (plane II of hp_full and hp_empty)
+in planes I and IV, light blue 9 for the full and the empty icon alike. d_bswap exchanges the game's 40 bytes
+(hp_empty follows hp_full: asserted) with d_p2ic around player 2's strip, so player 1's strip and the GAME image keep
+the game's bytes. Pictures in pop800-duel/hp_icons_before_after.png. tests/duel_boot.py: d_p2ic equals the game's
+shapes in planes I and IV; at 1 of 3 hit points player 2's strip is all light blue 9 with as many pixels as player 1's
+(light red 10 and red 2); the game's icons red again after.
+
+### 22.3 The seed: PRES's frames at Ctrl+D
+
+**The report:** "the order of the rooms is always the same."
+
+**The cause (confirmed):** local play's seed was the game program's frame counter at the duel's entry (w_entry). The
+launcher zeroes low RAM at every program start, so the game counts from 0 at the Ctrl+D handoff, and the path from
+there to w_entry (the launcher's loads, level 1's start) is the same every time: tests/duel_boot.py's two runs, Ctrl+D
+0 and 37 frames apart on the title, both got the seed 0x0068 with the old build (the same level 13 room 16 at every
+entry), on the emulator as on the warp boot.
+
+**The fix:** PRES puts its own frame counter (FRAMES at Ctrl+D: the title's run, as long as the player waited) into the
+handoff block in K_TICK's place (pres.asm p_duel; K_TICK is kidsim's trace counter: the duel never reads or hashes it,
+nothing else in the game reads it in a duel). w_entry takes HO_MAIN + HO_KTICK, adds its own FRAMES and XORs R into the
+high byte (R runs from the key press through the launcher's floppy loads: on a real machine the drive's timing adds to
+it). **A rematch** gives a new sequence as before (the match's number in w_rnd: a new level, new rooms), and a new duel
+entry from the title a new seed. **Network play** keeps the host's seed (dlb_host, the room's settings), now itself
+random. The harness keeps its own seed (d_script set), duelsim and the scripts their explicit one.
+
+tests/duel_boot.py: the two runs wait 0 and 37 frames on the title before Ctrl+D; PRES's seeds in the handoff are 37
+apart within 2 frames (PRES reads the key at its next scan: 37 and 38 locally, 36 in CI) and the duel's seeds differ.
+The old build fails the check (0x0068 both).
+
+### 22.4 SHIFT is no button in the local duel
+
+**The report** (the user, after the first build of this section): "in the local duel on one keyboard, SHIFT still
+works as player 1's fire. It should not." The left SHIFT lies under player 2's hand, and both SHIFT keys are one matrix
+bit (16.3), so player 2 fired for player 1.
+
+**Built:** d_input, in the local duel (d_netm 0: 1 LOCAL, and the local duel without a NET card, 16.2), clears the
+button that read_inputs took from SHIFT and puts back joystick 1's fire (JOY bit 4); `/` and `?` stay player 1's button
+(16.3), Q and joystick 2's fire player 2's. **Over the network SHIFT stays the button** (d_netm 1 or 2): there either
+local key set controls the machine's fighter, and the mz-catalog touch overlay sends SHIFT as fire (the phone plays
+over the network). The harness's scripts are bytes, unchanged. No text mentions SHIFT (the HUD's ENTER / BREAK prompt
+only). Tests: tests/duel_boot.py (both runs: RIGHT+SHIFT gives player 1's RIGHT only, SHIFT alone nothing, with the
+matrix bit seen pressed; `/` and `?` fire); tests/duel_net.py scenario 9, `shift` (both machines on live keys: SHIFT
+held on the host fires player 1, on the joiner player 2, in the agreed bytes on both machines).
+
+### 22.5 Bytes, speed
+
+| | Before (section 21) | Now |
+|---|---|---|
+| Resident duel code | 2,590 B (301 free) | 2,665 (226 free): d_lnk / d_vsnap and their variables +23 (H_TIME), d_draw's calls +6 (H_MAIN), d_p2ic 40 and d_bswap -9 (H_AI), the local SHIFT +15 (H_TICK) |
+| P_w2 | 1,384 of 1,536 | 1,424 (w_set's blueprint copy +31, w_entry's seed +9) |
+| Staged | 2,355 + 2,466 | 2,409 + 2,506 |
+| Floppy (POP800.PR3) | 18 blocks | 18 |
+| PRES | 23 of DUEL_PRES_BYTES 64 | **34** (+11; p_play_a's two loads moved before its store, no size change there); the title art's room 736 -> 725 B |
+| Launcher, resident game bytes | 0 | 0 |
+
+**PRES's reserve is smaller than its 41 bytes:** the first version of p_duel (+18 B, R mixed in PRES) broke the build:
+tools/cutart.py could no longer place a 62-byte cutscene sprite in PRES's free ranges (0x7FC4-0x7FFF, 0xDF0F-0xDF3F).
+DUEL_PRES_BYTES is checked against the title art only; the cutscene sprites had 16 bytes of it, 5 are left now.
+
+Speed: d_lnk is ~300 T a tick (two exchanges of 4 bytes, twice); the full room draw draws the neighbours' edge pieces
+as the game does (a few pieces more or less per room).
+
+### 22.6 Tests
+
+- tests/duel_z80.py --cdl: all 26 scripts 0 differing lines at 512 KB and 1 MB (4 MB in CI); the code log reaches no
+  hole.
+- tests/duel_boot.py: both runs (with and without the Unicard), the icons, the seeds and the local SHIFT as above.
+- tests/duel_net.py: all scenarios, the new `shift` one included.
+- tests/duel_test.py: 26 of 26.

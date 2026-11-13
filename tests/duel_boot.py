@@ -9,11 +9,12 @@ with it (the INI's default: the NET device) shows the menu over the fixed arena 
 start tiles) and 1 LOCAL starts the match. Checked: the handoff's action, every piece
 in main RAM at d_entry byte for byte (build/duel_patch.json; the arenas' piece P_w2 is copied into W2 at each use), the
 silent sound model, then the match:
-the random arenas (docs/duel-design.md 15) from the seed the duel took from the frame counter: the match's level loaded
+the random arenas (docs/duel-design.md 15) from the seed the duel took (PRES's frames at Ctrl+D in the handoff, section
+22.3: the two runs wait 0 and 37 frames on the title and must get different seeds): the match's level loaded
 (its type, the level number 1 for the logic), the round's room drawn, the players at its start tiles, as
-tools/duelsim.py chooses them for that seed; the local input bytes (duel.asm d_input: the cursor keys / SHIFT, / or ? for player 1, W A S D /
+tools/duelsim.py chooses them for that seed; the local input bytes (duel.asm d_input: the cursor keys, / or ? for player 1 (SHIFT no button in the local duel), W A S D /
 Q for player 2, BREAK quit, ENTER rematch), the HUD's first text and a sound on the PSG, player 2's hit point strip
-blue (duel.asm d_bswap: the empty icons too; the game's icons red again after), then BREAK: back to PRES's title
+light blue, the empty icons too (duel.asm d_bswap, d_p2ic; the game's icons red again after), then BREAK: back to PRES's title
 (ACT_TITLE) and a new game from there. Saves screenshots with --shots DIR.
 usage: duel_boot.py [--shots DIR]"""
 import json, os, shutil, sys, tempfile
@@ -66,7 +67,8 @@ def strip(planes, x0, x1):
     return out
 
 
-def rb(c): return (c & 0xC) | ((c & 1) << 1) | ((c >> 1) & 1)     # (planes I and II, B and R, exchanged)
+TITLE_WAIT = {False: 0, True: 37}       # frames each run waits on the title before Ctrl+D (the seed: PRES's frames)
+SEEDS = {}                              # per run: PRES's seed in the handoff (K_TICK's place), the duel's d_seed
 
 
 def run(card, shots, j):
@@ -86,11 +88,13 @@ def run(card, shots, j):
             M5.to_pres(e)
             print('1. Ctrl+D on the title')
             M5.run_to(e, PS['ts_step'], 3000)
+            if TITLE_WAIT[card]: e.run(TITLE_WAIT[card])       # (the runs wait different times on the title: the seed)
             keys(e, ('CTRL', 'D'))
             M5.run_to(e, PS['p_go'], 100)
             keys(e, ('CTRL', 'D'), down=False)
             ho = e.mem(PS['ho'], 16)
             check('PRES hands over with ACT_DUEL, level 1', ho[2] == BS['ACT_DUEL'] and ho[3] == 1, ho.hex())
+            SEEDS[card] = [int.from_bytes(ho[BS['HO_KTICK']:BS['HO_KTICK'] + 2], 'little')]    # (PRES's FRAMES)
             f = M5.run_to(e, G['start'], 3000)
             f += M5.run_to(e, D['d_entry'], 3000)
             print('   PRES -> the duel\'s entry: %d frames' % f)
@@ -123,7 +127,7 @@ def run(card, shots, j):
                 check('no NET card: straight into the local match (no menu, no arena drawn before it)',
                       pc == D['d_ready'] and e.mem(D['d_netm'], 1)[0] == 0, '%04X' % pc)
                 check('the silent sound model (SND_MODE 0)', e.mem(G['SND_MODE'], 1)[0] == 0)
-            seed = int.from_bytes(e.mem(D['d_seed'], 2), 'little')
+            seed = int.from_bytes(e.mem(D['d_seed'], 2), 'little'); SEEDS[card].append(seed)
             lv = DS.match_level(seed, 0); ai = DS.round_arena(seed, 0, lv, 0, None); _, room, row, c1 = DS.arenas()[ai]
             check('the seed %04X: level %d (%s) loaded, the level number 1 for the logic' % (seed, lv, 'palace' if PD.LEVEL_TYPE[lv] else 'dungeon'),
                   (e.mem(D['d_lvl'], 1)[0], e.mem(G['LEVEL_TYPE'], 1)[0], e.mem(G['level_number'], 1)[0]) == (lv, PD.LEVEL_TYPE[lv], 1))
@@ -139,25 +143,36 @@ def run(card, shots, j):
             check('the arena\'s room %d on the screen' % room, e.mem(G['SHOWN_ROOM'], 1)[0] == room)
             check('the bottom text: ROUND 1 (duel.asm d_key)', tuple(e.mem(D['d_key'], 4)) == (0, 1, 0, 0), e.mem(D['d_key'], 4))
             check('no key: 0, 0', ticks(e, 1) == (0, 0))
-            for k1, k2, want in ((('RIGHT', 'SHIFT'), ('A', 'Q'), (0x12, 0x11)), (('LEFT', 'UP'), ('D', 'W'), (0x05, 0x06)),
+            for k1, k2, want in ((('RIGHT',), ('A', 'Q'), (0x02, 0x11)), (('LEFT', 'UP'), ('D', 'W'), (0x05, 0x06)),
                                  (('DOWN',), ('S',), (0x08, 0x08))):
                 keys(e, k1 + k2); got = ticks(e, 2); keys(e, k1 + k2, down=False)
                 check('player 1 %s, player 2 %s: %02X %02X' % ('+'.join(k1), '+'.join(k2), want[0], want[1]), got == want, got)
-            # player 1's button also on / and ? (the user's key option A, docs/duel-design.md 16.3), SHIFT not pressed
+            # SHIFT is no button in the local duel (one keyboard: the left SHIFT is under player 2's hand; docs/duel-design.md
+            # 22.4): RIGHT+SHIFT is player 1's RIGHT only, SHIFT alone nothing (the matrix 8/0 seen pressed)
+            for k1, want in ((('RIGHT', 'SHIFT'), (0x02, 0)), (('SHIFT',), (0, 0))):
+                keys(e, k1); got = ticks(e, 2); km = e.mem(G['KEYMAT'] + 8, 1); keys(e, k1, down=False)
+                check('the local duel: %s, no button: %02X %02X' % ('+'.join(k1), want[0], want[1]),
+                      got == want and km[0] & 1, (got, km.hex()))
+            # player 1's button on / and ? (the user's key option A, docs/duel-design.md 16.3), SHIFT not pressed
             for k, bit in (('/', 0x01), ('?', 0x02)):
                 keys(e, ('RIGHT', k)); got = ticks(e, 2); km = e.mem(G['KEYMAT'] + 7, 2); keys(e, ('RIGHT', k), down=False)
                 check('player 1 RIGHT+%s (the matrix 7/%d, no SHIFT): the button, 12 00' % (k, bit >> 1),
                       got == (0x12, 0) and km[0] & 3 == bit and not km[1] & 1, (got, km.hex()))
             ticks(e, 30)
             if shots: e.screenshot(os.path.join(shots, 'duel_boot_play_%s.png' % tag))
-            # player 2's strip blue, the empty icons too (duel.asm d_bswap): both players at 1 of 3 hit points (a poke:
-            # the strips are drawn when the hit points change), then the right strip = the left one's colours, B <-> R
+            # player 2's strip in one light blue, the full and the empty icons alike (duel.asm d_bswap, d_p2ic;
+            # docs/duel-design.md 22.2): the game's shapes (plane II) in planes I and IV. Both players at 1 of 3 hit
+            # points (a poke: the strips are drawn when the hit points change): the right strip has as many pixels as
+            # the left one (light red 10 and red 2), all light blue 9
             icons = e.mem(G['hp_full'], 40)
+            p2 = b''.join(icons[o + 5:o + 10] + bytes(10) + icons[o + 5:o + 10] for o in (0, 20))
+            check('player 2\'s icons (d_p2ic): the game\'s shapes in light blue', e.mem(D['d_p2ic'], 40) == p2,
+                  e.mem(D['d_p2ic'], 40).hex())
             e.call('mem_write', addr=G['HITP_CURR'], data_hex='01'); e.call('mem_write', addr=G['GUARDHP_CURR'], data_hex='01')
             ticks(e, 2); pl = e.vram_planes()
             left, right = strip(pl, 0, 21), strip(pl, 299, 320)
-            check('player 2\'s strip: 1 full and 2 empty icons, blue where player 1\'s are red',
-                  right and right == {rb(c): n for c, n in left.items()} and not any(c & 3 == 2 for c in right), (left, right))
+            check('player 2\'s strip: 1 full and 2 empty icons, all light blue 9, player 1\'s pixels',
+                  set(right) == {9} and right[9] == sum(left.values()) and set(left) == {2, 10}, (left, right))
             check('the game\'s icons (hp_full, hp_empty) red again after the drawing', e.mem(G['hp_full'], 40) == icons)
             if shots: e.screenshot(os.path.join(shots, 'duel_boot_hp_%s.png' % tag))
             keys(e, ('ENTER',)); got = ticks(e, 1); keys(e, ('ENTER',), down=False)
@@ -183,6 +198,11 @@ def main():
     if '--shots' in ARGS: shots = ARGS[ARGS.index('--shots') + 1]; os.makedirs(shots, exist_ok=True)
     j = json.load(open(os.path.join(B, 'duel_patch.json')))
     for card in (False, True): run(card, shots, j)
+    d = TITLE_WAIT[True] - TITLE_WAIT[False]
+    print('the seeds (PRES\'s, the duel\'s): %s' % '; '.join('%04X, %04X' % tuple(SEEDS[c]) for c in (False, True)))
+    # (PRES sees the key at its next scan: the frames apart may differ from the wait by a frame or two)
+    check('two duel entries %d frames apart on the title: PRES\'s seeds %d +- 2 apart, the duel\'s differ' % (d, d),
+          abs(SEEDS[True][0] - SEEDS[False][0] - d) <= 2 and SEEDS[True][1] != SEEDS[False][1], SEEDS)
     print('FAILED: %s' % ', '.join(FAILS) if FAILS else 'all ok')
     sys.exit(1 if FAILS else 0)
 
