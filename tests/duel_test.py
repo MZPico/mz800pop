@@ -11,7 +11,8 @@ potion pairs placed, docs/duel-design.md 19: level:room:column:column:type in or
 hit points' states in order, each kept at least a tick: player 1's current/maximum:player 2's), '# expect symmetric
 N' (every tick player 2 is player 1 mirrored around their start tiles' middle, x within N pixels: the same frame,
 action, alive and hit points, the opposite direction; N 2 when a potion is drunk: SDLPoP get_item moves a drinker
-facing right 1-2 pixels further than one facing left; '# expect mirror other.txt N' the same tolerance), '# expect
+facing right 1-2 pixels further than one facing left; 10 for a spike death: SDLPoP spiked puts the body 8 pixels
+from the tile's left; '# expect mirror other.txt N' the same tolerance), '# expect
 digest <hex>' (the whole trace's sha256, 16 digits: any change of the duel's
 logic or of kidsim's shows here; --update rewrites it after an intended change). Any other expectation key fails.
 usage: duel_test.py [--update] [script.txt ...]   (default: tests/duel_scripts/*.txt)"""
