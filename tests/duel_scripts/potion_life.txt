@@ -1,5 +1,5 @@
 # duel
-# expect digest 103908e7affb0091
+# expect digest 4526cac1d3a5d4de
 # seed 0x03
 # expect potions 8:4:1:8:2
 # expect hps 3/3:3/3,4/4:4/4

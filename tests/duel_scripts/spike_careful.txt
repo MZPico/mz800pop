@@ -1,0 +1,16 @@
+# duel
+# expect digest 15cb624f6d1dd649
+# seed 0x71
+# expect hurt none
+# spikes: both step carefully (the button and a direction) onto them and past: SDLPoP check_spiked kills only running, a running jump's start and a jump's landing
+0 0 0  0 0 0 *2
+0 1 0  0 1 0
+0 0 0  0 0 0 *6
+1 0 1  -1 0 1
+0 0 0  0 0 0 *10
+1 0 1  -1 0 1
+0 0 0  0 0 0 *10
+1 0 1  -1 0 1
+0 0 0  0 0 0 *10
+1 0 1  -1 0 1
+0 0 0  0 0 0 *47

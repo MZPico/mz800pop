@@ -1,0 +1,12 @@
+# duel
+# expect digest e79dce5fbe3bf60b
+# seed 0x71
+# expect hurt none
+# spikes: a careful step to their edge, then a standing jump over them, both players
+0 0 0  0 0 0 *2
+0 1 0  0 1 0
+0 0 0  0 0 0 *6
+1 0 1  -1 0 1
+0 0 0  0 0 0 *14
+1 -1 0  -1 -1 0
+0 0 0  0 0 0 *55

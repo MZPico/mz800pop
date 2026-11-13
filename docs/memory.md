@@ -109,8 +109,8 @@ game.asm's main loop (level_ready .. flip_now), kid.asm kid_tick, guard.asm tick
 (autocontrol_opponent .. check_chomped_guard), the free main RAM below W1 (end_of_code .. OVL_W1; phase 3's HUD),
 kid.asm leave_room .. kid_tick and evres.asm death_text .. draw_game_frame (the network, phase 4), plus six patched
 operands (kid.asm duel_d14 / duel_d15, overlay.asm duel_sd1 / duel_sd2, duel_pp1 / duel_pp2). objects.asm
-make_loose_fall .. foh2 and check_spiked .. start_chompers carry no duel code since section 18: reserved for the spikes
-of stage C. The pieces d_boot lays into the holes wait in RAM-disk page 6 0x16C0- (the complete chopper pictures' pool,
+make_loose_fall .. foh2 carries no duel code since section 18 (reserved); check_spiked .. start_chompers neither: the
+duel runs the game's spike code there since section 20. The pieces d_boot lays into the holes wait in RAM-disk page 6 0x16C0- (the complete chopper pictures' pool,
 runtime scratch) from the launcher to the game's level_ready; the pieces read again during the duel (section 18: the
 arenas' P_w2, the texts' P_txt, the lobby's P_lob, the blade pixels P_bld) are a second record in page 1 0xE918-0xFC5B
 (the button pictures' slots: runtime scratch, and an arena has no button). P_w2 is copied into W2's top (OVL_WF

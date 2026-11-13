@@ -1,0 +1,12 @@
+# duel
+# expect digest 1482bc68e2d13d0b
+# seed 0x71
+# expect rounds 3
+# expect score 0:0
+# expect symmetric 10
+# spikes: both run onto them, both spiked in one tick: a draw (the round replayed); to the tick before the next round
+0 0 0  0 0 0 *2
+0 1 0  0 1 0
+0 0 0  0 0 0 *2
+1 0 0  -1 0 0 *20
+0 0 0  0 0 0 *33

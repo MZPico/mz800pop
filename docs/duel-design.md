@@ -1740,3 +1740,79 @@ the events overlay into W1 (~13 K T), the strips the rare overlay as for a hit.
 - tests/duel_net.py: potion_heal_p2.txt over the relay too; the desync scenario also with a modifier of the arena
   room's tiles changed on one machine (DESYNC on both).
 - tests/duel_boot.py as before.
+
+## 20. Spikes, as built (2026-11-13)
+
+Stage C of section 18 with the user's decisions: spikes only (choppers and loose floors stay floor), a spike on a start
+tile becomes floor, no side swap, the room's tiles in the hash (section 19). Code: src/duel/duel.asm d_frame, w_set,
+ws_sp; tools/duelsim.py TRAPS, spikes_rest, arena_set; the scripts tests/duel_scripts/spike_*.txt. The game's own code
+is unchanged: objects.asm's spike code (check_spiked, start_anim_spike, check_spike_below) simply runs, since section 18
+keeps duel code out of it (no longer a hole for tools/duelpatch.py; H_OBJ, the loose floors, stays reserved).
+
+### 20.1 The rules
+
+| Rule | As built |
+|---|---|
+| Which spikes | every spike of the arena room stays (w_cls / duelsim TRAPS: the spike no longer a trap to substitute); choppers, loose floors and the other mechanisms are floor as before |
+| A start tile | a spike on player 1's or player 2's start tile becomes plain floor (w_set ws_sp, duelsim spikes_rest): in the pool L4 R6 (player 2's) and L6 R2 (player 1's) |
+| Each round | the room is set up anew at every round of the random arenas (also when a rematch draws the last room again: w_set's "same room" shortcut is the fixed arena's only), its spikes at rest (modifier 0, not a kill's 0xff) and no spike trob left |
+| The frame | SDLPoP play_kid_frame's check_spike_below and check_spiked after check_action, for both players (d_frame, duelsim char_frame). SDLPoP's play_guard_frame runs the same two for a guard and the shadow (seg000:0F48: check_spike_below, check_spiked, by the same seg006 check_spiked / is_spike_harmful and seg005 spiked), so player 2 on spikes is as SDLPoP's shadow; no new rule. Spikes kill only a character running (frames 7-14), starting a running jump (34-39) or landing a jump (26, 43) on them while they are harmful (rising: 1-4, or out: bit 7); walking carefully and the sword steps are safe |
+| A spike death | spiked: take_hp(100) on the player's own hit points (player 2's through dh_x, section 17.2), the spikes harmless to others (0xff) for the rest of the round; it decides the round as any death; both spiked in one tick: a draw, the round replayed |
+
+### 20.2 The pool
+
+The 13 pool rooms with spikes, surveyed with live spikes (tools/duelarenas.py survey_room: the moves graph, the random
+duels, the scripts; and 90 seeds x 1,200 ticks of the random duels per room, counting each player's spike deaths):
+
+| Room | Fight row, starts | Spikes | Spike deaths P1 : P2 (random duels) |
+|---|---|---|---|
+| L1 R19 | 1; 2, 7 | r1c5 | 62 : 81 |
+| L1 R24 | 1; 1, 6 | r1c5 | 32 : 38 |
+| L2 R19 | 1; 2, 7 | r1c4 | 74 : 49 |
+| L2 R6 (C) | 1; 2, 7 | r1c3 | 38 : 43 |
+| L2 R20 (C) | 2; 3, 8 | r2c6, c7 | 88 : 126 |
+| L4 R6 | 1; 2, 7 | r1c7 (a start tile: floor) | 0 : 0 |
+| L6 R2 | 1; 2, 7 | r1c2 (a start tile: floor), r1c5 | 55 : 73 |
+| L7 R13 | 1; 2, 7 | r1c3, c5, c6 | 146 : 135 |
+| L7 R19 | 2; 2, 7 | r0c6 (another row: never reached) | 0 : 0 |
+| L8 R6 | 1; 2, 7 | r1c4, c5 (mirrored) | 123 : 127 |
+| L8 R4 | 2; 2, 7 | r2c3, c5 | 97 : 119 |
+| L8 R23 (C) | 2; 2, 7 | r2c4 | 78 : 54 |
+| L11 R24 (C) | 1; 3, 8 | r2c0, c1 (the lower row) | 70 : 102 |
+
+No room traps a player and none lets one out: no move or random duel left the room or stood in a wall (a spike is a
+floor tile: no pit opens), the moves graph found no run that cannot get back; the survey's other "X" (death by a
+move) is the spikes' purpose. **No room was dropped**: the spike deaths stay between 41 % and 60 % for player 1 in
+every room. The random duels' policy itself favours player 2 (rounds won 45 : 55 also in the rooms without reachable
+spikes), and their events cluster per seed (a 30-seed run had L7 R13 at 60 : 35, the 90-seed run 146 : 135), so no
+room shows an asymmetry beyond that. The two most uneven, L2 R20 (41 %) and L2 R19 / L8 R23 (60 %, 59 %), are listed
+for the user's decision.
+
+### 20.3 Bytes, speed
+
+| | Before (section 19) | Now |
+|---|---|---|
+| Resident duel code | 2,376 B | 2,382 (+6: the two calls in d_frame); H_SPK is the game's spike code again |
+| P_w2 | 1,189 of 1,536 | 1,224 (+35: the spikes at rest, the start tiles, the setup every round) |
+| Staged | 2,141 + 2,271 | 2,147 + 2,306 |
+| Floppy (POP800.PR3) | 16 blocks | 16 |
+| Resident game bytes, launcher, PRES | 0 | 0 |
+
+Speed (tests/duel_z80.py over spike_careful.txt and spike_jump.txt, two spikes moving together): the ticks with a spike
+change cost 8.2-10.5 frames against 5.9-6.7 on the others, i.e. **~+2-4 frames a tick for two spikes, ~1-2 a spike**,
+on the ~23 ticks of a trigger (rising, out, retracting); docs/perf.md part 25's spike step 1.9-2.4 frames. A spike at
+rest costs nothing.
+
+### 20.4 Tests
+
+- tests/duel_scripts (seed 0x71: level 8 room 6, the spikes at columns 4 and 5 mirrored around the start tiles):
+  spike_p1_dies.txt (player 1 sheathes and runs onto them: spiked, player 2 scores), spike_p2_dies.txt (its mirror),
+  spike_draw.txt (both run: both spiked in one tick, a draw), spike_careful.txt (both step carefully onto them and past:
+  nobody hurt), spike_jump.txt (a careful step to their edge, then a standing jump over them: nobody hurt). The spiked
+  body lies 8 pixels from its tile's left (SDLPoP spiked), so the mirror checks allow 10 pixels in x. The scripts end
+  before the next round (another room). potion_life.txt (level 8 room 4) and climb_*.txt now meet live spikes: their
+  digests changed, climb_palace.txt's results too (rounds 2,2, score 0:2).
+- tests/duel_z80.py: all twenty scripts 0 differing lines at 512 KB, 1 MB (4 MB in CI); the code log reaches no hole
+  (H_OBJ included).
+- tests/duel_net.py: spike_draw.txt over the relay too.
+- tests/duel_boot.py as before.

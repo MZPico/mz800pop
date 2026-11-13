@@ -1277,3 +1277,11 @@ piece used AND/XOR semantics.
    bytes: every digest changed, the fixed-arena traces otherwise equal). Resident +7 B (2,376), P_w2 1,189 B, PR3 16
    blocks. Four potion scripts (life and poison drunk by both at once in mirror, heal by each); duel_z80 0 differing
    lines at 512 KB / 1 MB (4 MB in CI), duel_net with potions and a tile desync, duel_boot.
+94. Duel: spikes (2026-11-13, docs/duel-design.md section 20, stage C of section 18 with the user's decisions): the arena
+   rooms' spikes stay live (choppers and loose floors floor as before), a spike on a start tile floor, the room set up
+   anew every round with its spikes at rest; d_frame runs the game's check_spike_below / check_spiked for both players
+   (SDLPoP's play_guard_frame does the same for the shadow: no new rule); a spike death decides the round, both in one
+   tick a draw. objects.asm's spike code runs (no longer a hole; H_OBJ stays reserved). Survey of the 13 spike rooms
+   with live spikes: no trap, nobody out of the room, spike deaths 41-60 % for player 1: no room dropped. Resident
+   +6 B (2,382), P_w2 1,224 B, PR3 16 blocks; a spike step ~1-2 frames. Five spike scripts; duel_z80 0 differing lines
+   at 512 KB / 1 MB (4 MB in CI), duel_net, duel_boot.

@@ -61,7 +61,7 @@ START_GAP = 5                   # the start columns' distance (as 2 and 7: insid
 MIN_RUN = 6
 # the room's setup (duel.asm w_set): the traps and mechanisms (their code is the duel's holes) become plain floor, the
 # bottom row's tiles without a floor become floor too (the room's links are 0: below it there is nothing)
-TRAPS = {T.spike: 'spike', T.loose: 'loose', T.chomper: 'chopper', T.opener: 'button', T.closer: 'button',
+TRAPS = {T.loose: 'loose', T.chomper: 'chopper', T.opener: 'button', T.closer: 'button',
          T.stuck: 'button', T.gate: 'gate', T.doortop_with_floor: 'gate top', T.potion: 'potion', T.sword: 'sword',
          T.mirror: 'mirror', T.level_door_left: 'level door', T.level_door_right: 'level door'}
 NOFLOOR = {T.empty: 'hole', T.doortop: 'hole (door top)', T.bigpillar_top: 'hole (pillar top)',
@@ -87,6 +87,15 @@ def substitute(level, room):
             level.fg[base + pos] = T.floor; level.bg[base + pos] = 0
             subs.append((pos, t, TRAPS[t] if c == 1 else NOFLOOR[t]))
     return subs
+
+def spikes_rest(level, room, row, cols):
+    """(docs/duel-design.md 20; duel.asm w_set) the room's spikes live, at rest (modifier 0: retracted, not the 0xff of
+    a kill), but a spike on a start tile plain floor"""
+    base = (room - 1) * 30
+    for pos in range(30):
+        if level.fg[base + pos] & 0x1F == T.spike: level.bg[base + pos] = 0
+    for c in cols:
+        if level.fg[base + row * 10 + c] & 0x1F == T.spike: level.fg[base + row * 10 + c] = T.floor
 
 def zero_links(level, room):
     """the room's four links 0 (room 0: a wall on every side; its edges collide as walls, D14 / D15)"""
@@ -237,13 +246,14 @@ class DuelSim(KidSim):
         flicker as in the game (the user's choice 2026-11-11): the room's entry torch step (anim_tile_modif: random
         first frames, trobs) and process_trobs every tick, drawing on prandom: lockstep state the logic never reads,
         not hashed"""
-        if a == self.aidx and geometry is None: return
-        self.aidx = a
+        if a == self.aidx and a == 0 and geometry is None: return     # (the fixed arena: as it was; a random one again:
+        self.aidx = a                                                 # set up anew, docs/duel-design.md 20)
         room, row, c1, c2 = geometry or (arenas()[a][1:] + (arenas()[a][3] + START_GAP,))
         L = self.level
         zero_links(L, room)
         for i in range(24): L.guards_tile[i] = 30
         substitute(L, room)
+        spikes_rest(L, room, row, (c1, c2))
         self.trobs = []; self.mobs = []
         self.need_level1_music = 0; self.erase_bottom_text(); self.is_show_time = 0
         self.arena = room; self.arena_row = row; self.start = ((c1, RIGHT), (c2, LEFT))

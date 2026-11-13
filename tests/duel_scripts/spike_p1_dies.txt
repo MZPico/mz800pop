@@ -1,0 +1,11 @@
+# duel
+# expect digest 4cb3e9d8ddec8771
+# seed 0x71
+# expect rounds 2
+# expect score 0:1
+# spikes (docs/duel-design.md 20): player 1 sheathes and runs onto the spikes (level 8 room 6: columns 4 and 5): spiked, player 2 wins the round
+0 0 0  0 0 0 *2
+0 1 0  0 0 0
+0 0 0  0 0 0 *2
+1 0 0  0 0 0 *20
+0 0 0  0 0 0 *33

@@ -57,9 +57,9 @@ STAGED_ONLY = {'P_bld': 'H_BLD'}
 # pieces read again during the duel, in this order (duel.asm DSTAGE_*). The first record (page 6) holds d_ptab's
 # pieces, read once by d_boot: on 512 KB and 1 MB it is the complete chopper pictures' pool (stage C's spikes)
 STAGE2 = (('P_w2', 'DSTAGE_W2'), ('P_txt', 'DSTAGE_TXT'), ('P_lob', 'DSTAGE_LOB'), ('P_bld', 'DSTAGE_BLD'))
-# Holes kept free of duel code for stage C (docs/duel-design.md 18: the spikes run the game's own code there); still
-# checked as dropped code (nothing reaches them while the duel has no traps)
-RESERVED = ('H_OBJ', 'H_SPK')
+# Holes kept free of duel code (docs/duel-design.md 18): the loose floors, which the arenas never have (still checked as
+# dropped code). The spikes' code (check_spiked .. start_chompers) is no hole since section 20: the duel runs it
+RESERVED = ('H_OBJ',)
 # The lobby (P_lob) is lost when W2 is drawn into or another overlay is loaded over it: it calls only these (d_text
 # loads W2 below it), and leaves only by a jump to these
 LOBBY_CALLS = {'d_text', 'd_key1', 'd_kget', 'dlj_at', 'd_nleave', 'd_smsg', 'n_do', 'n_cmd', 'n_out', 'n_in', 'n_wait',
@@ -379,7 +379,7 @@ def print_report(rep):
     for r in rep['holes']:
         print('%-8s %04X-%04X %5d %5d %5d' % (r['hole'], r['from'], r['to'] - 1, r['size'], r['used'], r['size'] - r['used']))
     f = rep['figures']
-    print('code holes %d bytes, the duel %d, free %d (and %d reserved for the spikes: %s); P_main %d bytes (main RAM)' % (
+    print('code holes %d bytes, the duel %d, free %d (and %d reserved, no duel code: %s); P_main %d bytes (main RAM)' % (
         f['holes'], f['used'], f['holes'] - f['used'], f['reserved'], ', '.join(RESERVED), f['main']))
     print('staged: %d of %d (page 6, laid in by d_boot), %d of %d (page 1: %s)' % (f['staged'], f['stage_room'], f['staged2'],
           f['stage2_room'], ', '.join(k for k, at in STAGE2)))

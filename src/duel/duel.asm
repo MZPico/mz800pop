@@ -123,12 +123,10 @@ H_LR            equ     leave_room              ; kid.asm leave_room, goto_other
 H_LR_END        equ     kid_tick
 H_TIME          equ     death_text              ; evres.asm the death text, the clock (show_time)
 H_TIME_END      equ     draw_game_frame
-; reserved, no duel code (docs/duel-design.md 18: the spikes of stage C run the game's own code there): the loose floors
-; and the spikes of objects.asm (the call graph and the code log still check that nothing reaches them)
+; reserved, no duel code (docs/duel-design.md 18): objects.asm's loose floors (the call graph and the code log still
+; check that nothing reaches them). Its spikes (check_spiked .. start_chompers) run in the duel since section 20
 H_OBJ           equ     make_loose_fall         ; objects.asm the loose floors, the knocks, the falling floors (mobs)
 H_OBJ_END       equ     foh2
-H_SPK           equ     check_spiked            ; objects.asm the spikes
-H_SPK_END       equ     start_chompers
 ; the pieces in W2 (docs/duel-design.md 15, 18): not holes of the game's code but W2, copied there from the RAM disk
 ; (DUEL_STAGE2) when they are needed; the compose buffers overwrite them at the next drawing. In W2's order: the text
 ; overlay (0xA000, loaded by d_text) and P_txt right after it (the texts, loaded with it); P_lob (the lobby, loaded after the lobby's
@@ -448,7 +446,9 @@ df_body:        ld      a, (K_ROOM)
                 call    check_collisions
                 call    check_bumped
                 call    check_gate_push
-                jp      check_action    ; (no check_press, spikes, chompers, knocks: the arena has none)
+                call    check_action    ; (no check_press, chompers, knocks: the arena has none)
+                call    check_spike_below       ; the spikes (docs/duel-design.md 20: SDLPoP play_kid_frame's,
+                jp      check_spiked            ; as play_guard_frame's for a guard or the shadow)
 df_in:          db      0
 df_hp:          dw      0
 
@@ -1752,7 +1752,10 @@ wr_0:           call    w_mod           ; (round 0: rnd mod n)
 ; w_set: A = the arena's entry: set up unless it is the last one, then the players' reset
 w_set:          ld      hl, d_aidx
                 cp      (hl)
-                jp      z, w_pot
+                jr      nz, ws_new
+                or      a               ; (the fixed arena again: as it is; a random one again (a rematch's first
+                jp      z, w_pot        ; round may draw the last room): set up anew, its spikes at rest)
+ws_new:
                 ld      (hl), a
                 ld      l, a            ; w_pool[A]: the room + 32 x the row, player 1's column
                 ld      h, 0
@@ -1797,7 +1800,12 @@ ws_g:           ld      (hl), 30
                 ld      c, 0
 ws_t:           ld      a, (hl)
                 and     0x1f
-                push    hl
+                cp      T_SPIKE         ; a spike: live, at rest (modifier 0: not a kill's 0xff; docs/duel-design.md 20)
+                jr      nz, ws_t0
+                xor     a
+                ld      (de), a
+                jr      ws_n
+ws_t0:          push    hl
                 ld      hl, w_cls
                 add     a, l
                 ld      l, a
@@ -1821,6 +1829,10 @@ ws_n:           inc     hl
                 ld      a, c
                 cp      30
                 jr      nz, ws_t
+                ld      a, (d_c1)       ; a spike on a start tile: plain floor
+                call    ws_sp
+                ld      a, (d_c2)
+                call    ws_sp
                 xor     a               ; no tile animations but the torches, no falling floors; drawn in full
                 ld      (TROBS_N), a
                 ld      (MOBS_N), a
@@ -1961,6 +1973,14 @@ W_PBUB          equ     4               ; (the still bubble: POTION_FRAM_BUBB's 
 w_ptyp:         db      1 * 8 + W_PBUB, 2 * 8 + W_PBUB, 5 * 8 + W_PBUB  ; heal, life, poison
 wp_c1:          db      0
 wp_c2:          db      0
+; ws_sp: A = a column of the arena's row: a spike there plain floor (modifier 0 already)
+ws_sp:          call    wp_ptr
+                ld      a, (hl)
+                and     0x1f
+                cp      T_SPIKE
+                ret     nz
+                ld      (hl), T_FLOOR
+                ret
 ; w_entry: the duel's entry: the seed (the frame counter; the harness keeps its own; HOST puts it into the room's
 ; settings, dlb_host); the fixed arena behind the menu
 w_entry:        xor     a
