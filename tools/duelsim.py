@@ -75,6 +75,7 @@ NOFLOOR = {T.empty: 'hole', T.doortop: 'hole (door top)', T.bigpillar_top: 'hole
 # modifier's bubble frame fixed, no trob): heal, life, poison
 POTION_MODS = (1 * 8 + 4, 2 * 8 + 4, 5 * 8 + 4)
 POTION_RND = 0x80               # (arena_rnd's byte: the round's + this)
+D18_W = (3, 13)                                       # (rule C: the feet tile's weight behind x: sheathed, drawn)
 # the placed spikes (docs/duel-design.md 21; duel.asm w_spk): in a room without its own spikes, on the rounds with
 # rounds mod 3 == 1, a mirrored pair: (i) the ends, two tiles behind each start tile (c1 - 2, c2 + 2), or (ii) the
 # centre, the two middle tiles between them (c1 + 2, c2 - 2); arena_rnd(round + SPIKE_RND) bit 0 picks the one tried
@@ -246,7 +247,9 @@ class DuelSim(KidSim):
         self.fixed = seed is None; self.seed16 = (seed or 0) & 0xFFFF; self.mtch = 0
         self.lvl = ARENA_LEVEL; self.aidx = None; self.arena_log = []; self.potion_log = []; self.spike_log = []
         self.placed = None                                # (the placed spikes still in the level: room, pos, pos)
-        self.d18_log = []                                 # (D18's hits: tick, player)
+        self.d18_log = []                                 # (rule C's hits, D18': tick, player)
+        self.d18_v = [None, None]                         # (rule C: per player the last tick's tile and its state)
+        self.d18_kills = []                               # (rule C's impalings: tick, player, spiked's column)
         self.arena_set(0)                                 # (the duel's entry, duel.asm w_entry: the fixed arena)
         self.score = [0, 0]; self.rounds = 0; self.timer = 0; self.result = RES_NONE; self.match = MATCH_ON
         self.round_reset()
@@ -373,9 +376,8 @@ class DuelSim(KidSim):
         self.sound_tick()
         self.guardhp_delta = 0; self.hitp_delta = 0
         # (no timers, do_mobs, check_skel: the arena has none of it)
-        pre = [self.d18_tile(c) for c in (self.Kid, self.Guard)]
         self.process_trobs()                              # (the torches' flicker, the spikes)
-        self.d18(pre)
+        self.d18()
         self.check_can_guard_see_kid()                    # (duel D11)
         self.char_frame(0, in1)
         self.kid_line = self.trace_line()
@@ -393,31 +395,44 @@ class DuelSim(KidSim):
             self.state_hash(), ' '.join(map(str, self.block_bytes(0))), ' '.join(map(str, self.block_bytes(1))))
         return self.kid_line
 
-    def d18_tile(self, c):
-        """(duel D18) the spike under a character (check_spiked's tile: its room, column, row), its modifier: (room, pos,
-        modifier) or None"""
-        if self.get_tile(c.room, c.curr_col, c.curr_row) != T.spike or self.curr_room <= 0: return None
-        return (self.curr_room, self.curr_tilepos, self.mod_at(self.curr_room, self.curr_tilepos))
-    def d18(self, pre):
-        """(duel D18, the user's rule 2026-11-13: spikes hurt while fighting) a spike that springs up (process_trobs: its
-        modifier into the out phase, bit 7, not a kill's 0xff) under a living player costs it a hit point (its own; the
-        hurt sound 13), its last one impales it (spiked, as the original rule does): once a cycle, the original rule
-        (running or jumping onto them: death) unchanged"""
+    def d18_col(self, c):
+        """(rule C) the feet tile's column: check_spiked's as the player has it standing still (the sword sheathed: frame
+        15, the weight 3 pixels behind x; drawn: the en-garde frames 158, 170, 171, 13 behind), at its x and facing,
+        whatever its frame (check_spiked's own column moves with every frame's weight: 23 pixels between the stance and
+        a strike, so a strike in place would change it)"""
+        w = D18_W[c.sword != 0]
+        return self.get_tile_div_mod_m7((c.x - w if c.direction >= RIGHT else c.x + w) & 0xFF)
+    def d18_raised(self, c, col):
+        """(rule C) the feet tile (its room, column, row) is a raised spike: its modifier in the out phase (bit 7 set,
+        not a kill's 0xff)"""
+        if self.get_tile(c.room, col, c.curr_row) != T.spike or self.curr_room <= 0: return False
+        m = self.mod_at(self.curr_room, self.curr_tilepos)
+        return bool(m & 0x80) and m != 0xFF
+    def d18(self):
+        """(rule C, D18', the user's rule 2026-11-13: stepping onto raised spikes hurts; duel.asm d18_post) after
+        process_trobs, a living player on a raised spike (d18_raised) that was not on that same tile with it raised at
+        the last tick (it stepped, was pushed or moved from spike to spike onto it, or the spike rose under it) loses a
+        hit point (its own; the hurt sound 13), at most one a tick; its last one impales it (spiked, as the original
+        rule does). Standing on raised spikes is safe; the original rule (running or jumping onto them: death) acts in
+        the player's frame after it"""
         hits = []                                         # (both decided first: one player's impaling makes a shared
         for p, c in enumerate((self.Kid, self.Guard)):    # spike 0xff, which must not spare the other: a draw)
-            if pre[p] is None or c.alive >= 0: continue
-            r, pos, m0 = pre[p]; m = self.mod_at(r, pos)
-            if not m0 & 0x80 and m & 0x80 and m != 0xFF: hits.append(p)
-        for p in hits:
+            if not self.frames[c.frame][4] & K.FRAME_NEEDS_FLOOR: continue     # (off the floor: neither hit nor kept)
+            col = self.d18_col(c); tile = (c.room & 0xFF, col & 0xFF, c.curr_row & 0xFF); up = self.d18_raised(c, col)
+            last = self.d18_v[p]; self.d18_v[p] = (tile, up)
+            if up and c.alive < 0 and last != (tile, True): hits.append((p, col))
+        for p, col in hits:
                 if p == 0: self.hitp_curr = hp = max(0, self.hitp_curr - 1)
                 else: self.guardhp_curr = hp = max(0, self.guardhp_curr - 1)
                 self.d18_log.append((self.tick + 1, p))
                 if hp: self.play_sound(13); continue
                 # its last hit point: impaled as by the original rule (spiked: frame 177, the spike harmless to the
-                # other), so that it dies where it stands, a running one too
+                # other), so that it dies where it stands, a running one too; on the spike that hit it (the feet
+                # tile's column, not check_spiked's curr_col: they differ on many frames)
                 if p == 0: self.loadkid()
                 else: self.loadshad()
-                self.get_tile(self.Char.room, self.Char.curr_col, self.Char.curr_row); self.spiked()
+                self.get_tile(self.Char.room, col, self.Char.curr_row); self.spiked()
+                self.d18_kills.append((self.tick + 1, p, self.tile_col))   # (the spike spiked disabled: tests)
                 if p == 0: self.savekid()
                 else: self.saveshad()
 

@@ -1307,3 +1307,14 @@ piece used AND/XOR semantics.
    (the phone's touch overlay). Logic and hash unchanged. Resident +75 B (2,665), P_w2 1,424 B, PR3 18 blocks, launcher
    unchanged. duel_z80 0 differing lines at 512 KB / 1 MB (4 MB in
    CI), duel_boot (the icons, two title waits two seeds, the local SHIFT), duel_net (SHIFT over the network), duel_test.
+97. Duel: rule C replaces D18 (2026-11-14, docs/duel-design.md section 21.1, the user's decision after a playtest found
+   D18 unclear): stepping onto raised spikes hurts. Once a tick after process_trobs, a living player on the floor (its
+   frame with the needs-floor flag) whose feet tile is a raised spike (modifier bit 7, not 0xff) loses a hit point when
+   that tile is new since its last tick on the floor (a step, a push or knock-back, a turn, a landing, from one spike to
+   the next) or the spike was not raised then (it rose under it); standing and fencing in place are safe; at most one a
+   tick, the last one impales it, both decided first. The feet tile: check_spiked's column standing still (13 pixels
+   behind x en garde, 3 sheathed) at the player's x and facing, whatever the frame. Random matches: rule C hits 42-54 %
+   for player 1 per layout, ~3-4 times D18's; no fall, no crash; four pool rooms with a spike next to one start tile
+   are uneven (L2 R6, L1 R24, L2 R20, L8 R4: options for the user). Resident +67 B (2,732, 159 free in the holes),
+   PR3 19 blocks (+1). Twelve new scripts (spike_c_*), four D18 scripts gone; duel_z80 0 differing lines at 512 KB / 1 MB
+   (4 MB in CI), duel_net, duel_boot.

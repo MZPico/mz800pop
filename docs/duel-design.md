@@ -479,7 +479,7 @@ the drawing keeps them flickering (11.9). **Decided 2026-11-11 (phase 2): they f
 | D15 | xpos_in_drawn_room for room 0 | **[choice]** with both links 0, SDLPoP takes room 0 for the left neighbour: the right edge's wall lands 140 units too far left and a player bumping it is thrown back ~28 units (the left edge: 3). The duel puts room 0's column 0 on the right |
 | D16 | land (seg005 land): the soft landing's sound 17 and is_guard_notice, a 2-row fall's hit point | **(section 17, 2026-11-13)** player 2 lands as the kid (its frame runs with the kid's charid in the Z80): the sound and the notice, and a 2-row fall costs it a hit point instead of SDLPoP's soft landing for the shadow |
 | D17 | proc_get_object (seg006:1858): only the kid drinks | (section 19) player 2 drinks too, on its own hit points (current, maximum, delta) |
-| D18 | (section 21, the user's rule 2026-11-13) process_trobs: a spike springing up | a spike that springs up (into its out phase) under a living player costs it a hit point, its last one impales it (spiked); once a cycle, both players (21.1) |
+| D18' | (section 21, rule C, the user's rule 2026-11-13; replaced D18) after process_trobs: raised spikes stepped onto | a living player whose feet tile becomes a raised spike (a step, a push, from one spike to the next) or under whom the spike rises loses a hit point, at most one a tick; standing and fencing in place on them is safe; its last one impales it (spiked); both players (21.1) |
 
 Not changed (charid tests that stay the shadow's / SDLPoP's): kid_sword_strike = 15 on a strike and justblocked = 4 on
 a parried strike (inputs of the guard AI only, which the duel never runs: they keep their value, they are hashed); land
@@ -1822,21 +1822,49 @@ rest costs nothing.
 - tests/duel_net.py: spike_draw.txt over the relay too.
 - tests/duel_boot.py as before.
 
-## 21. D18 and the placed spikes, as built (2026-11-13)
+## 21. Rule C (D18') and the placed spikes, as built (2026-11-13)
 
-The user's decisions after section 20: spikes make little sense in a duel if they do not hurt while fighting (**D18**),
-and rooms without spikes get some every third round (**the placed spikes**). Code: src/duel/duel.asm d18_pre, d18_post,
-d18_k (d_tick), w_spk, w_pot's undo, d_spl; tools/duelsim.py d18_tile, d18, spikes_placed, SPIKE_RND; the scripts
-tests/duel_scripts/spike_d18_*.txt and spike_placed_*.txt. The game's own code is unchanged.
+The user's decisions after section 20: spikes make little sense in a duel if they do not hurt while fighting, and rooms
+without spikes get some every third round (**the placed spikes**). The first rule for the first point, D18 (a spike
+springing up under a player: a hit point, PR #73), proved unclear in play ("sometimes it hits, sometimes not": its one
+trigger was the tick a spike finished rising, on check_spiked's tile, which moves with every frame's weight, while the
+spike is triggered by the whole body; once out, spikes never hurt again while occupied). It is replaced by the user's
+**rule C: stepping onto raised spikes hurts** (D18'). Code: src/duel/duel.asm d18_post, d18_q, d18_q2, d18_t, d18_k
+(d_tick); w_spk, w_pot's undo, d_spl; tools/duelsim.py d18_col, d18_raised, d18, spikes_placed, SPIKE_RND; the scripts
+tests/duel_scripts/spike_c_*.txt and spike_placed_*.txt. The game's own code is unchanged.
 
-### 21.1 D18: spikes hurt while fighting
+### 21.1 Rule C: stepping onto raised spikes hurts
 
-| Site | Rule |
+| Term | As built |
 |---|---|
-| D18 | in the duel's tick, around process_trobs (where the spikes move): for each player, the tile under it before it (check_spiked's tile: the record's room, column and row, as the last tick left them); when that tile is a spike whose modifier enters its out phase in process_trobs (bit 7 set afterwards, clear before, not a kill's 0xff) and the player is alive, it loses a hit point (its own: HITP_CURR for player 1, GUARDHP_CURR for player 2), with the hurt sound 13. Its last hit point impales it: the game's spiked (frame 177, that spike harmless to the other, the sound 48), so that it dies where it stands, a running player too (without it, a player killed so while running ran on dead and could fall out of the room: found by the random matches). Both players are decided first, then hit (player 1's impaling makes a shared spike 0xff, which must not spare player 2 on the same tile: found by review; tests/duel_scripts/spike_d18_shared.txt). Once a cycle: a spike held out by a player standing near it (check_spike_below re-arms it) does not spring again; the next extension can hurt again. Any frame counts, the sword's too. The original rule (running or jumping onto spikes: death, section 20) is unchanged and acts in the player's frame after it |
+| Raised | the spike tile's modifier in its out phase: bit 7 set and not 0xff (a kill's: harmless). Rising (1-4) and retracting (6-8) are not raised |
+| The feet tile | the record's room and row, and the column **check_spiked uses when the player stands still, at its x and facing whatever its frame**: get_tile_div_mod_m7(x - w) facing right, (x + w) facing left, with w = 13 en garde (the sword drawn: the stance frames 158, 170, 171 weigh 13 pixels behind x) and 3 with the sword sheathed (frame 15). check_spiked's own column moves with every frame's weight (from 14 behind x to 10 in front: a strike from the stance shifts it 23 pixels, a retreat step's first frame 16 forward), so it changed column during fencing in place and while stepping away: the source of "sometimes it hits, sometimes not" |
+| On the floor | rule C looks at a player only on a frame with the kid frame table's needs-floor flag (the flag check_on_floor uses; both players' frames run with the kid's table in the Z80). On other frames (a jump's flight, a turn's middle, the sword's moving frames) it is neither hit nor is its last tile replaced: a jump over raised spikes costs nothing, a landing on them counts as stepping onto them |
+| The state | per player the feet tile of the last tick it was on the floor and whether a raised spike was on it (duel.asm d18_v, 4 bytes a player; duelsim d18_v). Not hashed: it follows from hashed state within a tick (players start each round on a start tile, never a spike) |
 
-A D18 death decides the round as any death; both players at 0 in one tick (two spikes springing together under them)
-is a draw. duelsim: DuelSim.step calls d18_tile for both records, process_trobs, then d18.
+| Event (evaluated once a tick, after process_trobs, before the frames) | Effect |
+|---|---|
+| A living player on the floor with a raised spike on its feet tile, and its last tile on the floor was another tile (a step forward or back, careful or en garde, a turn that moves the feet tile, a push or a knock-back, a landing, a move from one spike tile to the next) | **-1 hit point** |
+| The same tile, but not raised at the last tick: the spike finished rising under the player (D18's event) | **-1 hit point** |
+| The same tile raised at the last tick too: standing on raised spikes, fencing in place (strikes and parries do not move x) | safe |
+| Running or jumping onto spikes: check_spiked / is_spike_harmful in the player's frame (section 20) | death, unchanged |
+
+- At most one hit point a player a tick (both events at once: still one); its own hit points (HITP_CURR for player 1,
+  GUARDHP_CURR for player 2), the hurt sound 13.
+- Its last hit point impales it: the game's spiked (frame 177, that spike harmless to the other, the sound 48), so that it
+  dies where it stands, a running player too, **on the spike that hit it**: spiked gets the feet tile's column (duel.asm
+  d18_k reads it from d18_v, duelsim passes it on), not check_spiked's K_COL, which differs on many frames (found by
+  review: spike_c_last_p1.txt's player was impaled a tile on, on the spike at column 5, which it disabled, while the one
+  at column 4 that hit it stayed out; `# expect impaled` checks spiked's column).
+- Both players are decided first, then hit: player 1's impaling makes a shared spike 0xff, which must not spare player 2
+  on the same tile (tests/duel_scripts/spike_c_shared.txt). A rule C death decides the round as any death; both in one
+  tick is a draw.
+- duelsim: DuelSim.step calls process_trobs, then d18 for both records. The Z80: d_tick calls d18_post after
+  process_trobs: d18_q per player (the frame's flags byte from the logic page, the column by get_tile_div_mod_m7, the
+  tile compared byte by byte with d18_v, d18_t's tile and modifier), then d18_h per player (d18_hp, d18_k).
+
+Since the decision is made before the frames, a hit shows one or two ticks after the step's input: the step's first
+frame (164) has no needs-floor flag, so the new tile counts at its second frame, at the next tick's check.
 
 ### 21.2 The placed spikes
 
@@ -1850,21 +1878,47 @@ is a draw. duelsim: DuelSim.step calls d18_tile for both records, process_trobs,
 
 ### 21.3 Checks
 
-Random matches (tools/duelarenas.py fuzz's input policy for both players, rematches; 300 seeds x 3,000 ticks, 900,000
-ticks on the random arenas with the potions, the spikes, D18 and the placed spikes; level 2 room 3 still in the pool,
-21.4): nobody out of the room, no crash.
+**Random matches** (tools/duelarenas.py fuzz's input policy for both players, rematches; 300 seeds x 3,000 ticks, 900,000
+ticks on the random arenas with the potions, the spikes and the placed spikes; per round kind; the spike deaths count
+every impaling, rule C's and the original rule's):
 
-| Rounds | Count | D18 hits P1 : P2 | Spike deaths P1 : P2 |
-|---|---|---|---|
-| a room's own spikes | 560 | 103 : 129 | 91 : 116 |
-| placed, the centre | 212 | 51 : 57 | 118 : 108 |
-| placed, the ends | 113 | 19 : 14 | 6 : 6 |
-| no spikes | 3,922 | - | - |
+| Rounds | Count | Rule C hits P1 : P2 | Spike deaths P1 : P2 | Before, D18: hits; deaths |
+|---|---|---|---|---|
+| a room's own spikes | 419 | 372 : 400 (48 %) | 101 : 130 (44 %) | 110 : 121 (48 %); 41 : 66 (38 %) |
+| placed, the centre | 222 | 245 : 205 (54 %) | 85 : 82 (51 %) | 55 : 57 (49 %); 54 : 56 (49 %) |
+| placed, the ends | 127 | 29 : 40 (42 %) | 10 : 11 (48 %) | 11 : 21 (34 %); 8 : 6 (57 %) |
+| no spikes | 3,346 | - | - | - |
 
-The shares stay within 44-58 % for player 1, the random players' own bias (they favour player 2 by about 45 : 55 in
-rounds won, section 20.2) included. Placed spikes came in 325 rounds; a round with rounds mod 3 == 1 gets none in a room
-with its own spikes or without a plain-floor pair; the centre fits more rooms than the ends (a start tile one or two
-tiles from a wall leaves no room behind it).
+Nobody out of the room, no crash. Rule C hits about 3.3 times as often as D18 in the rooms' own spikes and 4 times in
+the centre pairs, and kills more: 419 spike deaths in 768 rounds with spikes (0.55 a round) against 231 in 756 (0.31). The players' shares stay
+within 42-54 % (the random players' own bias included: they win 49 : 51 in the rounds without spikes).
+
+**The pool's rooms one by one** (the random duels in each arena alone, every round there: 30 seeds x 1,200 ticks a room,
+90 for the 12 rooms with spikes; the fall check of 21.4 again, with rule C): no player fell out of a room or crashed in
+any of the 95 rooms. Per spike room:
+
+| Room | Spikes; starts | Rule C hits P1 : P2 | Spike deaths P1 : P2 | Before, D18: hits; deaths |
+|---|---|---|---|---|
+| L1 R19 | r1c5; 2, 7 | 353 : 505 (41 %) | 109 : 192 (36 %) | 63 : 115 (35 %); 51 : 102 (33 %) |
+| L1 R24 | r1c5; 1, 6 | 236 : 958 (20 %) | 52 : 188 (22 %) | 22 : 282 (7 %); 27 : 33 (45 %) |
+| L2 R19 | r1c4; 2, 7 | 530 : 364 (59 %) | 166 : 110 (60 %) | 124 : 67 (65 %); 67 : 52 (56 %) |
+| L2 R6 | r1c3; 2, 7 | 910 : 212 (81 %) | 171 : 54 (76 %) | 288 : 29 (91 %); 38 : 24 (61 %) |
+| L2 R20 | r2c6, c7; 3, 8 | 426 : 1345 (24 %) | 167 : 409 (29 %) | 81 : 392 (17 %); 87 : 119 (42 %) |
+| L6 R2 | r1c5; 2, 7 | 400 : 517 (44 %) | 108 : 183 (37 %) | 71 : 127 (36 %); 51 : 104 (33 %) |
+| L7 R13 | r1c3, c5, c6; 2, 7 | 1392 : 1403 (50 %) | 376 : 423 (47 %) | 411 : 445 (48 %); 135 : 156 (46 %) |
+| L7 R19 | r0c6 (never reached); 2, 7 | 0 : 0 | 0 : 0 | 0 : 0; 0 : 0 |
+| L8 R6 | r1c4, c5; 2, 7 | 680 : 676 (50 %) | 249 : 252 (50 %) | 179 : 151 (54 %); 149 : 126 (54 %) |
+| L8 R4 | r2c3, c5; 2, 7 | 1295 : 594 (69 %) | 334 : 221 (60 %) | 361 : 163 (69 %); 103 : 106 (49 %) |
+| L8 R23 | r2c4; 2, 7 | 537 : 402 (57 %) | 189 : 123 (61 %) | 142 : 83 (63 %); 87 : 57 (60 %) |
+| L11 R24 | r2c0, c1; 3, 8 | 185 : 172 (52 %) | 83 : 83 (50 %) | 103 : 45 (70 %); 57 : 73 (44 %) |
+The rooms with spikes on both sides or in the middle (L7 R13, L8 R6, L11 R24) are even. The uneven ones have **a spike next to one player's
+start tile and none at the other**: L2 R6 (r1c3, next to player 1's column 2: 81 % of the hits on player 1), L1 R24
+(r1c5, next to player 2's column 6: 20 %), L2 R20 (r2c6, c7, player 2's side), L8 R4 (r2c3, c5, player 1's side). Under
+rule C the first step forward lands there. They were as uneven under D18 (its hits: L2 R6 91 %, L1 R24 7 %, L2 R20
+17 %, L8 R4 69 %), but D18 killed rarely; under rule C the hits decide more rounds (L2 R6: spike deaths 76 % player
+1's, L1 R24 22 %, L2 R20 29 %). Options for the user (not built): mirror such a
+spike to the other side, make the tile next to a start tile floor as the start tile itself (section 20.1), or leave
+these four rooms out of the pool.
 
 ### 21.4 Level 14 room 5 and level 2 room 3 left out of the pool
 
@@ -1880,31 +1934,42 @@ ticks.
 
 ### 21.5 Bytes, speed
 
-| | Before (section 20) | Now |
-|---|---|---|
-| Resident duel code | 2,382 B | 2,590 (+208: D18 ~200 over H_TICK, H_AI and H_FREE, the placed spikes' record 3, the calls); free in the holes 301 |
-| P_w2 | 1,224 of 1,536 | 1,384 (w_spk, the undo) |
-| Staged | 2,147 + 2,306 | 2,326 + 2,466 |
-| Floppy (POP800.PR3) | 16 blocks | 18 (22 of the 40 reserved left) |
-| Resident game bytes, launcher, PRES | 0 | 0 |
+| | Before (section 20) | D18 (PR #73) | Now, rule C |
+|---|---|---|---|
+| Resident duel code | 2,382 B | 2,590 (+208: D18 ~200 over H_TICK, H_AI and H_FREE, the placed spikes' record 3, the calls); free in the holes 301 | 2,732 after section 22's 2,665 (+67: d18_q's frame flag, feet column and tile compare, d18_v 6 -> 8 bytes, d18_k's column; d18_pre gone; d18_t in P_main, d18_q2 in P_time): free in the holes 159 (H_TIME 4, H_MAIN 2, H_TICK 39, H_AI 54, H_FREE 11, H_LR 30, H_KT 19) |
+| P_w2 | 1,224 of 1,536 | 1,384 (w_spk, the undo) | 1,424 (section 22's) |
+| Staged | 2,147 + 2,306 | 2,326 + 2,466 | 2,447 + 2,506 (section 22: 2,424 + 2,506) |
+| Floppy (POP800.PR3) | 16 blocks | 18 (22 of the 40 reserved left) | 19 (+1; 21 of the 40 left) |
+| Resident game bytes, launcher, PRES | 0 | 0 | 0 |
 
-D18 costs two tile lookups a tick (~1,000 T, 0.01 frames); the placed spikes cost what a room's own do (section 20.3).
+Rule C costs per player a RAM-disk byte (the frame's flags), a column division and a tile lookup a tick: ~1,500 T a
+tick for both (estimated from the code, 0.02 frames); the placed spikes cost what a room's own do (section 20.3).
 
 ### 21.6 Tests
 
-- tests/duel_scripts: spike_d18_p1.txt (seed 0x71, level 8 room 6: player 1 steps en garde onto the spikes and back,
-  three times; each spring a hit point, the third decides the round for player 2), spike_d18_p2.txt (player 2 the
-  same; its first spring a tick later: the tiles are not mirrored to the pixel), spike_d18_draw.txt (both: both at 0 in
-  one tick, a draw), spike_placed_ends.txt (seed 0x07: round 0 as p1_wins.txt, round 1 in level 11 room 14 gets the
-  ends pair, player 1 runs back onto it: spiked) and spike_placed_centre.txt (seed 0x01: round 1 in level 11 room 19
-  gets the centre pair, player 1 steps onto it: D18), spike_d18_shared.txt (random keys, seed 383: at tick 1998 the
-  spike under both players springs with player 1 at 1 hit point and player 2 at 2: player 1 impaled, player 2 still
-  hit; the other order spared player 2. A both-at-1 case on one tile, a draw, did not come up in 2,000 random matches:
-  two players share a spike tile rarely, 22 times in them). New expectations in tests/duel_test.py: `spikes` (the placed
-  pairs), `d18` (the hits: tick and player). spike_careful.txt and spike_jump.txt now take a D18 hit each (2 of 3).
-- tests/duel_z80.py: all twenty-six scripts 0 differing lines at 512 KB, 1 MB (4 MB in CI); the code log reaches no
-  hole.
-- tests/duel_net.py: spike_d18_draw.txt over the relay.
+- tests/duel_scripts, rule C (seed 0x71, level 8 room 6, spikes at columns 4 and 5, unless said; each `_p2` script is
+  its `_p1` script's moves mirrored, `# expect mirror ... 10`):
+  - spike_c_step_p1/p2.txt: steps en garde onto the spikes its body has already raised: -1, then standing: no more;
+  - spike_c_fence_p1/p2.txt: the same, then four strikes and four parries in place on them: no more;
+  - spike_c_across_p1/p2.txt: player 2 retreats, player 1 steps across both spike tiles: -2;
+  - spike_c_last_p1/p2.txt: onto them, off (two steps back) and on again, three times: -1 each, the third impales it
+    and decides the round;
+  - spike_c_pushed_p1/p2.txt (seed 0x07: round 0 as p1_wins.txt, round 1 in level 11 room 14 with the placed ends pair):
+    the other player strikes, the knock-back puts the player's feet on the spike behind it, which rises under it: -1
+    (p2 is round 1's moves mirrored; round 0 stays player 1's win);
+  - spike_c_draw.txt (seed 0xfd, level 7 room 13: player 1 on the spike at column 3, player 2 on column 6, in mirror,
+    `# expect symmetric 10`): on, off and on three times together: both impaled in one tick, a draw;
+  - spike_c_shared.txt (random keys, seed 285 of the random matches: at tick 1590 in level 8 room 4 both move onto the
+    same raised spike at 1 and 2 hit points: player 1 impaled, player 2 still hit; the other order spared player 2);
+  - updated: spike_careful.txt (careful steps over both tiles: the first rises under them, the second is stepped onto:
+    -2 each, 3 -> 1), spike_jump.txt (the spike rises under both at the edge: -1; the jump over them: nothing, off the
+    floor), spike_placed_centre.txt (two more steps to put the feet tile on the centre pair: -1), climb_palace.txt
+    (rounds 2,1, score 1:1), the digests of arenas_palace.txt and climb_dungeon.txt. spike_d18_p1, _p2, _draw and
+    _shared are gone (D18's events). The expectation `d18` lists rule C's hits, `impaled` its impalings (tick, player,
+    spiked's column: spike_c_last_p1/p2, spike_c_draw, spike_c_shared).
+- tests/duel_z80.py --cdl: all thirty-four scripts 0 differing lines at 512 KB and 1 MB (4 MB in CI); the code log
+  reaches no hole.
+- tests/duel_net.py: spike_c_draw.txt over the relay (instead of spike_d18_draw.txt).
 - tests/duel_boot.py as before.
 
 ## 22. Polish from the user's playtest: the rooms' edges, player 2's icons, the seed, SHIFT (2026-11-13)
