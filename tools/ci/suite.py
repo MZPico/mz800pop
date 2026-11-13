@@ -183,7 +183,8 @@ M4TEST = Build(['build/m4test.*'], CORE_SRC)
 M4GAME = Build(['build/m4game.*', 'build/m4ovl.bin', 'build/ovl_*.bin', 'build/ovl_*.sym'],
                CORE_SRC + ['src/boot/**', 'tools/ovltool.py'])
 DISK = Build(['build/pop800.dsk', 'build/pop800_*.mzf', 'build/boot.*', 'build/pres.*'],
-             ['src/**', 'tools/mkgamedisk.py', 'tools/pzpack.py', 'tools/cutart.py', 'tools/cutsim.py'] + MAKE_SRC)
+             ['src/**', 'tools/mkgamedisk.py', 'tools/pzpack.py', 'tools/cutart.py', 'tools/cutsim.py', 'VERSION',
+              'tools/version.py'] + MAKE_SRC)
 CHEAT_KEYS = Build(['build/cheat/build/ovl_keys.*', 'build/cheat/build/m4game.sym'], M4GAME.src)  # (m7_keys release)
 M1 = Build(['build/m1test.*', 'build/m1.pack', 'build/m1.dir', 'build/m1.json'],
            ['src/m1/**', 'tools/pack.py', 'tools/gen_kernel.py'] + MAKE_SRC)

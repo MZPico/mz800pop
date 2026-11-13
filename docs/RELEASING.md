@@ -20,6 +20,12 @@ The version is the `VERSION` file at the repository root (`X.Y.Z`, semantic vers
 The tag is `v` + that version. The workflow stops when they differ, and a real release stops when `VERSION` is
 missing (a dry run only warns).
 
+To bump it, edit `VERSION` (one line) and rebuild (`make`). `tools/version.py` checks the format at build time: it
+writes `build/version.inc`, and the loading screen shows the version centred under the credit line as `V0.1.0`.
+Anything other than `MAJOR.MINOR.PATCH` fails the build. The build also accepts a `-suffix` of letters, digits, dots
+and hyphens (`1.0.0-rc.1`, shown in upper case, since the loader's font has no lower case), for local builds only: the
+release workflow takes a plain `X.Y.Z`.
+
 ## Cutting a release
 
 1. In a PR, set `VERSION` to the new version (and anything else the release needs); merge it to `main`.

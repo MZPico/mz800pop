@@ -1334,6 +1334,17 @@ piece used AND/XOR semantics.
    from end_of_cut, a 62-byte sprite the tightest). The build prints "PRES may grow by 2 bytes (...): the title art leaves
    444, the cutscene art 2"; PRES 1 byte longer stops it ("PRES has grown into its reserve"), 3 bytes longer with "the
    cutscene art does not fit beside PRES" (both tried). Build check only: the disk is byte-identical.
+100. Boot: the network line and the version (2026-11-14): the loading screen shows under the RAM disk's line "NETWORK: MZPICO NET
+   (DUEL: CTRL+D)" or "NETWORK: NONE (DUEL: CTRL+D)". src/boot/bootscr.asm net_line (boot only, called at rd_speed's
+   end) detects the card as the duel's d_ndet does (REVD's status {02, 06, 04}, then INFO with the NET bit; a missing
+   card floats the ports and fails the first status read at once). The result is not handed on (the handoff block has
+   no spare byte; the duel detects again as before). +197 B in the boot-only part, 0 in the launcher's image; the
+   boot-only part's limit is now STACK - BOOT_STACK (0x40: it runs with a shallow stack, tests/m5_boot.py measures the
+   depth) instead of the variables' STACK - 0x100. m5_boot checks the line's pixels with and without the card
+   (POP800_UNICARD 1 / 0). The version: VERSION (the repository's root, a semantic version, 0.1.0 to start: the
+   user's choice; tools/version.py checks it and writes build/version.inc) shown as "V0.1.0" centred at row 72, under
+   the credit line (also on the 16 KB VRAM message). +7 B with it (the title / credit / version printing shared);
+   the boot-only part ends 28 B below its limit (the user approved the margin). docs/RELEASING.md: how to bump it.
 101. Duel: the sword by hand (2026-11-14, docs/duel-design.md section 23, the user's request). D19: no automatic draw
    (SDLPoP control_standing's "opponent near" block, D3 with it; back_pressed's turn that draws) and no automatic
    sheathe (control_with_sword: the opponent far, unseen or dead); a round starts with both swords sheathed. The button

@@ -38,7 +38,9 @@ build/m5_rdwait1.png, m5_rdwait14.png, m5_rdwait16.png); without it these are re
 The VRAM check (src/boot/bootscr.asm): a machine with 16 KB of VRAM (its read-back at vram_cmp forced to FFh, as a
 missing plane reads) halts at vram_stop with the message, before the RAM-disk probe (build/m5_vram16.png); with
 MZ800EMU_BIN_16K naming an mz800emu built with DEF_USE_EXTVRAM 0 (it has no setting for it) a real 16 KB boot as well
-(build/m5_vram16e.png). Prints the boot times in frames (50 per second).
+(build/m5_vram16e.png). The loading screen's network line (bootscr.asm net_line, the duel's NET detection) with
+and without the MZPico (POP800_UNICARD 1 / 0): net_res and the line's pixels against the boot's font (build/m5_net1.png,
+m5_net0.png), and the version line (VERSION, tools/version.py: "V0.1.0" centred at row 72); the boot-only code's stack depth up to rd_measured within BOOT_STACK (a pattern below STACK). Prints the boot times in frames (50 per second).
 The disk is mounted from a copy (mz800emu writes a mounted image back on eject, even read-only).
 usage: m5_boot.py [ticks]"""
 import base64, os, re, shutil, sys, tempfile
@@ -48,7 +50,7 @@ import emu
 from emu import Emu
 from m3_test import syms, RAMDISK
 from m4_game import setup, fs_plant, rd_top as emu_rd_top
-import mkgamedisk
+import mkgamedisk, version
 BUILD = os.path.join(ROOT, 'build')
 DSK = os.path.join(BUILD, 'pop800.dsk')
 G = syms(os.path.join(BUILD, 'm4game.sym')); BS = syms(os.path.join(BUILD, 'boot.sym')); PS = syms(os.path.join(BUILD, 'pres.sym'))
@@ -205,7 +207,11 @@ def floppy_run(dsk):
         e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
         e.call('reset')
         t_boot = run_to(e, BS['boot'])
+        top = BS['STACK']; low = BS['end_of_boot']     # the boot-only code's stack: a pattern below STACK, then
+        e.call('mem_write', addr=low, data_hex='a5' * (top - low))  # the lowest byte changed at rd_measured
         t_meas = t_boot + run_to(e, BS['rd_measured'])
+        global BOOT_DEPTH
+        st = e.mem(low, top - low); BOOT_DEPTH = top - low - next((i for i, b in enumerate(st) if b != 0xa5), top - low)
         global RD_GAV                               # the boot's GAME mean (clocks/byte x 10), just measured (its
         g = e.mem(BS['rs_gav'], 2); RD_GAV = g[0] | g[1] << 8       # scratch is reused before the launcher)
         t_launch = t_meas + run_to(e, BS['launch_main'])
@@ -320,10 +326,12 @@ def probe_run(dsk, size):
             zf = bool(e.call('get_registers')['AF'] & 0x40)
             top = e.mem(BS['rd_top'], 1)[0]
             kept = all(e.region(RAMDISK[0] + p, 0, 2) == pat(p) for p in range(pages))
+            e.call('bp_clear'); e.call('bp_add', addr=BS['net_line'])       # (rs_show's line, as printed: before
+            r = e.run(100); assert r['stopped_by'] == 'breakpoint', r       # net_line prints its own in rs_txt)
+            txt = e.mem(BS['rs_txt'] + 3, 40).split(b'\0')[0].decode('latin-1')
             e.call('bp_clear'); e.call('bp_add', addr=BS['rd_measured']); e.call('bp_add', addr=BS['rs_stop'])
             r = e.run(100); went_on = r['stopped_by'] == 'breakpoint' and e.call('get_registers')['PC'] == BS['rd_measured']
             res = rd_results(e)
-            txt = e.mem(BS['rs_txt'] + 3, 40).split(b'\0')[0].decode('latin-1')    # (rs_show's line, as printed)
         return top, kept, zf, res, went_on, txt
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -367,6 +375,39 @@ def stop_run(dsk, what, value, png):
         mode = e.mem(BS['rs_mode'], 1)[0]
         e.screenshot(os.path.join(BUILD, png))
     return r['stopped_by'] == 'breakpoint' and pc == BS['rs_stop'] and stuck, mode
+
+FONT_FIRST = 0x20
+def text_planes(e, text):
+    """the 7 rows of `text` as print_at draws it: the boot's font, a glyph byte a character"""
+    font = e.mem(BS['font'], 7 * (0x5B - FONT_FIRST))
+    return [bytes(font[7 * (ord(c) - FONT_FIRST) + r] for c in text) for r in range(7)]
+
+NET_TEXT = {True: 'NETWORK: MZPICO NET (DUEL: CTRL+D)', False: 'NETWORK: NONE (DUEL: CTRL+D)'}
+def net_run(dsk, card, png):
+    """the loading screen's network line (src/boot/bootscr.asm net_line) on a machine with (card) or without the
+    Unicard / MZPico (POP800_UNICARD): (net_res as expected, the line drawn as expected in colour 7 until the launch,
+    net_res)"""
+    old = os.environ.get('POP800_UNICARD')
+    os.environ['POP800_UNICARD'] = '1' if card else '0'
+    try:
+        with Emu() as e:
+            e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
+            e.call('reset')
+            run_to(e, BS['rd_measured'], 600)
+            res = e.mem(BS['net_res'], 1)[0]
+            want = text_planes(e, NET_TEXT[card]); n = len(NET_TEXT[card])
+            run_to(e, BS['launch_main'], 3000)          # (the boot goes on; the line stays until the launch)
+            pl = e.vram_planes()
+            row = lambda p, r: pl[p][(138 + r) * 40 + 4:(138 + r) * 40 + 4 + n]
+            drawn = all(row(p, r) == (want[r] if p < 3 else bytes(n)) for p in range(4) for r in range(7))
+            vt = version.screen_text(version.version()); vc = version.column(vt); vw = text_planes(e, vt)
+            vrow = lambda p, r: pl[p][(version.ROW + r) * 40 + vc:(version.ROW + r) * 40 + vc + len(vt)]
+            ver = all(vrow(p, r) == (vw[r] if p < 3 else bytes(len(vt))) for p in range(4) for r in range(7))
+            e.screenshot(os.path.join(BUILD, png))
+        return res == (0 if card else 1), drawn, res, ver
+    finally:
+        if old is None: os.environ.pop('POP800_UNICARD', None)
+        else: os.environ['POP800_UNICARD'] = old
 
 def rd_emu_bin(tmp, binary):
     """a launcher for `binary` with the project's INI (in a directory of its own)"""
@@ -415,6 +456,7 @@ def main():
         fault = stop_run(dsk, 'rd_min', 250, 'm5_rdfault.png')
         waits = {w: wait_run(dsk, w, 'm5_rdwait%d.png' % w) for w in (1, 14, 16)} if has_rd_wait() else None
         vram16 = vram16_run(dsk, 'm5_vram16.png')
+        nets = {card: net_run(dsk, card, 'm5_net%d.png' % card) for card in (True, False)}
         emu16 = os.environ.get('MZ800EMU_BIN_16K')
         vram16e = vram16_run(dsk, 'm5_vram16e.png', rd_emu_bin(tmp, emu16)) if emu16 else None
     finally:
@@ -480,6 +522,16 @@ def main():
                 {'on': 'goes on', 'stop': 'stops at rs_stop', '?': 'NEITHER'}[how],
                 '' if good else '  FAILED (want %s, GAME %.1f-%.1f)' % (want_how, lo / 10, hi / 10), w))
             bad += not good
+    for card, (res_ok, drawn, res, ver) in nets.items():
+        print('%s: net_res %d (%s), the line "%s" %s, the version line "%s" %s (screenshot build/m5_net%d.png)' % (
+            'with the MZPico NET card' if card else 'without a NET card (POP800_UNICARD=0)', res,
+            'right' if res_ok else 'WRONG', NET_TEXT[card], 'drawn' if drawn else 'NOT DRAWN AS EXPECTED',
+            version.screen_text(version.version()), 'drawn' if ver else 'NOT DRAWN AS EXPECTED', card))
+        bad += not (res_ok and drawn and ver)
+    good = 0 < BOOT_DEPTH <= BS['BOOT_STACK']
+    print('the boot-only code\'s stack: %d bytes deep up to rd_measured (BOOT_STACK %d)%s' % (
+        BOOT_DEPTH, BS['BOOT_STACK'], '' if good else '  FAILED'))
+    bad += not good
     print('16 KB VRAM (the check\'s read-back forced to FFh): %s (screenshot build/m5_vram16.png)' % (
         'halts at vram_stop with the message, no probe, no launch' if vram16 else 'FAILED'))
     bad += not vram16

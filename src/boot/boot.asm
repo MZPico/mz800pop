@@ -979,6 +979,10 @@ end_of_vars:
                 include "rdspeed.asm"
                 include "bootscr.asm"
 end_of_boot:
-                if end_of_boot > STACK - 0x100
-                .error rd_speed runs into the stack
+BOOT_STACK      equ     0x40            ; the stack while the boot-only code runs (boot_screen, rd_speed, net_line: at
+                                        ; most ~20 bytes deep, tests/m5_boot.py measures it); after rd_speed the
+                                        ; stack may grow into these bytes (dead code by then: STACK - 0x100 is the
+                                        ; variables' limit above)
+                if end_of_boot > STACK - BOOT_STACK
+                .error the boot-only code runs into its stack
                 endif
