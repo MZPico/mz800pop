@@ -1,0 +1,32 @@
+# duel
+# expect digest aa663ac00f18e735
+# seed 0x24
+# expect potions 11:14:1:8:1
+# expect hps 3/3:3/3,2/3:3/3,3/3:3/3
+# expect mirror potion_heal_p2.txt 2
+# potions heal: the mirror of potion_heal_p2.txt, player 2 strikes, player 1 drinks
+0 0 0  0 0 0 *8
+0 0 0  -1 0 0
+0 0 0  0 0 0 *3
+0 0 0  -1 0 0
+0 0 0  0 0 0 *3
+0 0 0  -1 0 0
+0 0 0  0 0 0 *3
+0 0 0  -1 0 0
+0 0 0  0 0 0 *3
+0 0 0  -1 0 0
+0 0 0  0 0 0 *3
+0 0 0  -1 0 0
+0 0 0  0 0 0 *3
+0 0 0  -1 0 0
+0 0 0  0 0 0 *3
+0 0 0  0 0 1
+0 0 0  0 0 0 *4
+0 0 0  0 1 0
+0 0 0  0 0 0 *4
+0 1 0  0 0 0
+0 0 0  0 0 0 *2
+-1 0 0  0 0 0
+0 0 0  0 0 0 *2
+0 0 1  0 0 0
+0 0 0  0 0 0 *30

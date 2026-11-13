@@ -68,6 +68,12 @@ NOFLOOR = {T.empty: 'hole', T.doortop: 'hole (door top)', T.bigpillar_top: 'hole
            T.lattice_down: 'hole (lattice)', T.lattice_small: 'hole (lattice)', T.lattice_left: 'hole (lattice)',
            T.lattice_right: 'hole (lattice)'}
 
+# the potions (docs/duel-design.md 19; the user's decisions 2026-11-13; duel.asm w_pot): the rooms' own become floor (the
+# substitution); on the rounds with an even number a mirrored pair of one type from the seed, a still bottle (the
+# modifier's bubble frame fixed, no trob): heal, life, poison
+POTION_MODS = (1 * 8 + 4, 2 * 8 + 4, 5 * 8 + 4)
+POTION_RND = 0x80               # (arena_rnd's byte: the round's + this)
+
 def tile_class(t):
     """duel.asm w_cls: 1 a trap or mechanism (floor), 2 no floor (floor in the bottom row), 0 kept"""
     return 1 if t in TRAPS else 2 if t in NOFLOOR else 0
@@ -215,7 +221,7 @@ class DuelSim(KidSim):
         self.duel_kid_frames = kid_frames
         if not kid_frames: self.guard_wh = self.image_sizes('shadow')     # chtab 5 = the shadow's images (level 12's)
         self.fixed = seed is None; self.seed16 = (seed or 0) & 0xFFFF; self.mtch = 0
-        self.lvl = ARENA_LEVEL; self.aidx = None; self.arena_log = []
+        self.lvl = ARENA_LEVEL; self.aidx = None; self.arena_log = []; self.potion_log = []
         self.arena_set(0)                                 # (the duel's entry, duel.asm w_entry: the fixed arena)
         self.score = [0, 0]; self.rounds = 0; self.timer = 0; self.result = RES_NONE; self.match = MATCH_ON
         self.round_reset()
@@ -262,8 +268,30 @@ class DuelSim(KidSim):
         """duel.asm w_round: this round's arena (set up when another than the last), then the players' reset"""
         a = 0 if self.fixed else round_arena(self.seed16, self.mtch, self.lvl, self.rounds & 0xFF, self.aidx)
         self.arena_set(a)
+        self.potions()
         self.arena_log.append((self.lvl, self.arena))
         self.round_reset()
+
+    def potions(self):
+        """duel.asm w_pot, at every round's start of the random arenas (the room set up or not): the room's potions plain
+        floor again, then on the rounds with an even number (rounds: draws counted) a mirrored pair of one type from the
+        seed: behind both players' start tiles (columns c1 - 1, c2 + 1) when both are plain floor (the tile byte T.floor,
+        modifier 0), else between them (c1 + 1, c2 - 1), else none"""
+        if self.aidx == 0: return                         # (the fixed arena: none)
+        L = self.level; base = (self.arena - 1) * 30
+        for pos in range(30):
+            if L.fg[base + pos] & 0x1F == T.potion: L.fg[base + pos] = T.floor; L.bg[base + pos] = 0
+        k = self.rounds & 0xFF
+        if k & 1: return
+        (c1, _), (c2, _) = self.start
+        at = lambda c: base + self.arena_row * 10 + c
+        ok = lambda c: 0 <= c < 10 and L.fg[at(c)] == T.floor and L.bg[at(c)] == 0
+        for a, b in ((c1 - 1, c2 + 1), (c1 + 1, c2 - 1)):
+            if ok(a) and ok(b):
+                m = POTION_MODS[arena_rnd(self.seed16, self.mtch, (k + POTION_RND) & 0xFF) % 3]
+                for c in (a, b): L.fg[at(c)] = T.potion; L.bg[at(c)] = m
+                self.potion_log.append((self.lvl, self.arena, a, b, m >> 3))
+                return
 
     def round_reset(self):
         """a round's start: both at their start tiles, standing, swords sheathed, full hit points, fresh blocks"""
@@ -394,17 +422,20 @@ class DuelSim(KidSim):
         """6 bytes; rounds counts draws too (no limit), so it is kept modulo 256, as the Z80's byte"""
         return [self.rounds & 0xFF, self.score[0], self.score[1], self.timer, self.result, self.match]
     def state_bytes(self):
-        """the hashed state, 69 bytes: the arena's entry (arenas(): 0 the fixed arena, first, so that the fixed arena's
+        """the hashed state: the arena's entry (arenas(): 0 the fixed arena, first, so that the fixed arena's
         hash is the 68 bytes' of phases 1-4), the kid's and the shadow's records (16 each, the Z80's layout), hitp_curr,
         hitp_max, guardhp_curr, guardhp_max, can_guard_see_kid, justblocked, guard_refrac, kid_sword_strike,
         guard_notice_timer, is_guard_notice, droppedout, guard_skill (12), player 1's block, player 2's block (9 each),
-        the round state (6: rounds, score 1, score 2, timer, result, match). Not hashed: Opp, CHAR_SAVE (scratch
+        the round state (6: rounds, score 1, score 2, timer, result, match), then the arena room's 30 tiles and 30
+        modifiers (docs/duel-design.md 19: 129 bytes in all). Not hashed: Opp, CHAR_SAVE (scratch
         copies), the deltas (zeroed every tick), the collision rows, prandom's seed (unused by the duel's logic)."""
         g = [self.hitp_curr, self.hitp_max, self.guardhp_curr, self.guardhp_max, self.can_guard_see_kid,
              self.justblocked, self.guard_refrac, self.kid_sword_strike, self.guard_notice_timer, self.is_guard_notice,
              self.droppedout, self.guard_skill]
+        base = (self.arena - 1) * 30
         return ([self.aidx & 0xFF] + rec_bytes(self.Kid) + rec_bytes(self.Guard) + [v & 0xFF for v in g] + self.block_bytes(0) +
-                self.block_bytes(1) + self.round_bytes())
+                self.block_bytes(1) + self.round_bytes() + [v & 0xFF for v in self.level.fg[base:base + 30]] +
+                [v & 0xFF for v in self.level.bg[base:base + 30]])
     def state_hash(self): return hash16(self.state_bytes())
 
 

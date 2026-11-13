@@ -1,5 +1,5 @@
 # duel
-# expect digest 1f05269a803fccd2
+# expect digest b9d7a0c461872e0c
 # expect match 3
 # expect rounds 1,1,2,1
 # expect score 0:0

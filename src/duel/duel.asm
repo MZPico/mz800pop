@@ -575,6 +575,10 @@ d_hashmap:      dw      d_aidx          ; the arena's entry (first: 0, the fixed
                 db      9
                 dw      d_rounds        ; the round state
                 db      6
+d_hmt:          dw      LV_FG           ; the arena room's 30 tiles and 30 modifiers (docs/duel-design.md 19: a potion's,
+                db      30              ; a trap's state; w_set points these two at the room)
+d_hmm:          dw      LV_FG + 720
+                db      30
                 dw      0
 ; d_snd: play_next_sound, the silent model for the logic (the N line: the request starts, nothing plays), the PSG
 ; with the game's priorities against what the PSG really plays (audio only: d_acur, the player's SP_WAIT; never read
@@ -1645,12 +1649,12 @@ P_lr_end:
 ; ================================================================ P_time: over evres.asm's death text and clock
                 org     H_TIME
 P_time:
-; dh_x (d_hurt; d_tick around player 2's frame): HITP_CURR <-> GUARDHP_CURR, HITP_DELTA <-> GUARDHP_DELTA
-dh_x:           ld      hl, (HITP_CURR)
-                ld      a, (GUARDHP_CURR)
-                ld      (HITP_CURR), a
-                ld      a, l
-                ld      (GUARDHP_CURR), a
+; dh_x (d_hurt; d_tick around player 2's frame): HITP_CURR / MAX <-> GUARDHP_CURR / MAX (the maxima for the potions,
+; D17: a life potion raises its drinker's maximum, a health potion asks it), HITP_DELTA <-> GUARDHP_DELTA
+dh_x:           ld      hl, (HITP_CURR)     ; (HITP_MAX, GUARDHP_MAX follow their CURR: asserted below)
+                ld      de, (GUARDHP_CURR)
+                ld      (HITP_CURR), de
+                ld      (GUARDHP_CURR), hl
                 ld      a, (HITP_DELTA)
                 ld      l, a
                 ld      a, (GUARDHP_DELTA)
@@ -1658,6 +1662,9 @@ dh_x:           ld      hl, (HITP_CURR)
                 ld      a, l
                 ld      (GUARDHP_DELTA), a
                 ret
+                if HITP_MAX != HITP_CURR + 1 or GUARDHP_MAX != GUARDHP_CURR + 1
+                .error dh_x: the maxima must follow the current hit points
+                endif
 ; d_mstart (the lobby's end, every mode): the match's level and its first arena, then the state's hash
 d_mstart:       xor     a
                 call    d_arena
@@ -1745,7 +1752,7 @@ wr_0:           call    w_mod           ; (round 0: rnd mod n)
 ; w_set: A = the arena's entry: set up unless it is the last one, then the players' reset
 w_set:          ld      hl, d_aidx
                 cp      (hl)
-                jp      z, d_reset
+                jp      z, w_pot
                 ld      (hl), a
                 ld      l, a            ; w_pool[A]: the room + 32 x the row, player 1's column
                 ld      h, 0
@@ -1785,6 +1792,8 @@ ws_g:           ld      (hl), 30
                 djnz    ws_g
                 ld      a, (d_room)     ; the traps and mechanisms plain floor, the bottom row's holes filled
                 call    tile_base       ; (duelsim substitute: w_cls 1 anywhere, 2 in the bottom row)
+                ld      (d_hmt), hl     ; (the state hash: this room's tiles and modifiers)
+                ld      (d_hmm), de
                 ld      c, 0
 ws_t:           ld      a, (hl)
                 and     0x1f
@@ -1854,7 +1863,104 @@ wt_n:           ld      hl, w_pos
                 ld      a, (hl)
                 cp      30
                 jr      nz, wt_l
+; w_pot: the potions (docs/duel-design.md 19; duelsim potions), at every round's start of the random arenas, a room set
+; up or not: the room's potions plain floor again (the last round's, untaken), then on the rounds with an even number
+; (d_rounds: draws counted) a mirrored pair of one type from the seed: behind both players' start tiles (columns c1 - 1
+; and c2 + 1) when both are plain floor (T_FLOOR, modifier 0), else between them (c1 + 1, c2 - 1), else none. A still
+; bottle: its modifier's bubble frame fixed (W_PBUB), no trob
+w_pot:          ld      a, (d_aidx)
+                or      a
+                jp      z, d_reset      ; (the fixed arena: none)
+                ld      a, (d_room)
+                call    tile_base
+                ld      b, 30
+wp_c:           ld      a, (hl)
+                and     0x1f
+                cp      T_POTION
+                jr      nz, wp_n
+                ld      (hl), T_FLOOR
+                xor     a
+                ld      (de), a
+wp_n:           inc     hl
+                inc     de
+                djnz    wp_c
+                ld      a, (d_rounds)
+                rrca
+                jp      c, d_reset      ; (an odd round: none)
+                ld      a, (d_c1)
+                dec     a
+                ld      c, a            ; behind player 1, behind player 2
+                add     a, W_GAP + 2
+                call    wp_pair
+                jr      z, wp_put
+                ld      a, (d_c1)
+                inc     a
+                ld      c, a            ; between them
+                add     a, W_GAP - 2
+                call    wp_pair
+                jp      nz, d_reset
+wp_put:         ld      a, (d_rounds)   ; the type: heal, life or poison (duelsim POTION_MODS)
+                add     a, W_PRND
+                call    w_rnd
+                ld      c, 3
+                call    w_mod
+                ld      hl, w_ptyp
+                call    k_tbl
+                ld      b, a
+                ld      a, (wp_c1)
+                call    wp_set
+                ld      a, (wp_c2)
+                call    wp_set
                 jp      d_reset
+; wp_pair: C, A = two columns of the arena's row -> Z when both are in the room and plain floor (kept in wp_c1, wp_c2)
+wp_pair:        ld      (wp_c2), a
+                ld      a, c
+                ld      (wp_c1), a
+                call    wp_ok
+                ret     nz
+                ld      a, (wp_c2)
+wp_ok:          cp      10              ; (-1 is 0xff)
+                jr      nc, wp_no
+                call    wp_ptr
+                ld      a, (hl)
+                cp      T_FLOOR
+                ret     nz
+                ld      a, (de)
+                or      a
+                ret
+wp_no:          or      a               ; (A >= 10: NZ)
+                ret
+; wp_set: A = the column: a potion there, B = its modifier
+wp_set:         call    wp_ptr
+                ld      (hl), T_POTION
+                ld      a, b
+                ld      (de), a
+                ret
+; wp_ptr: A = a column of the arena's row -> HL, DE = its tile's, its modifier's address (keeps BC)
+wp_ptr:         push    bc
+                ld      c, a
+                ld      a, (d_arow)
+                ld      b, a
+                add     a, a
+                add     a, a
+                add     a, b
+                add     a, a
+                add     a, c
+                ld      c, a
+                ld      a, (d_room)
+                call    tile_base
+                ld      b, 0
+                add     hl, bc
+                ex      de, hl
+                add     hl, bc
+                ex      de, hl
+                pop     bc
+                ret
+W_PRND          equ     0x80            ; (w_rnd's byte for the potions: the round's + this)
+W_PBUB          equ     4               ; (the still bubble: POTION_FRAM_BUBB's middle frame)
+w_ptyp:         db      1 * 8 + W_PBUB, 2 * 8 + W_PBUB, 5 * 8 + W_PBUB  ; heal, life, poison
+wp_c1:          db      0
+wp_c2:          db      0
 ; w_entry: the duel's entry: the seed (the frame counter; the harness keeps its own; HOST puts it into the room's
 ; settings, dlb_host); the fixed arena behind the menu
 w_entry:        xor     a

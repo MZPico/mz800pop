@@ -1,9 +1,9 @@
 # duel
+# expect digest dafb57e8693de4b1
 # seed 0x0007
-# expect digest f43e89cd06de8d19
 # expect match 0
-# expect rounds 2,2
-# expect score 0:2
+# expect rounds 1,2
+# expect score 1:1
 # expect arenas 11:24,11:14,11:19
 # the multi-row arenas (docs/duel-design.md 16): random keys (tools/duelarenas.py fuzz style, seed 0), the first round in level 11 room 24 (grade C): both players change rows there; then the next rounds' rooms
 0x12 0x05

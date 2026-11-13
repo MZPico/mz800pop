@@ -1,5 +1,5 @@
 # duel
-# expect digest 0f956275b29bda0a
+# expect digest 9f1072413b2c8fae
 # expect score 0:0
 # the arena's edges: both sheathe (down), turn, run into the room's walls (room 0: the zeroed links), turn
 # back, a standing jump, a jump into the ceiling (row 0 is wall), crouch, run back: the swords drawn again;

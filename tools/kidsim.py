@@ -1579,7 +1579,17 @@ class KidSim:
         self.set_tile(self.curr_room, self.curr_tilepos, T.floor); self.set_mod(self.curr_room, self.curr_tilepos, 0)
     def proc_get_object(self):
         t = self.pickup_obj_type
-        if self.Char.charid != CHARID_KID or t == 0: return
+        p2 = self.duel and self.Char.charid == CHARID_SHADOW       # (duel D17: player 2 drinks too, on its own hit points)
+        if (self.Char.charid != CHARID_KID and not p2) or t == 0: return
+        if p2: self.swap_hp()
+        self.proc_get_object_kid(t)
+        if p2: self.swap_hp()
+    def swap_hp(self):
+        """(duel D17) the kid's and the shadow's hit points exchanged (current, maximum, delta): player 2's potion acts on
+        its own, as the Z80's dh_x around its frame"""
+        (self.hitp_curr, self.guardhp_curr, self.hitp_max, self.guardhp_max, self.hitp_delta, self.guardhp_delta) = (
+            self.guardhp_curr, self.hitp_curr, self.guardhp_max, self.hitp_max, self.guardhp_delta, self.hitp_delta)
+    def proc_get_object_kid(self, t):
         if t == -1:
             self.have_sword = -1; self.play_sound(37); self.flash_color = COLOR_BRIGHTYELLOW; self.flash_time = 8
         elif t == 1:                                        # health

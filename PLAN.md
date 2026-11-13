@@ -1269,3 +1269,11 @@ piece used AND/XOR semantics.
    2,134 + 2,101 B, PR3 16 blocks (24 of 40 left); 0 resident game bytes, launcher and PRES unchanged. No behaviour
    change: duelsim and every digest as before; duel_z80 --cdl 0 differing lines at 512 KB / 1 MB / 4 MB (and 16 MB), duel_boot,
    duel_net.
+93. Duel: potions (2026-11-13, docs/duel-design.md section 19, stage B of section 18 with the user's decisions): on the
+   random arenas' even rounds a mirrored pair of one type from the seed (heal, life or poison) on the fight row, behind
+   both players' start tiles, else between them, never on a start tile; still bottles (one bubble frame, no trob),
+   back every round, the rooms' own potions floor. D17: player 2 drinks on its own hit points (dh_x exchanges the
+   maxima too; duelsim's proc_get_object for the shadow). The arena room's tiles and modifiers in the state hash (129
+   bytes: every digest changed, the fixed-arena traces otherwise equal). Resident +7 B (2,376), P_w2 1,189 B, PR3 16
+   blocks. Four potion scripts (life and poison drunk by both at once in mirror, heal by each); duel_z80 0 differing
+   lines at 512 KB / 1 MB (4 MB in CI), duel_net with potions and a tile desync, duel_boot.

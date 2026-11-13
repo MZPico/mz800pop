@@ -1,5 +1,5 @@
 # duel
-# expect digest 8bad3439747f0aba
+# expect digest 28d27ac7d6985150
 # expect hurt none
 # expect score 0:0
 # expect mirror clash.txt

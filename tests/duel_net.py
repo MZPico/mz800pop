@@ -8,11 +8,11 @@ of the script (A player 1, B player 2) through the lockstep (duel.asm d_net: NET
 tick). Both machines' traces (the kid, G, N and D lines a tick: tests/duel_z80.py's) must equal duelsim's trace of the
 script delayed by the input delay D (the first D ticks without keys, as the lockstep plays them). The script's random
 arenas (docs/duel-design.md 15: default tests/duel_scripts/arenas_dungeon.txt, two matches on two levels, then
-climb_dungeon.txt, a multi-row arena first, section 16) come from the
+climb_dungeon.txt, a multi-row arena first, section 16, and potion_heal_p2.txt, potions, section 19) come from the
 host's seed: A starts with the script's, B with another one, and B must take A's from the room's settings.
 
 Then the failures, each with fresh machines: a joiner with another build id (OTHER VERSION, back to the menu), a
-desync (a hashed byte changed on B: DESYNC on both, the title), the other machine gone (OTHER PLAYER LEFT), the other
+desync (a hashed byte changed on B, the kid's x and a tile's modifier: DESYNC on both, the title), the other machine gone (OTHER PLAYER LEFT), the other
 machine silent (CONNECTION LOST after 10 s), no relay (NO LINK: the native emulator's NET device links only at the first
 CREATE / JOIN, so the menu shows and HOST fails), a machine without the Unicard (POP800_UNICARD=0: no NET card, the
 local duel at once, no menu), and a join that fails after it took the host's seed
@@ -305,15 +305,18 @@ def in_match(relay, path, ticks=20):
 
 
 def test_desync(relay, path):
-    print('3. a desync: a hashed byte changed on B')
-    a, b, ta, tb = in_match(relay, path)
-    try:
-        x = b.mem(S['KID_REC'] + 1, 1)[0]; b.poke(S['KID_REC'] + 1, [x ^ 4])      # (the kid's x on B only)
-        both(lambda: ta.until(lambda: ta.quit, 1500), lambda: tb.until(lambda: tb.quit, 1500))
-        for name, t in (('A', ta), ('B', tb)):
-            check('%s: DESYNC, then the title' % name, t.quit and t.errors() == ['dst_desync'], t.texts)
-    finally:
-        a.close(); b.close()
+    print('3. a desync: a hashed byte changed on B (the kid\'s x; then a modifier of the arena room\'s tiles)')
+    for what in ('x', 'tile'):
+        a, b, ta, tb = in_match(relay, path)
+        try:
+            if what == 'x': at = S['KID_REC'] + 1                                  # (the kid's x on B only)
+            else: at = S['LV_FG'] + 720 + (b.mem(D['d_room'], 1)[0] - 1) * 30      # (the room's first modifier: docs/duel-design.md 19)
+            x = b.mem(at, 1)[0]; b.poke(at, [x ^ 4])
+            both(lambda: ta.until(lambda: ta.quit, 1500), lambda: tb.until(lambda: tb.quit, 1500))
+            for name, t in (('A', ta), ('B', tb)):
+                check('%s (%s): DESYNC, then the title' % (name, what), t.quit and t.errors() == ['dst_desync'], t.texts)
+        finally:
+            a.close(); b.close()
 
 
 def test_left(relay, path):
@@ -426,7 +429,8 @@ def main():
     if '--delay' in args: i = args.index('--delay'); DELAY = int(args[i + 1]); del args[i:i + 2]
     if '--only' in args: i = args.index('--only'); only = args[i + 1]; del args[i:i + 2]
     path = args[0] if args else os.path.join(ROOT, 'tests', 'duel_scripts', 'arenas_dungeon.txt')
-    climb = [] if args else [os.path.join(ROOT, 'tests', 'duel_scripts', 'climb_dungeon.txt')]   # (a multi-row arena)
+    climb = [] if args else [os.path.join(ROOT, 'tests', 'duel_scripts', q) for q in    # (a multi-row arena; potions,
+             ('climb_dungeon.txt', 'potion_heal_p2.txt')]                               # docs/duel-design.md 19)
     relay = Relay()
     try:
         for name, f in (('match', lambda: [test_match(relay, q) for q in [path] + climb]),

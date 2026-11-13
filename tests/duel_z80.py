@@ -3,9 +3,9 @@
 src/duel/duel.asm laid in as the launcher lays it: build/duel_patch.json) against tools/duelsim.py, tick for tick, on
 the scripted duels of tests/duel_scripts. Per tick the four lines duelsim writes: the kid line (mid-tick, after player
 1's frame: duel.asm d_mid), the G line (the shadow and the fight's globals, after the hit points: d_gline), the N line
-(play_next_sound: the game's snd_snap) and the D line (the round state, the 69-byte hash, both blocks: d_tend); and
+(play_next_sound: the game's snd_snap) and the D line (the round state, the 129-byte hash, both blocks: d_tend); and
 the state before the first tick (d_ready: the D 0 line's hash). The Z80's own hash (d_hashv) must equal the hash of
-the 69 bytes as the harness reads them, and duelsim's. Drawing and audio, every tick against duelsim's state: the
+the 129 bytes as the harness reads them, and duelsim's. Drawing and audio, every tick against duelsim's state: the
 images each player is drawn with (the blades, DRAW_MAP), the bottom text's key (duel.asm d_key: hud_key) and the
 round's and match's tunes (duel.asm ds_j: jingles). Taken by tracepoints (tools/emu.py: the emulator never stops).
 Then (with the default scripts, or --blades) player 2's blade (docs/duel-design.md 16.4, duel.asm d_blade): at the ticks
@@ -98,10 +98,12 @@ def guard_line(m, S):
 
 
 def state_bytes(m, S, D):
-    """the 69 hashed bytes (duelsim state_bytes) as the Z80 has them"""
+    """the 129 hashed bytes (duelsim state_bytes) as the Z80 has them"""
     g = m.mem(S['g_glob'], 14); blk1 = list(m.mem(S['CTRL1'], 6)) + [m.mem(S['HAVE_SWORD'], 1)[0], g[11], g[5]]
     return (list(m.mem(D['d_aidx'], 1)) + list(m.mem(S['KID_REC'], 32)) + list(m.mem(S['HITP_CURR'], 2)) + [g[0], g[1], g[4]] + list(g[6:11]) +
-            [g[12], g[13]] + blk1 + list(m.mem(D['d_blk2'], 9)) + list(m.mem(D['d_rounds'], 6)))
+            [g[12], g[13]] + blk1 + list(m.mem(D['d_blk2'], 9)) + list(m.mem(D['d_rounds'], 6)) +
+            list(m.mem(S['LV_FG'] + (m.mem(D['d_room'], 1)[0] - 1) * 30, 30)) +       # (the arena room's tiles and modifiers)
+            list(m.mem(S['LV_FG'] + 720 + (m.mem(D['d_room'], 1)[0] - 1) * 30, 30)))
 
 
 def duel_line(m, S, D, tick):
@@ -117,10 +119,11 @@ def ranges(S, D):
     gv = (S['KID_REC'], 82)                         # the records, CHAR_SAVE, the globals
     ov = (S['HITP_CURR'], 16)                       # OV: hit points, have_sword, TROBS_N, MOBS_N
     kv = (S['CTRL1'], 6)
-    dv = (D['d_aidx'], D['d_hashv'] + 2 - D['d_aidx'])     # (the arena's entry, the round state, the inputs, the hash)
+    dv = (D['d_room'], D['d_hashv'] + 2 - D['d_room'])     # (the arena's room, entry, the round state, the inputs, the hash)
+    lv = (S['LEVEL'], 1440)                         # (the hash: the arena room's tiles and modifiers)
     bv = (D['d_blk2'], 90)                          # (player 2's block: over d_boot, docs/duel-design.md 18)
-    return {'ready': [gv, ov, kv, dv, bv], 'mid': [gv, ov, (S['LEVEL'], 1440)], 'g': [gv, ov],
-            'n': [(S['SND_STOPS'], 1)], 'end': [gv, ov, kv, dv, bv],
+    return {'ready': [gv, ov, kv, dv, bv, lv], 'mid': [gv, ov, lv], 'g': [gv, ov],
+            'n': [(S['SND_STOPS'], 1)], 'end': [gv, ov, kv, dv, bv, lv],
             'drawn': [(S[k] + S['SD_FRAME'], 1) for k in ('SPR_A', 'SPR_S', 'SPR_G', 'SPR_GS')] + [(D['d_key'], 4)],
             'jingle': []}
 
@@ -205,7 +208,8 @@ def run_script(e, S, D, path, shots=None):
     want_ticks = sum(1 for l in ref if l.startswith('D ')) - 1
     shot_at = set(t for t in SHOT_TICKS if t <= want_ticks) if shots else set()
     frames = 0
-    while tick < want_ticks:
+    while len(ends) < want_ticks:                   # (to the last tick's end: its D line; a run of 100 frames may stop
+                                                    # between its kid line and its end)
         r = e.run(100); frames += 100
         assert frames < 400 + 60 * want_ticks, (path, 'no progress', tick)
         for rec in e.trace_read():
@@ -237,7 +241,7 @@ def run_script(e, S, D, path, shots=None):
                 if tick in shot_at:
                     e.run(12); e.screenshot(os.path.join(shots, '%s_%03d.png' % (os.path.splitext(os.path.basename(path))[0], tick)))
             if tick >= want_ticks and k == 'end': break
-        if tick >= want_ticks: break
+        if len(ends) >= want_ticks: break
     e.trace_clear()
     n = min(len(ref), len(got))
     for i in range(n):

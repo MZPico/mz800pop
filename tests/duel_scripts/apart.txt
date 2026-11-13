@@ -1,5 +1,5 @@
 # duel
-# expect digest 94f40b5310e54437
+# expect digest f7a0cb75bc3d7195
 # expect hurt none
 # expect score 0:0
 # expect sheathe 30,30
