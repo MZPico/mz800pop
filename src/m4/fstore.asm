@@ -1,6 +1,6 @@
 ; ---------------------------------------------------------------- the frame store's fill (the fill overlay, src/m4/ovl_fill.asm)
 ; docs/ramdisk-tiers.md section 11. On a RAM disk of 1 MB and more (HO_RDTOP, the boot's probe; the harness pokes it)
-; the chosen kid and sword keys (tools/fstore.py: class 1 on every such card, class 2 too from FS_TOP2) are generated
+; the chosen kid and sword keys (tools/fstore.py: class 1 on every such card, class 2 too from FS_TOP2: 4 MB) are generated
 ; into RAM-disk pages 8+ by the dedicated generator (src/m4/fsgen.asm, step 2: every stored variant of an image from
 ; one read of it per mirror, byte for byte the kernel's spr_fetch buffer). The boot clears the marker (page 8 FS_MARK:
 ; the build id and the class) and starts the game with ACT_FILL (src/m4/gstart.asm gs_fill: the fill on the loading
@@ -152,9 +152,9 @@ ffp_snd:        ld      a, (ff_snd)             ; (no bar: the guard fill; a str
 
 ; fs_guard: A = the level's guard set (game.asm guard_type_tbl's index; dir_tab's CH_GUARD is its directory), at every
 ; level start on 1 MB and more after fs_fill. Patches the lookup's fsl_g to the set's first slot, then, unless the
-; set's flag (page 8 FS_GFLAG + set) says it is there, fills it: below FS_TOP2 (1 MB) the six sets share one region
+; set's flag (page 8 FS_GFLAG + set) says it is there, fills it: below FS_TOP2 (1-3.9 MB) the six sets share one region
 ; (tools/fstore.py g 1: the most used keys, ~80 KB), so every flag and every guard slot (ids FS_GID-470) is cleared
-; first; from FS_TOP2 (16 MB, g 2) each set has its own region with every variant and stays for the session. The
+; first; from FS_TOP2 (4 MB and more, g 2) each set has its own region with every variant and stays for the session. The
 ; fill's input: the set's record (FS_MPAGE FS_GMADDR + FS_GREC * (6 (g - 1) + set): 36 mask words, the region's page
 ; and address). The flag last. Keeps the interrupt state (the ISR touches neither the RAM disk nor the generator's
 ; registers), no bar; dir_buf put back.

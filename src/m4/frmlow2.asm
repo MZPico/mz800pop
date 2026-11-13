@@ -4,7 +4,7 @@
 ; picture plus the fore pieces: it depends on the picture only, like the background (frm_drop drops both, FE_CMASK with
 ; FE_MASK). Its first composition is kept in the complete picture's slot (lc_save; row-major: a row's four planes one
 ; after the other), and later such chunks copy it from there straight into VRAM (lc_direct): no restore, no people, no
-; fore pieces, no compose buffer, no pending chunk. The slots: 16 MB page FRM_P16 + 0x6000 (every picture); 512 KB and
+; fore pieces, no compose buffer, no pending chunk. The slots: 4 MB+ page FRM_P16 + 0x6000 (every picture); 512 KB and
 ; 1 MB the pool FRM_CPOOL in page FRM_CPAGE (FRM_NC pictures: the first chopper's first FRM_NC; lc_step).
 ; lc_direct runs with VRAM mapped: this code and its data stay clear of 0x1000-0x1FFF and 0x8000-0x9FFF.
 LD_MARGIN       equ     20                      ; lines (sprite.asm BEAM_MARGIN: the scan, the call, the interrupt)
@@ -29,7 +29,7 @@ lc_step:        push    af
                 or      a                       ; the kid in it nearly always: its pictures were kept, not copied)
                 ld      a, 0
                 jr      nz, ls_cp
-                ld      a, (HO_MAIN + HO_RDTOP) ; 16 MB: its slot + 0x6000
+                ld      a, (HO_MAIN + HO_RDTOP) ; 4 MB+: its slot + 0x6000
                 cp      FS_TOP2
                 jr      c, ls_pool
                 ld      a, h

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The full regression's job matrix (.github/workflows/full-regression.yml; docs/ci.md "The RAM-disk sizes"): the parts
-of FULL (tools/ci/suite.py) times the RAM-disk variants. A variant is a size (512K, 1M, 16M: POP800_RD_SIZE) or 1M+N
-(1M with POP800_RD_WAIT=N wait states on every RAM-disk access, N at most 14: the boot stops above that). By default every part runs at 512K, 1M and 16M,
+of FULL (tools/ci/suite.py) times the RAM-disk variants. A variant is a size (512K, 1M, 4M by default; also 2M, 8M, 16M: POP800_RD_SIZE) or 1M+N
+(1M with POP800_RD_WAIT=N wait states on every RAM-disk access, N at most 14: the boot stops above that). By default every part runs at 512K, 1M and 4M,
 except suite.SIZE_FREE (tests that never see the size: 1M only), and suite.WAIT_PARTS also at 1M+1.
 Which variants and parts run:
   - the workflow's inputs on a manual run (environment REGRESS_SIZES, REGRESS_PARTS: words separated by spaces or
@@ -41,8 +41,8 @@ def arg(name):
 def matrix(variants, parts):
     every = 'every-size' in variants
     variants = [v for v in variants if v != 'every-size'] or DEFAULT
-    bad = [v for v in variants if not re.fullmatch(r'(512K|1M|16M)(\+[0-9]+)?', v)]
-    if bad: sys.exit('regress_matrix.py: unknown RAM-disk variant(s) %s (known: 512K 1M 16M, SIZE+N for N wait states, every-size)' % ' '.join(bad))
+    bad = [v for v in variants if not re.fullmatch(r'(512K|1M|2M|4M|8M|16M)(\+[0-9]+)?', v)]
+    if bad: sys.exit('regress_matrix.py: unknown RAM-disk variant(s) %s (known: 512K 1M 2M 4M 8M 16M, SIZE+N for N wait states, every-size)' % ' '.join(bad))
     # every part boots the floppy or starts the game, and the boot stops when its GAME read speed is above 36.0
     # clocks/byte (src/boot/rdspeed.asm RD_SPEED_MAX): 21 + N + N/32 is 35.4 at +14, 36.5 at +15. No part expects the
     # stop (tests/m5_boot.py boots at +16 itself for that), so a variant beyond +14 could only fail.

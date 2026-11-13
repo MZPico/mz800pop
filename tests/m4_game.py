@@ -158,16 +158,15 @@ def setup(e, lv, start=True, opts=GUARDS_OFF, fs_fresh=True, fs_run=True):
     frame_store(e, S, fs_fresh, fs_run)
     return S
 
-RD_SIZES = {1: '64K', 4: '256K', 8: '512K', 16: '1M'}
+RD_SIZES = {1: '64K', 4: '256K', 8: '512K', 16: '1M', 32: '2M', 64: '4M', 128: '8M', 256: '16M'}
 def rd_top(e):
-    """the emulated RAM disk's last 64 KB page, as the boot's probe finds it (7 = 512 KB, 15 = 1 MB, 255 = 16 MB), from
-    the emulator itself (its RAM-disk regions: the size it really runs with, whatever INI it got; mz800emu's MCP lists at
-    most 52 pages of a 16 MB disk, and no size between 1 MB and 16 MB exists)"""
-    n = sum(r['kind'] == 'ramdisk_std' for r in e.call('regions_list')['regions'])
-    return n - 1 if n <= 16 else 255
+    """the emulated RAM disk's last 64 KB page, as the boot's probe finds it (7 = 512 KB, 15 = 1 MB, 31 = 2 MB, 63 = 4 MB,
+    127 = 8 MB, 255 = 16 MB), from the emulator itself (its RAM-disk regions: the size it really runs with, whatever INI
+    it was given; mz800emu lists every page since MZPico/mz800emu#2)"""
+    return sum(r['kind'] == 'ramdisk_std' for r in e.call('regions_list')['regions']) - 1
 def rd_size(e):
     top = rd_top(e)
-    return RD_SIZES.get(top + 1, '16M')
+    return RD_SIZES.get(top + 1, '%dK' % (64 * (top + 1)))
 
 def fs_clear(e, S):
     """the frame store's marker cleared (1 MB and more only: below, page 8 is page 0): the next game start fills it"""
@@ -185,7 +184,7 @@ def frame_store(e, S, fresh=True, run=True):
     """the size (rd_top: the emulator's) as the boot's probe hands it over (HO_MAIN + HO_RDTOP, src/boot/launch.inc), then the program runs to
     the end of the frame store's fill (src/m4/fstore.asm fs_fill, in game_start; docs/ramdisk-tiers.md \"As built: step
     1\"): 1 MB and more generate the store once per RAM disk (the marker), so the tests' frame counts start after it.
-    fresh: the marker is cleared first, so every run fills anew (0.6 s of host time on 1 MB, 1.6 s on 16 MB) and no
+    fresh: the marker is cleared first, so every run fills anew (0.6 s of host time on 1 MB, 1.6 s on 4 MB and more) and no
     store left in the RAM-disk file by another build or run is trusted. run=False: the program stays at `start` (the fill
     then runs inside game_start, as in a launched game: tests/m5_boot.py)"""
     top = rd_top(e)

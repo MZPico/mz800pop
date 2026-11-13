@@ -22,12 +22,12 @@ machines of the LAN, or a Windows-native emulator that does not see WSL's 127.0.
 
 The emulator must be MZPico's mz800emu (https://github.com/MZPico/mz800emu, branch `wasm`) with the Unicard's NET
 device (`src/emulator/hw-generic/unicard/unimgr_net.c`); the commit the tests use is CI's `MZ800EMU_COMMIT` in
-`.github/workflows/pr-checks.yml` (b4ebc084d639 today). Use an existing build of it, or build it in WSL as CI does
+`.github/workflows/pr-checks.yml` (ca2b70909913 today). Use an existing build of it, or build it in WSL as CI does
 (SDL3 and minizip-ng into ~/mzdeps, the emulator into ~/mz800emu-bin; the apt packages are the workflow's "Packages"
 step):
 
 ```sh
-export MZ800EMU_COMMIT=b4ebc084d639d360888d328d06e1b3bc49236c05
+export MZ800EMU_COMMIT=ca2b709099139abeb9531f2b71f48084bd7160ce
 tools/ci/build_deps.sh sdl3 && tools/ci/build_deps.sh emu
 export LD_LIBRARY_PATH=$HOME/mzdeps/lib MZ800EMU_BIN=$HOME/mz800emu-bin/mz800emu
 ```

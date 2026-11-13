@@ -9,7 +9,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 : "${DEPS:=$HOME/mzdeps}" "${EMU_DIR:=$HOME/mz800emu-bin}" "${SRC:=$HOME/depsrc}"
 : "${SDL3_TAG:=release-3.4.14}" "${SDL3_IMAGE_TAG:=release-3.4.4}" "${MINIZIP_TAG:=4.2.2}"
-: "${MZ800EMU_COMMIT:=b4ebc084d639d360888d328d06e1b3bc49236c05}"
+: "${MZ800EMU_COMMIT:=ca2b709099139abeb9531f2b71f48084bd7160ce}"
 : "${SDLPOP_COMMIT:=3c5add5fb7f83d4ceb542823ab66d00146c4271b}"
 : "${MZDISK_COMMIT:=0db3add4b9964dc566442371852056b6aac61217}"
 JOBS=$(nproc)

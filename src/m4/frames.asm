@@ -23,7 +23,7 @@
 ; spike.asm frm_drop, frm_reset): a redraw of the shadow that touches an object's rect (anires.asm dirty_hook: every
 ; dr_run and cs_put) drops its pictures, a room draw every object and slot. The object's own redraw here keeps its
 ; other pictures (they are pictures of the same background).
-; The slots (fs_seek): 16 MB: page FRM_P16, 1 KB each, six per object; else the pieces of pages 0-7 listed in
+; The slots (fs_seek): from FS_TOP2 (4 MB and more): page FRM_P16, 1 KB each, six per object; else the pieces of pages 0-7 listed in
 ; fs_bdir (FRM_BIG bytes: a chopper's or a spike's picture) and fs_sdir (FRM_SMALL: a spike's), taken by each object
 ; at its first step until they run out (pictures without a slot are drawn as before, every time).
 ; Entry frm_step (stub frm_fast): B = the new picture's key, D = the old one's (a chopper: n | the blood bit; a spike:
@@ -339,9 +339,12 @@ fr_s1:          or      a
 
 ; fs_alloc: IX = a new entry: its slots (FE_FIRST: the first, bit 7 the small pool; FE_CNT: how many: the pictures
 ; 0 .. FE_CNT - 1 have one). A spike takes six small ones, else six big ones, else what is left of the pool with more.
+                if      FRM_P16 - FS_TOP2
+                .error  the pictures' page is the full tier's threshold page (tools/fstore.py FS_TOP2)
+                endif
 fs_alloc:       ld      a, (HO_MAIN + HO_RDTOP)
                 cp      FS_TOP2
-                ld      hl, FRM_N * 6           ; (16 MB: six for each)
+                ld      hl, FRM_N * 6           ; (4 MB+: six for each)
                 jr      nc, fa_0
                 ld      hl, FRM_NS * 256 + FRM_NB
 fa_0:           ld      a, (FRM_NEXT)           ; L, H = the big and the small pool's free slots
@@ -398,7 +401,7 @@ fs_seek:        ld      a, (fs_k)
                 ld      a, (HO_MAIN + HO_RDTOP)
                 cp      FS_TOP2
                 jr      c, fk_dir
-                ld      a, b                    ; 16 MB: page FRM_P16, id x 1024
+                ld      a, b                    ; 4 MB+: page FRM_P16, id x 1024
                 add     a, a
                 add     a, a
                 ld      d, a

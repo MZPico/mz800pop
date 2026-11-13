@@ -7,7 +7,7 @@ on the emulated RAM disk's size (the emulator's: POP800_RD_SIZE, else emu/mz800e
     char_fetch's fs_on points at the lookup; a second start finds the marker and does not fill again; then a level
     start of each guard set (section 13): the lookup's guard base, the sets' flags, every guard slot of the key table
     and every stored entry of the level's set as tools/fstore.py (build/assets/fstore_gkeys.txt) and prebuild.py
-    compute them, the shared region refilled on 1 MB, the sets kept on 16 MB, and the level start's time;
+    compute them, the shared region refilled on 1 MB (to 3.9 MB: 2 MB too), the sets kept on 4 MB and more (8, 16 MB), and the level start's time;
   - below 1 MB: no fill, fs_on unchanged (today's fetch), pages 8+ not written (they alias pages 0-7).
 Prints the fill's time (frames of 71,136 T). The pixels with the store: every VRAM test (tests/m4_game.py and the
 others) on that size. usage: m8_fstore.py"""
@@ -43,7 +43,7 @@ def z80_read(e, page, addr, n):
     return e.mem(ZR + 0x100, n)
 
 # a level of each guard set (game.asm guard_type_tbl, the palace guard by level type), in an order that refills the
-# shared region on 1 MB and comes back to a set already filled (16 MB: kept; 1 MB: filled again)
+# shared region on 1 MB and comes back to a set already filled (4 MB and more: kept; 1-3.9 MB: filled again)
 GLEVELS = ((1, 0), (6, 1), (3, 2), (13, 3), (12, 4), (4, 5), (1, 0))
 GSETS = ('guard', 'fat', 'skel', 'vizier', 'shadow', 'guard_palace')
 
