@@ -1,0 +1,16 @@
+# duel
+# expect digest 27cd5a3bf3afae0e
+# expect hurt none
+# expect score 0:0
+# expect sheathe 0,0
+# expect mirror draw_p2.txt
+# the sword by hand (D19, docs/duel-design.md 23): the round starts with both swords sheathed and nobody draws by
+# himself; player 1's button with a direction is the game's careful step (no draw), the button alone draws; player 2
+# draws later; the mirror of draw_p2.txt
+0 0 0 0 0 0 *4
+1 0 1 0 0 0
+0 0 0 0 0 0 *14
+0 0 1 0 0 0
+0 0 0 0 0 0 *12
+0 0 0 0 0 1
+0 0 0 0 0 0 *16

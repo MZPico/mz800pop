@@ -1001,7 +1001,8 @@ cws2:           bit     7, h
                 jp      p, swordfight
                 ld      a, SQ_TURN_WITH_SWORD
                 jp      seqtbl_offset_char
-cws3:           ld      a, (K_CHARID)
+cws3:
+duel_d19c:      ld      a, (K_CHARID)    ; (the duel patch's site D19c: no automatic sheathe, src/duel/duel.asm)
                 or      a
                 jr      nz, cws4
                 ld      a, (K_ALIVE)

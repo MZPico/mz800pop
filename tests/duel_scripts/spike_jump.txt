@@ -1,10 +1,11 @@
 # duel
-# expect digest 9814b2581c12f86a
+# expect digest 8e6a0cd4e295e21c
 # seed 0x71
 # expect hps 3/3:3/3,2/3:2/3
 # expect d18 26:1,26:2
 # spikes: a careful step to their edge, then a standing jump over them, both players; rule C: the spikes rise under both standing at the edge (their feet tiles on them), a hit point each; the jump over them costs nothing (off the floor: not looked at) and lands past them
-0 0 0  0 0 0 *2
+0 0 1  0 0 1
+0 0 0  0 0 0
 0 1 0  0 1 0
 0 0 0  0 0 0 *6
 1 0 1  -1 0 1

@@ -793,7 +793,9 @@ control_standing:
                 call    check_get_item
                 or      a
                 ret     nz
-cst0:           jp      cs_guard        ; (guard.asm: draw the sword, offguard; back at cs_shift / cs_noshift)
+cst0:
+duel_d19a:      jp      cs_guard        ; (guard.asm: draw the sword, offguard; back at cs_shift / cs_noshift; the duel
+                                        ; patch's site D19a: the sword by hand, src/duel/duel.asm)
 cs_shift:       ld      a, (C_SHIFT)
                 cp      C_HELD
                 jr      nz, cs_noshift
@@ -928,7 +930,7 @@ crouch:         ld      a, SQ_CROUCH
                 ret
 back_pressed:   call    release_arrows
                 ld      (C_BACK), a
-                jp      back_pressed_g  ; (guard.asm: turn, or turn and draw the sword)
+duel_d19b:      jp      back_pressed_g  ; (guard.asm: turn, or turn and draw the sword; the duel patch's site D19b)
 forward_pressed:
                 call    get_edge_distance
                 ld      b, a
@@ -2328,7 +2330,7 @@ check_on_floor: ld      a, (CF_FLAGS)
                 jp      nz, cof1
                 call    in_wall
 cof1:           ld      a, (CURR_TILE2)
-                call    k_is_floor
+duel_d20b:      call    k_is_floor      ; (the duel patch's site D20b: no fall beyond the arena's sides, src/duel/duel.asm)
                 ret     nz
                 ld      a, (level_number)
                 cp      12

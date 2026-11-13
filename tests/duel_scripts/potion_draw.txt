@@ -1,0 +1,14 @@
+# duel
+# expect digest 2e92a544a5b1d896
+# seed 0x07
+# expect potions 11:24:4:7:2
+# expect hps 3/3:3/3,4/4:3/3
+# the button next to a potion (D19): a potion in front comes first (SDLPoP check_get_item): player 1, facing the life
+# potion, drinks it with the button (4 of 4) and draws with the next press; player 2 turns away from its potion and
+# draws with the button: the opponent behind, the turn that draws (turn_draw_sword), its potion left standing
+0 0 1  1 0 0
+0 0 0  0 0 0 *5
+0 0 0  0 0 1
+0 0 0  0 0 0 *20
+0 0 1  0 0 0
+0 0 0  0 0 0 *16

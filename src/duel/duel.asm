@@ -110,6 +110,14 @@ H_D14           equ     duel_d14
 H_D14_END       equ     duel_d14 + 3
 H_D15           equ     duel_d15 + 1
 H_D15_END       equ     duel_d15 + 3
+H_D19A          equ     duel_d19a + 1           ; (D19, the sword by hand: docs/duel-design.md 23)
+H_D19A_END      equ     duel_d19a + 3
+H_D19B          equ     duel_d19b + 1
+H_D19B_END      equ     duel_d19b + 3
+H_D19C          equ     duel_d19c
+H_D19C_END      equ     duel_d19c + 3
+H_D20B          equ     duel_d20b + 1
+H_D20B_END      equ     duel_d20b + 3
 H_SD1           equ     duel_sd1 + 1
 H_SD1_END       equ     duel_sd1 + 3
 H_SD2           equ     duel_sd2 + 1
@@ -194,6 +202,10 @@ d_ptab:         dw      P_ai, P_ai_end - P_ai
                 dw      P_free, P_free_end - P_free
                 dw      P_d14, 3
                 dw      P_d15, 2
+                dw      P_d19a, 2
+                dw      P_d19b, 2
+                dw      P_d19c, 3
+                dw      P_d20b, 2
                 dw      P_sd1, 2
                 dw      P_sd2, 2
                 dw      P_pp1, 2
@@ -281,32 +293,23 @@ d_quit:         call    d_nleave
 dq_stop:        halt
                 jr      dq_stop
 
-; D18' / rule C (docs/duel-design.md 21, the user's rule 2026-11-13: stepping onto raised spikes hurts): d18_t, IX = a
-; player's record, C = the feet tile's column (d18_q): A = 1 when that tile (the record's room and row) is a raised
-; spike (its modifier in the out phase: bit 7 set, not a kill's 0xff), else 0. duelsim d18_raised
-d18_t:          ld      b, (ix+OF_ROW)
-                ld      a, (ix+OF_ROOM)
-                call    k_get_tile
-                cp      T_SPIKE
-                jr      nz, d18_0
-                ld      a, (CURR_ROOM)
-                or      a
-                jr      z, d18_0
-                call    tile_base       ; DE = the room's modifiers
-                ld      a, (CURR_TILEPOS)
-                add     a, e
-                ld      e, a
-                jr      nc, d18_t1
-                inc     d
-d18_t1:         ld      a, (de)
-                inc     a
-                jr      z, d18_0        ; (0xff: harmless)
-                dec     a
-                rlca
-                and     1
+; dh_x (d_hurt; d_tick around player 2's frame): HITP_CURR / MAX <-> GUARDHP_CURR / MAX (the maxima for the potions,
+; D17: a life potion raises its drinker's maximum, a health potion asks it), HITP_DELTA <-> GUARDHP_DELTA
+dh_x:           ld      hl, (HITP_CURR)     ; (HITP_MAX, GUARDHP_MAX follow their CURR: asserted below)
+                ld      de, (GUARDHP_CURR)
+                ld      (HITP_CURR), de
+                ld      (GUARDHP_CURR), hl
+                ld      hl, HITP_DELTA
+                ld      de, GUARDHP_DELTA
+                ld      a, (de)
+                ld      b, (hl)
+                ld      (hl), a
+                ld      a, b
+                ld      (de), a
                 ret
-d18_0:          xor     a
-                ret
+                if HITP_MAX != HITP_CURR + 1 or GUARDHP_MAX != GUARDHP_CURR + 1
+                .error dh_x: the maxima must follow the current hit points
+                endif
 P_main_end:
                 if P_main_end > H_MAIN_END
                 .error the duel's main piece is larger than the game's main loop
@@ -472,8 +475,7 @@ df_body:        ld      a, (K_ROOM)
                 call    load_frame_to_obj
                 call    load_fram_det_col
                 call    set_char_collision
-                call    bump_into_opponent
-                call    check_collisions
+                call    check_collisions        ; (no bump_into_opponent: D20a, docs/duel-design.md 23)
                 call    check_bumped
                 call    check_gate_push
                 call    check_action    ; (no check_press, chompers, knocks: the arena has none)
@@ -837,6 +839,32 @@ n_stat:         ld      a, N_STATUS
 d_bltab:                                ; (d_blade: the image, the data's address, wb * 8 - 1)
                 include "../../build/duel_blades_tab.inc"
 d_bltab_end:
+; D18' / rule C (docs/duel-design.md 21, the user's rule 2026-11-13: stepping onto raised spikes hurts): d18_t, IX = a
+; player's record, C = the feet tile's column (d18_q): A = 1 when that tile (the record's room and row) is a raised
+; spike (its modifier in the out phase: bit 7 set, not a kill's 0xff), else 0. duelsim d18_raised
+d18_t:          ld      b, (ix+OF_ROW)
+                ld      a, (ix+OF_ROOM)
+                call    k_get_tile
+                cp      T_SPIKE
+                jr      nz, d18_0
+                ld      a, (CURR_ROOM)
+                or      a
+                jr      z, d18_0
+                call    tile_base       ; DE = the room's modifiers
+                ld      a, (CURR_TILEPOS)
+                add     a, e
+                ld      e, a
+                jr      nc, d18_t1
+                inc     d
+d18_t1:         ld      a, (de)
+                inc     a
+                jr      z, d18_0        ; (0xff: harmless)
+                dec     a
+                rlca
+                and     1
+                ret
+d18_0:          xor     a
+                ret
 P_ai_end:
                 if P_ai_end > H_AI_END
                 .error the duel's piece P_ai is larger than its hole (the guard AI)
@@ -1193,6 +1221,17 @@ dg1:            ld      l, b
                 call    hp_strip
                 jp      d_bswap         ; (the game's red icons again)
 d_ghps:         dw      0xffff          ; player 2's hit points as drawn (current, max; 0xff: draw again)
+; d20b (kid.asm check_on_floor's floor test, duel_d20b; A = the tile at the character): D20b, no fall beyond the arena's
+; sides: the tile has no floor and the character's column is outside the room (room 0's: the zeroed links, a wall
+; without floor): its weight point back into the room's edge column (column 0 from its first pixel, 9 to its last), the
+; tile there asked again. NZ: floor (k_is_floor's)
+d20b:           call    k_is_floor
+                ret     nz
+                ld      a, (K_COL)
+                cp      10              ; (0..9: in the room; -1 is 0xff)
+                jp      nc, d20o
+                xor     a               ; (Z: no floor)
+                ret
 P_kt_end:
                 if P_kt_end > H_KT_END
                 .error the duel's piece P_kt is larger than its hole (kid_tick)
@@ -1495,6 +1534,18 @@ d18_l:          add     a, b
                 call    get_tile_div_mod_m7
                 pop     hl
                 jp      d18_q2
+; d19d (d19a's end): the opponent seen and behind: SDLPoP's turn, drawing as it turns when there is room
+; (back_pressed_g: turn_draw_sword, or a plain turn at an edge); else the sword drawn where the player faces
+d19d:           ld      a, (CAN_SEE)
+                cp      2
+                jp      c, draw_sword
+                call    char_opp_dist
+                bit     7, h
+                jp      z, draw_sword
+                call    release_arrows
+                ld      (C_BACK), a
+                ld      (C_SHIFT2), a           ; (the press used, as draw_sword's)
+                jp      back_pressed_g
 P_tick_end:
                 if P_tick_end > H_TICK_END
                 .error the duel's piece P_tick is larger than its hole (tick_pre .. check_skel)
@@ -1774,6 +1825,27 @@ dnl_w:          halt                    ; input must reach it before the room is
                 djnz    dnl_w           ; then)
                 ld      a, N_LEAVE
                 jp      n_do
+; d19a (kid.asm control_standing after the item check, duel_d19a; both players): D19, the sword by hand
+; (docs/duel-design.md 23): guard.asm cs_guard (SDLPoP's automatic draw when the opponent is near, D3 in it) never runs;
+; the button pressed alone (C_SHIFT2 held: a press not used yet, C_SHIFT: held now; no direction) draws the sword
+; (d19d: with the opponent seen behind, a turn that draws), else the game's shift branch.
+; A potion or the sword in front comes first (check_get_item, before the site)
+d19a:           ld      a, (HAVE_SWORD)
+                or      a
+                jp      z, cs_shift
+                ld      a, (C_SHIFT2)           ; (a new press, the button still held: both C_HELD = 0xff)
+                ld      hl, C_SHIFT
+                and     (hl)
+                inc     a
+                jp      nz, cs_shift
+                ld      hl, (C_X)               ; (C_Y follows it: 0 0 no direction)
+                ld      a, l
+                or      h
+                jp      z, d19d
+                jp      cs_shift
+                if C_Y != C_X + 1 or C_HELD != 0xff or C_RELEASED != 0 or C_IGNORE != 1
+                .error d19a: C_Y must follow C_X; C_HELD 0xff, C_RELEASED 0, C_IGNORE 1
+                endif
 P_lr_end:
                 if P_lr_end > H_LR_END
                 .error the duel's piece P_lr is larger than its hole (kid.asm leave_room)
@@ -1782,22 +1854,20 @@ P_lr_end:
 ; ================================================================ P_time: over evres.asm's death text and clock
                 org     H_TIME
 P_time:
-; dh_x (d_hurt; d_tick around player 2's frame): HITP_CURR / MAX <-> GUARDHP_CURR / MAX (the maxima for the potions,
-; D17: a life potion raises its drinker's maximum, a health potion asks it), HITP_DELTA <-> GUARDHP_DELTA
-dh_x:           ld      hl, (HITP_CURR)     ; (HITP_MAX, GUARDHP_MAX follow their CURR: asserted below)
-                ld      de, (GUARDHP_CURR)
-                ld      (HITP_CURR), de
-                ld      (GUARDHP_CURR), hl
-                ld      a, (HITP_DELTA)
-                ld      l, a
-                ld      a, (GUARDHP_DELTA)
-                ld      (HITP_DELTA), a
-                ld      a, l
-                ld      (GUARDHP_DELTA), a
-                ret
-                if HITP_MAX != HITP_CURR + 1 or GUARDHP_MAX != GUARDHP_CURR + 1
-                .error dh_x: the maxima must follow the current hit points
-                endif
+d20o:           call    dx_weight       ; A = the weight point's x
+                ld      c, a
+                ld      a, (K_COL)
+                add     a, a            ; (carry: left of the room)
+                ld      a, 65                   ; x + (65 - weight): column 0's first pixel (58 + 7: get_tile_div_mod_m7)
+                jr      c, d20l
+                ld      a, 65 + 139             ; x + (204 - weight): column 9's last
+d20l:           sub     c
+                ld      hl, K_X
+                add     a, (hl)
+                ld      (hl), a
+                call    load_fram_det_col
+                call    get_tile_at_char
+                jp      k_is_floor
 ; d_mstart (the lobby's end, every mode): the match's level and its first arena, then the state's hash
 d_mstart:       xor     a
                 call    d_arena
@@ -2397,6 +2467,18 @@ d_reset:        ld      a, (d_c1)                       ; player 1: column, dire
                 call    d_fresh         ; the blocks: player 1's (the globals), then player 2's
                 call    d_swap
                 call    d_fresh
+                call    dr_coll         ; D20c: both players' collision rows where they stand (player 1's in the
+                call    savekid         ; globals, player 2's in its block), so that a turn and a run at once still
+                call    d_swap          ; bump into a wall
+                call    loadshad_and_opp
+                xor     a               ; (player 2 with the kid's charid, as in d_tick: the kid's images' sizes, D1)
+                ld      (K_CHARID), a
+                call    dr_coll
+                ld      a, CHARID_SHADOW
+                ld      (K_CHARID), a
+                call    saveshad
+                call    d_swap
+                call    loadkid_and_opp
                 ld      a, ROUND_HP
                 ld      hl, HITP_CURR
                 ld      (hl), a
@@ -2419,6 +2501,10 @@ drs_z:          ld      (hl), a
                 dec     a               ; (audio only: any sound may cut the last round's tune)
                 ld      (d_acur), a
                 ret
+dr_coll:        call    load_frame_to_obj
+                call    load_fram_det_col
+                call    set_char_collision
+                jp      check_collisions
 ; dr_char: Char (KV) = a fresh record: B = column, C = direction, E = charid; then the stand sequence played
 dr_char:        ld      hl, KV
                 push    bc
@@ -2859,6 +2945,18 @@ P_d14_end:
                 org     H_D15
 P_d15:          dw      d15
 P_d15_end:
+                org     H_D19A
+P_d19a:         dw      d19a            ; (control_standing: the duel's draw, not cs_guard's)
+P_d19a_end:
+                org     H_D19B
+P_d19b:         dw      bpg_turn        ; (back_pressed: a plain turn, never turn_draw_sword)
+P_d19b_end:
+                org     H_D19C
+P_d19c:         jp      swordfight      ; (control_with_sword, the opponent far or unseen: en garde, no put_sword_away)
+P_d19c_end:
+                org     H_D20B
+P_d20b:         dw      d20b            ; (check_on_floor's floor test)
+P_d20b_end:
                 org     H_SD1
 P_sd1:          dw      d_sdraw
 P_sd1_end:

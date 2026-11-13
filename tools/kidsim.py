@@ -838,7 +838,14 @@ class KidSim:
         if not self.kid_rules() and self.control_down == HELD and self.control_forward == HELD:     # (duel D2)
             self.draw_sword(); return
         offguard_skip = False                 # C: goto loc_6213 (skip the shift branch)
-        if self.have_sword:
+        if self.duel:                         # (duel D19a: the sword by hand: no automatic draw; the button alone draws)
+            if (self.have_sword and self.control_shift2 == HELD and self.control_shift == HELD and self.control_x == 0
+                    and self.control_y == 0):
+                if self.can_guard_see_kid >= 2 and self.char_opp_dist() < 0:      # (the opponent behind: SDLPoP's
+                    self.control_backward = self.control_shift2 = self.release_arrows()          # turn and draw)
+                    self.back_pressed_draw(); return
+                self.draw_sword(); return
+        elif self.have_sword:
             if self.offguard != 0 and self.control_shift >= RELEASED: offguard_skip = True
             elif self.can_guard_see_kid >= 2:
                 distance = self.char_opp_dist()
@@ -846,7 +853,7 @@ class KidSim:
                     self.holding_sword = 1
                     if (distance & 0xFFFF) < 0xFFFA:                     # (word)distance < (word)-6
                         O = self.Opp
-                        if (O.charid == CHARID_SHADOW or self.duel) and (O.action == A_MIDAIR or 107 <= O.frame < 118):   # (duel D3)
+                        if O.charid == CHARID_SHADOW and (O.action == A_MIDAIR or 107 <= O.frame < 118):   # (duel D3: retired by D19a)
                             self.offguard = 0
                         else:
                             self.draw_sword(); return
@@ -897,6 +904,9 @@ class KidSim:
         self.seqtbl_offset_char(SEQ['crouch']); self.control_down = self.release_arrows()
     def back_pressed(self):
         self.control_backward = self.release_arrows()
+        if self.duel: self.seqtbl_offset_char(SEQ['turn']); return           # (duel D19b: a plain turn)
+        self.back_pressed_draw()
+    def back_pressed_draw(self):
         # after the turn the kid draws the sword if he has it, sees the guard, the guard was behind him and there is room
         if (self.have_sword == 0 or self.can_guard_see_kid < 2 or self.char_opp_dist() > 0 or
                 self.distance_to_edge_weight() < 2):
@@ -1038,6 +1048,7 @@ class KidSim:
                 elif distance < 0:
                     if (distance & 0xFFFF) < 0xFFFC: self.seqtbl_offset_char(SEQ['turn_with_sword']); return   # < (word)-4
                     else: self.swordfight(); return
+            if self.duel: self.swordfight(); return          # (duel D19c: no automatic sheathe: en garde until down)
             if self.kid_rules() and C.alive < 0: self.holding_sword = 0                           # (duel D6)
             if C.charid < CHARID_GUARD:
                 if C.frame == 171: C.sword = SWORD_SHEATHED; self.seqtbl_offset_char(SEQ['put_sword_away'])
@@ -1400,6 +1411,12 @@ class KidSim:
     def check_on_floor(self):
         if self.cur_frame[4] & FRAME_NEEDS_FLOOR:
             if self.get_tile_at_char() == T.wall: self.in_wall()
+            if not self.tile_is_floor(self.curr_tile2) and self.duel and not 0 <= self.Char.curr_col <= 9:
+                # (duel D20b: no fall beyond the arena's sides, room 0's columns: the weight point back into the room's
+                # edge column, its tile asked again)
+                w = self.dx_weight() - 65
+                self.Char.x += -w if w < 0 else 139 - w
+                self.load_fram_det_col(); self.get_tile_at_char()
             if not self.tile_is_floor(self.curr_tile2):
                 C = self.Char
                 if (self.level.number == 12 and self.united_with_shadow < 0 and C.curr_row == 0 and
