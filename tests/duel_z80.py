@@ -8,12 +8,16 @@ the state before the first tick (d_ready: the D 0 line's hash). The Z80's own ha
 the 69 bytes as the harness reads them, and duelsim's. Drawing and audio, every tick against duelsim's state: the
 images each player is drawn with (the blades, DRAW_MAP), the bottom text's key (duel.asm d_key: hud_key) and the
 round's and match's tunes (duel.asm ds_j: jingles). Taken by tracepoints (tools/emu.py: the emulator never stops).
+Then (with the default scripts, or --blades) player 2's blade (docs/duel-design.md 16.4, duel.asm d_blade): at the ticks
+player 2 is first drawn in each of the seven body images that carry the blade in each facing (all 14 pairs required;
+tests/duel_blade's two scripts turn player 2 round), the blade's pixels
+(tools/duelblade.py) on the screen are white, its suit light blue (with d_blade disabled the check fails: checked).
 The inputs: the script's two bytes a tick in RAM-disk page 5 (game.asm RD_SCRIPT), read by duel.asm d_input (d_script).
 
   --cdl        the code log over every script (mz800emu's CDL): no byte of a hole outside the duel's pieces executed,
                none of tools/duelpatch.py's COLD callees (the call-graph check's other half)
   --shots DIR  screenshots of the duel at a few ticks per script (DIR/<script>_<tick>.png)
-usage: duel_z80.py [--cdl] [--shots DIR] [script.txt ...]   (default: tests/duel_scripts/*.txt)"""
+usage: duel_z80.py [--cdl] [--blades] [--shots DIR] [script.txt ...]   (default: tests/duel_scripts/*.txt and --blades)"""
 import glob, json, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
@@ -118,6 +122,52 @@ def ranges(S, D):
             'n': [(S['SND_STOPS'], 1)], 'end': [gv, ov, kv, dv],
             'drawn': [(S[k] + S['SD_FRAME'], 1) for k in ('SPR_A', 'SPR_S', 'SPR_G', 'SPR_GS')] + [(D['d_key'], 4)],
             'jingle': []}
+
+
+# player 2's blade (duel.asm d_blade): scripts where player 2 shows the images that carry it, together every image in
+# both facings (tests/duel_blade: player 2 turned to face right, found by a duelsim search)
+BLADE_SCRIPTS = ('duel_scripts/apart.txt', 'duel_scripts/clash.txt', 'duel_blade/turned_sheathe.txt',
+                 'duel_blade/turned_draw.txt')
+
+
+def blade_check(S, D):
+    """[failures]: for every (image, facing) pair of the seven images, at the first tick of BLADE_SCRIPTS that duelsim
+    draws player 2 so (drawn_ids), after its drawing the blade's pixels white on the screen; all 14 pairs required"""
+    import duelblade as BL
+    fails = []; seen = set(); plan = []; todo = set((i, d) for i in BL.BANDS for d in (-1, 0))
+    for script in BLADE_SCRIPTS:
+        inputs, opts = DS.read_duel_script(os.path.join(ROOT, 'tests', script)); sim = DS.DuelSim(seed=opts['seed']); want = {}
+        for t, (a, b) in enumerate(inputs, 1):
+            sim.step(a, b); k = (drawn_ids(sim, sim.Guard, 1)[0], sim.Guard.direction)
+            if k in todo: todo.discard(k); want[t] = k[0]
+        if want: plan.append((script, inputs, opts, want))
+    if todo: fails.append('pairs (image, direction) the scripts never show: %s' % sorted(todo))
+    for script, inputs, opts, want in plan:
+        with Emu() as e:
+            G.setup(e, DS.ARENA_LEVEL, fs_run=False)
+            patch_in(e, S, D, b''.join(bytes(p) for p in inputs), opts['seed'])
+            for t in range(1, max(want) + 2):
+                e.call('bp_clear'); e.call('bp_add', addr=D['d_tend']); n = 0
+                while e.run(200)['stopped_by'] != 'breakpoint':
+                    n += 200; assert n < 4000, (script, t, 'no progress')
+                if t - 1 not in want: continue
+                sd = e.mem(S['SPR_G'], 24)            # (tick t - 1's drawing: the descriptor as it was drawn)
+                img, mir, x, y = sd[8], sd[9], sd[6] | sd[7] << 8, sd[5]
+                if img != want[t - 1]:
+                    fails.append('%s tick %d: player 2 drawn as image %d, not %d' % (script, t - 1, img, want[t - 1])); continue
+                wb = BL.image(img)[0]; pl = e.vram_planes()
+                col = lambda px, py: sum(((pl[q][py * 40 + px // 8] >> (px & 7)) & 1) << q for q in range(4))
+                px = BL.blade(img)
+                got = [col(x + (wb * 8 - 1 - dx if mir else dx), y + dy) for dy, dx in px]
+                suit = sum(1 for yy in range(y, y + sd[3]) for xx in range(x, x + wb * 8) if 0 <= xx < 320 and col(xx, yy) == 9)
+                ok = all(c == 15 for c in got) and suit > 0
+                print('  blade, %s tick %d: image %d %s, %d pixels white %s, the suit light blue (%d pixels)%s' % (
+                    script, t - 1, img, 'mirrored' if mir else 'as stored', sum(c == 15 for c in got), 'ok' if ok else 'FAILED',
+                    suit, '' if ok else ' ' + str(got)), flush=True)
+                if not ok: fails.append('%s tick %d image %d' % (script, t - 1, img))
+                seen.add((img, mir))
+    if len(seen) != 2 * len(BL.BANDS): fails.append('(image, mirror) pairs checked: %d of %d' % (len(seen), 2 * len(BL.BANDS)))
+    return fails
 
 
 def run_script(e, S, D, path, shots=None):
@@ -240,6 +290,8 @@ def main():
     args = sys.argv[1:]
     shots = None; cdl = CDL[0] = '--cdl' in args
     if cdl: args.remove('--cdl')
+    blades = '--blades' in args or not [a for a in args if a.endswith('.txt')]
+    if '--blades' in args: args.remove('--blades')
     if '--shots' in args:
         i = args.index('--shots'); shots = args[i + 1]; del args[i:i + 2]; os.makedirs(shots, exist_ok=True)
     scripts = args or sorted(glob.glob(os.path.join(ROOT, 'tests', 'duel_scripts', '*.txt')))
@@ -257,6 +309,10 @@ def main():
             errs, fig = cdl_check(e, S, D)
             print('code log and profiler over the scripts: %s; %s' % ('; '.join(errs) if errs else 'no hole reached', fig))
             total += len(errs)
+    if blades:
+        bf = blade_check(S, D)
+        print('player 2\'s blade: %s' % ('; '.join(bf) if bf else 'white in all seven images, both facings'))
+        total += len(bf)
     print('total differing:', total)
     sys.exit(1 if total else 0)
 

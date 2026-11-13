@@ -742,7 +742,8 @@ tiles; duelsim calls them, they do nothing there). The tick's end calls snd_next
 
 ### 12.4 Input, pacing, drawing, sound
 
-- **Input** (d_input, the byte of 11.6): player 1 the game's read_inputs (cursor keys, SHIFT, joystick 1), **BREAK**
+- **Input** (d_input, the byte of 11.6): player 1 the game's read_inputs (cursor keys, SHIFT, joystick 1; since 16.3 also
+  `/` and `?` as the button), **BREAK**
   quit, **ENTER** rematch; player 2 **W A S D**, **Q** the button, joystick 2 (IN F1h, the layout of joystick 1).
   Checked in tests/duel_boot.py from the emulator's keyboard; joystick 2 not (the harness has no second joystick).
 - **Pacing**: mode 0, every tick drawn, at least 4 frames (game.asm's rule). Measured over match.txt (572 ticks, the
@@ -986,7 +987,7 @@ arena is drawn first (the full room draw, both players standing), then the botto
   `DESYNC` (the relay saw two hashes differ), `OTHER PLAYER LEFT` (the room dropped), `CONNECTION LOST` (no link, a
   failed command, or 10 s without the other's input).
 
-The player's own keys over the network: either local set (the cursor keys / SHIFT / joystick 1 or W A S D / Q /
+The player's own keys over the network: either local set (the cursor keys / SHIFT, `/`, `?` / joystick 1 or W A S D / Q /
 joystick 2, ORed), BREAK and ENTER.
 
 ### 14.3 The driver (duel.asm P_obj; BomberNet c/common/netdev_card.c)
@@ -1297,7 +1298,7 @@ tests/duel_boot.py runs the floppy path twice: without the Unicard Ctrl+D reache
 before it) and the match plays; with it the menu over the fixed arena, then 1 LOCAL, as before. tests/duel_net.py has
 an eighth scenario (nocard): a machine without the card plays local at once; the others keep the card.
 
-### 16.3 The local keys: SHIFT (investigated, not changed)
+### 16.3 The local keys: SHIFT, and player 1's button on `/` and `?` (the user's option A)
 
 - **Left and right SHIFT are one matrix bit** (strobe 8, bit 0) on the MZ-800: the game's read_inputs reads KEYMAT + 8
   bit 0; mz800emu maps both host SHIFTs to it (iface_keyboard.c), its keyboard reference says so (docs/agent/
@@ -1308,28 +1309,57 @@ an eighth scenario (nocard): a machine without the card plays local at once; the
   to it: BREAK, BLANK, CR, the right SHIFT, with `/` and `?` left of the right SHIFT. The left SHIFT sits under A and
   next to ALPHA / Z: player 2's hand.
 - Options (diagrams in the user's pop800-duel/keys/): A, player 1 also fires with `/` and `?` (7/0, 7/1: the cursor
-  keys' own matrix column), SHIFT kept (~10 bytes in d_input, the network and phone paths unchanged); B, INST / DEL
-  (7/7, 7/6) above the cursor block; C, player 2 moves (joystick 2, or E S D F + W).
+  keys' own matrix column), SHIFT kept; B, INST / DEL (7/7, 7/6) above the cursor block; C, player 2 moves (joystick
+  2, or E S D F + W).
+- **Built: A** (the user's choice, 2026-11-13). d_input ORs the button bit (bit 4) into player 1's byte when `/` or `?`
+  is down (KEYMAT + 7 bits 0-1, read by read_inputs in the same scan as the cursor keys; 11 bytes in H_TICK). SHIFT,
+  either key, stays the button, so the network (the own byte is the local sets ORed) and the phone's touch overlay
+  (SHIFT as fire) are unchanged; over the network `/` and `?` fire as well. The game outside the duel is unchanged.
+  tests/duel_boot.py presses `/` and then `?` with the cursor keys (player 1's byte 0x12 and 0x11: the button) in the
+  local duel.
 
-### 16.4 The blue player's blade (investigated, not changed)
+### 16.4 The blue player's blade: kept white (the user's choice S1, 2026-11-13)
 
 Player 2's separately drawn sword (the sword set, the descriptor SPR_GS) is never recoloured: d_sdraw changes only the
-body's descriptor SPR_G. The blade turns blue where it is **part of the kid's body image**: drawing the sword (frames
+body's descriptor SPR_G. The blade turned blue where it is **part of the kid's body image**: drawing the sword (frames
 209, 210: images 210, 211), the strike's start (152: image 176, the tip) and sheathing (237-240: images 169-172). Its
-pixels are white 15 like the suit, so the plane operation (where B is set, R and G cleared) makes them light blue 9 and
-no input colour can come out white. A fix needs the blade's pixels per image (a mask drawn white after the body, or
-pre-coloured copies of those seven images); the alternative of recolouring only light grey 7 leaves the suit white.
-Renders in the user's pop800-duel/sword/.
+pixels are white 15 like the suit, so the plane operation (where B is set, R and G cleared) made them light blue 9, and
+no input colour comes out white.
+
+**The two ways, by their bytes:** pre-coloured player-2 copies of the seven images (the blade white, the suit blue,
+drawn without the operation) would need ~4.5 KB of image data (4 planes x wb x h each), more than the 709 bytes left
+in the staging area, plus a fetch hook (the frame store and spr_fetch both read the kid's pack). **The blade mask is
+built**: 110 pixels, 227 bytes of data and a 28-byte table.
+
+- **tools/duelblade.py** takes the blade's pixels from the images themselves: the white pixels inside a band per row
+  (BANDS, the blade's line where it runs outside the body; where it enters the body it is white on white for player 1
+  too and is left to the suit). `--asm` writes build/duel_blades.inc (per image the count, then dy, dx from the
+  unmirrored image's top left) and build/duel_blades_tab.inc (d_bltab: the image, the data's address in the staged
+  copy, wb * 8 - 1); `--render` the comparison (the user's pop800-duel/sword/sword_S1_built.png).
+- **duel.asm d_blade** (d_sdraw's end, so per compose chunk): when the drawn image is one of the seven, the pixels are
+  read from the RAM disk (the data lies in P_w2's staged copy: page 6, never overwritten in a duel) and each one in the
+  chunk is set white in all four planes of the compose buffer (V_COMPOSE + row x 8 + column, planes 512 apart).
+  Mirrored, a pixel is at wb x 8 - 1 - dx from the descriptor's x (spr_fetch mirrors whole bytes). Cost: ~3,000 T on
+  the few ticks with such an image, nothing on the others (a 7-entry compare).
+- Drawing only: the logic, the hash and the traces are unchanged.
+- **tests/duel_z80.py** (with the default scripts, or --blades): every (image, facing) pair, 7 x 2, at the first tick
+  duelsim draws player 2 so in apart.txt, clash.txt and tests/duel_blade's two scripts (player 2 turned to face right:
+  random input found by a duelsim search, the players change sides); after each drawing every blade pixel on the
+  screen is white and the suit light blue. All 14 pairs are required. With d_blade disabled the check fails (checked). Screens in pop800-duel/sword/
+  sword_fixed_screens.png.
 
 ### 16.5 Figures
 
-| | Before (15.6) | Now |
+| | Before (15.6) | With 16.1-16.4 and section 17 (multi-row arenas) |
 |---|---|---|
-| Code holes | 3,451 of 3,771 B, 320 free | **3,413**, 358 free (H_KT 269 of 290, H_AI 1,022 of 1,073, H_OBJ 661 of 675, H_SPK 160 of 205) |
-| P_main, P_w2 | 256, 654 B | unchanged |
-| Staged (PRS_DUEL1) | 3,862 of 4,544 B | 3,824 |
-| Floppy (POP800.PR3) | 14 blocks | 14 (26 of the 40 reserved left) |
+| Code holes | 3,451 of 3,771 B, 320 free | **3,598**, 173 free (H_TIME 160 of 174, H_KT 271 of 290, H_AI 1,048 of 1,073, H_OBJ 661 of 675, H_SPK 188 of 205, H_TICK 517 of 517) |
+| P_main, P_w2 | 256, 654 B | 256, 931 B of W2's top 1,536 (the blade data 227, section 17's table 50) |
+| Staged (PRS_DUEL1) | 3,862 of 4,544 B | 4,286 |
+| Floppy (POP800.PR3) | 14 blocks | 15 (25 of the 40 reserved left) |
 | Resident game bytes, launcher, PRES | 0, unchanged | 0, unchanged |
+
+By change: the icons and the no-network path -38 B of holes; the keys +11; the blade +168 (the lookup 47, the pixel
+loop 90, the table 28, d_sdraw's jump 2) and 227 staged; section 17 its own (17.3).
 
 ## 17. Multi-row arenas, as built (2026-11-13)
 

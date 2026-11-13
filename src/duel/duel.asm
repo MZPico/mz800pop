@@ -34,7 +34,7 @@
 ; audio only). The HUD and the audio only read the logic's state.
 ;
 ; Input (d_input; the byte of duel-design 11.6: bit 0 left, 1 right, 2 up, 3 down, 4 the button, 5 quit, 6 rematch):
-; player 1 the game's (the cursor keys, SHIFT, joystick 1: read_inputs' INPUT), BREAK = quit, ENTER = rematch;
+; player 1 the game's (the cursor keys, SHIFT, joystick 1: read_inputs' INPUT) and / or ? as the button, BREAK = quit, ENTER = rematch;
 ; player 2 W A S D + Q and joystick 2 (IN F1h). The harness (tests/duel_z80.py) sets d_script: two bytes a tick from
 ; RAM-disk page RD_LV_PAGE instead.
 
@@ -736,6 +736,38 @@ dbs_l:          ld      a, (de)
                 inc     de
                 djnz    dbs_l
                 ret
+; d_blade (d_sdraw's end, IY = player 2's descriptor): in the seven body images that carry the blade (drawing the
+; sword, the strike's start, sheathing: tools/duelblade.py) the blade's pixels white again in this compose chunk, as
+; player 1's; the suit's colours made them light blue. The pixels (dy, dx from the unmirrored image's left) are staged
+; with P_w2 and read from the RAM disk; mirrored, dx is wb * 8 - 1 - dx (spr_fetch mirrors whole bytes)
+d_blade:        ld      a, (iy+SD_FRAME)
+                ld      hl, d_bltab - 1
+                ld      b, (d_bltab_end - d_bltab) / 4
+dbl_f:          inc     hl
+                cp      (hl)
+                inc     hl
+                jr      z, dbl_1
+                inc     hl
+                inc     hl
+                djnz    dbl_f
+                ret
+dbl_1:          ld      e, (hl)         ; the data's address in the staged copy
+                inc     hl
+                ld      d, (hl)
+                inc     hl
+                ld      a, (iy+SD_MIRROR)
+                or      a
+                jr      z, dbl_2
+                ld      a, (hl)         ; mirrored: wb * 8 - 1
+dbl_2:          ld      (dbl_m + 1), a
+                ld      a, (iy+SD_YH)   ; (above the screen's top: none of the seven, but no wrap either)
+                or      a
+                ret     nz
+                ld      a, DUEL_STAGE_PAGE
+                call    far_seek
+                in      a, (RD_DATA)
+                ld      b, a
+                jp      dbl_p
 P_ai_end:
                 if P_ai_end > H_AI_END
                 .error the duel's piece P_ai is larger than its hole (the guard AI)
@@ -1060,7 +1092,7 @@ dsd_nc:         exx
                 exx
                 jp      nz, dsdrow
                 pop     ix              ; (the caller's descriptor pointer)
-                ret
+                jp      d_blade         ; (the blade white again in the images that carry it)
 ; d_ghp: player 2's hit point strip as player 1's, mirrored at the right (hpstrip.asm hp_strip: the kid's icons, full
 ; and empty, both in blue: d_bswap around the calls), drawn when the hit points change
 d_ghp:          ld      a, (GUARDHP_CURR)
@@ -1130,7 +1162,13 @@ di_live:        call    read_inputs     ; (game.asm: KEYMAT, player 1's INPUT: c
                 or      b
                 ld      hl, INPUT
                 or      (hl)
-                ld      (d_in1), a
+                ld      c, a
+                ld      a, (KEYMAT + 7) ; / (7/0) and ? (7/1): player 1's button too, next to the right SHIFT
+                and     3               ; (the user's key option A, docs/duel-design.md 16.3; SHIFT stays the button)
+                ld      a, c
+                jr      z, di_p1
+                or      0x10
+di_p1:          ld      (d_in1), a
                 in      a, (PORT_JOY2)  ; player 2: joystick 2 (up, down, left, right, fire in bits 0-4, low active)
                 cpl
                 ld      c, a
@@ -1287,6 +1325,71 @@ dst_won:        db      'P', 1, ' WINS ROUND', 0
 dst_draw:       db      'DRAW', 0
 dst_match:      db      'P', 1, ' WINS THE MATCH', 0
 dst_prompt:     db      'ENTER REMATCH  BREAK QUIT', 0
+; d_blade's pixels: B of them from the RAM disk (dy, dx), each set white (the four planes) where it is in the chunk
+dbl_p:          push    bc
+                in      a, (RD_DATA)    ; dy
+                add     a, (iy+SD_Y)
+                ld      hl, CRY
+                sub     (hl)
+                ld      c, a            ; the row in the chunk (below CRY: wraps, out of it)
+                in      a, (RD_DATA)    ; dx
+                ld      e, a
+dbl_m:          ld      a, 0            ; (patched: 0, or wb * 8 - 1 when mirrored)
+                or      a
+                jr      z, dbl_3
+                sub     e
+                ld      e, a
+dbl_3:          ld      a, e
+                add     a, (iy+SD_X)
+                ld      e, a            ; x (low byte)
+                ld      a, (iy+SD_X+1)
+                adc     a, 0
+                rra
+                ld      a, e
+                rra
+                rra
+                rra
+                and     0x3f            ; x >> 3: the byte column
+                dec     hl              ; CRX
+                sub     (hl)
+                inc     hl
+                inc     hl              ; CRW
+                cp      (hl)
+                jr      nc, dbl_n
+                ld      d, a
+                inc     hl              ; CRH
+                ld      a, c
+                cp      (hl)
+                jr      nc, dbl_n
+                ld      l, c            ; V_COMPOSE + row * 8 + column (gfx.asm's compose layout, planes 512 apart)
+                ld      h, 0
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                ld      a, d
+                or      l
+                ld      l, a
+                ld      bc, (V_COMPOSE)
+                add     hl, bc
+                ld      a, e
+                and     7
+                ld      b, a
+                inc     b
+                ld      a, 0x80
+dbl_r:          rlca
+                djnz    dbl_r
+                ld      d, a            ; the pixel's bit (bit 0 the leftmost)
+                ld      c, 4
+dbl_s:          ld      a, d
+                or      (hl)
+                ld      (hl), a
+                inc     h
+                inc     h
+                dec     c
+                jr      nz, dbl_s
+dbl_n:          pop     bc
+                djnz    dbl_p
+                ret
 P_tick_end:
                 if P_tick_end > H_TICK_END
                 .error the duel's piece P_tick is larger than its hole (tick_pre .. check_skel)
@@ -1942,6 +2045,9 @@ dst_err:        db      'NETWORK ERROR', 0
 dst_desync:     db      'DESYNC', 0
 dst_left:       db      'OTHER PLAYER LEFT', 0
 dst_lost:       db      'CONNECTION LOST', 0
+d_bltab:                                ; (d_blade: the image, the data's address, wb * 8 - 1)
+                include "../../build/duel_blades_tab.inc"
+d_bltab_end:
 P_spk_end:
                 if P_spk_end > H_SPK_END
                 .error the duel's piece P_spk is larger than its hole (objects.asm's spikes)
@@ -2264,6 +2370,7 @@ w_mod:          sub     c
                 ret
 w_pos:          db      0
                 include "../../build/duel_arenas.inc"
+                include "../../build/duel_blades.inc"   ; (d_blade's pixels: read from the staged copy, not from W2)
 P_w2_end:
                 if P_w2_end > H_W2A_END
                 .error the arenas' piece P_w2 is larger than W2's top

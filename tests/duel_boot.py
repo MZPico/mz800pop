@@ -11,7 +11,7 @@ in main RAM at d_entry byte for byte (build/duel_patch.json; the arenas' piece P
 silent sound model, then the match:
 the random arenas (docs/duel-design.md 15) from the seed the duel took from the frame counter: the match's level loaded
 (its type, the level number 1 for the logic), the round's room drawn, the players at its start tiles, as
-tools/duelsim.py chooses them for that seed; the local input bytes (duel.asm d_input: the cursor keys / SHIFT for player 1, W A S D /
+tools/duelsim.py chooses them for that seed; the local input bytes (duel.asm d_input: the cursor keys / SHIFT, / or ? for player 1, W A S D /
 Q for player 2, BREAK quit, ENTER rematch), the HUD's first text and a sound on the PSG, player 2's hit point strip
 blue (duel.asm d_bswap: the empty icons too; the game's icons red again after), then BREAK: back to PRES's title
 (ACT_TITLE) and a new game from there. Saves screenshots with --shots DIR.
@@ -139,6 +139,11 @@ def run(card, shots, j):
                                  (('DOWN',), ('S',), (0x08, 0x08))):
                 keys(e, k1 + k2); got = ticks(e, 2); keys(e, k1 + k2, down=False)
                 check('player 1 %s, player 2 %s: %02X %02X' % ('+'.join(k1), '+'.join(k2), want[0], want[1]), got == want, got)
+            # player 1's button also on / and ? (the user's key option A, docs/duel-design.md 16.3), SHIFT not pressed
+            for k, bit in (('/', 0x01), ('?', 0x02)):
+                keys(e, ('RIGHT', k)); got = ticks(e, 2); km = e.mem(G['KEYMAT'] + 7, 2); keys(e, ('RIGHT', k), down=False)
+                check('player 1 RIGHT+%s (the matrix 7/%d, no SHIFT): the button, 12 00' % (k, bit >> 1),
+                      got == (0x12, 0) and km[0] & 3 == bit and not km[1] & 1, (got, km.hex()))
             ticks(e, 30)
             if shots: e.screenshot(os.path.join(shots, 'duel_boot_play_%s.png' % tag))
             # player 2's strip blue, the empty icons too (duel.asm d_bswap): both players at 1 of 3 hit points (a poke:
