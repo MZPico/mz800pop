@@ -1,0 +1,14 @@
+# duel
+# expect digest 2993cfa41c13f501
+# seed 0x04
+# expect potions 12:16:1:8:5
+# expect hps 3/3:3/3,2/3:2/3
+# expect symmetric 2
+# potions poison: both drink the poison behind them at once, in mirror: both 2 of 3
+0 0 0  0 0 0 *2
+0 1 0  0 1 0
+0 0 0  0 0 0 *2
+-1 0 0  1 0 0
+0 0 0  0 0 0 *6
+0 0 1  0 0 1 *6
+0 0 0  0 0 0 *40

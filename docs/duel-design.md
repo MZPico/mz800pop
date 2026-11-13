@@ -1690,3 +1690,53 @@ Loose floors in addition:
 2. **B, potions** (~2 days): ~20 B resident, ~70-140 B staged, D17, low risk. Measure the bubble's cost in a duel.
 3. **C, spikes** (~2 days): check_spike_below / check_spiked in d_frame, H_SPK's code live, the start rule, a survey
    re-run.
+
+## 19. Potions, as built (2026-11-13)
+
+Stage B of section 18 with the user's decisions (18.6): heal, life and poison potions in mirrored pairs from the seed,
+every other round, still bottles, player 2 drinking on its own hit points, the arena room's tiles in the state hash.
+Code: src/duel/duel.asm P_w2 w_pot, dh_x, d_hashmap; tools/duelsim.py potions, POTION_MODS; tools/kidsim.py
+proc_get_object (D17); the scripts tests/duel_scripts/potion_*.txt. The game's own code is unchanged.
+
+### 19.1 The rules
+
+| Rule | As built |
+|---|---|
+| Which rounds | the random arenas' rounds with an even number (duelsim `rounds`, the Z80's d_rounds, draws counted: round 0, 2, 4...); never in the fixed arena (entry 0: the menu's, the harness's d_afix scripts) |
+| Where | on the arena's fight row, a mirrored pair around the start tiles: **behind both players** (columns c1 - 1 and c2 + 1) when both tiles are plain floor (the tile byte T_FLOOR, modifier 0, in the room as set up), **else between them** (c1 + 1 and c2 - 1: each a tile in front of its player), else none. Never on a start tile; plain floor next to a start tile is on the fight run, so the pair is reachable. The rooms' own potions stay floor (the substitution, section 15) |
+| Type | one for both: `rnd(round + 0x80) mod 3` (duel.asm w_rnd / duelsim arena_rnd with the seed and the match's number, as the rooms' choice) → heal (1), life (2), poison (5). Slow fall, upside down and open never come (the user's decision; the rooms' own potions are floor) |
+| Back every round | at every round's start of the random arenas (w_pot, the room set up or not: a rematch may draw the last room again), the room's potions become plain floor, then the round's pair is placed: a potion not taken does not stay, one taken comes back when its round number is even |
+| Still bottle | the modifier's bubble frame fixed at 4 (the middle of POTION_FRAM_BUBB), no trob: drawn once with the room in its type's colour (heal: the small bottle, light red bubbles; life: the big bottle, red; poison: the small bottle, light blue), no cost per tick |
+| Drinking | the game's (control_standing / control_crouched → check_get_item → the rare overlay's get_item, the drink sequence's get-item command → the events overlay's proc_get_object): standing next to it, facing it, sword sheathed, the button. The two drinkers' PICKUP_TYPE is the game's one global; the pair has one type, so drinking at once is the same either way |
+| **D17** | player 2 drinks on its own hit points. The Z80 already runs its frame with the kid's charid (so proc_get_object accepts it) and exchanges the hit points around its frame (dh_x): dh_x now exchanges the maxima as well (a life potion raises the drinker's maximum, a health potion is refused at the drinker's own maximum). duelsim: proc_get_object accepts the shadow in the duel and exchanges hitp / guardhp (current, maximum, delta) around the effect (kidsim swap_hp) |
+| Effects | SDLPoP's: heal +1 up to the maximum (nothing at full), life: the maximum +1 (up to 10) and full, poison -1 (a poison death decides the round for the other player as any death). A round's reset brings both back to 3 of 3 |
+| The hash | the arena room's 30 tiles and 30 modifiers after the 69 bytes of section 15 (129 bytes): two d_hashmap entries w_set points at the room (d_hmt, d_hmm). A potion taken on one machine only, or any other tile difference, shows as DESYNC at once. Every digest changed with it; the fixed-arena scripts' traces are unchanged but for the hash (checked line by line) |
+
+### 19.2 Bytes, speed
+
+| | Before (section 18) | Now |
+|---|---|---|
+| Resident duel code | 2,369 B | 2,376 (+7: dh_x's maxima +1, the two hash entries +6); free in the holes 515; H_OBJ, H_SPK still free |
+| P_w2 (W2's top) | 1,019 of 1,536 | 1,189 (w_pot 170) |
+| Staged | 2,134 + 2,101 | 2,141 + 2,271 |
+| Floppy (POP800.PR3) | 16 blocks | 16 |
+| Resident game bytes, launcher, PRES | 0 | 0 |
+
+A still bottle costs nothing per tick; taking one redraws its tile once (the torch path's tile redraw); drinking loads
+the events overlay into W1 (~13 K T), the strips the rare overlay as for a hit.
+
+### 19.3 Tests
+
+- tests/duel_scripts: potion_life.txt (seed 0x03, level 8 room 4) and potion_poison.txt (0x04, level 12 room 16): both
+  players sheathe, turn and drink the pair behind them at once, `# expect symmetric 2` (player 2 is player 1 mirrored
+  every tick; x within 2 pixels: SDLPoP's get_item moves a drinker facing right a pixel further than one facing
+  left); 4 of 4 and 2 of 3 each. potion_heal_p2.txt / potion_heal_p1.txt (0x24, level 11 room 14): one player strikes,
+  the other drinks the heal potion behind it (2 of 3, then 3 of 3), each the other's mirror. New expectations in
+  tests/duel_test.py: `potions` (the pairs placed), `hps` (the hit points' states), `symmetric`, a tolerance for
+  `mirror`. climb_palace.txt's random keys now drink a potion: its results changed (rounds 1,2, score 1:1).
+- tests/duel_z80.py: the harness's hash covers the room's tiles; all fifteen scripts 0 differing lines at 512 KB, 1 MB
+  (4 MB in CI); the code log reaches no hole. The harness now reads to the last tick's end (a 100-frame run could stop
+  between its kid line and its D line: a quit tick's D line went missing once).
+- tests/duel_net.py: potion_heal_p2.txt over the relay too; the desync scenario also with a modifier of the arena
+  room's tiles changed on one machine (DESYNC on both).
+- tests/duel_boot.py as before.
