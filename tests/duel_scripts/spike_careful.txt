@@ -1,8 +1,9 @@
 # duel
-# expect digest 15cb624f6d1dd649
+# expect digest f43d33fa4a8940c0
 # seed 0x71
-# expect hurt none
-# spikes: both step carefully (the button and a direction) onto them and past: SDLPoP check_spiked kills only running, a running jump's start and a jump's landing
+# expect hps 3/3:3/3,2/3:2/3
+# expect d18 26:1,26:2
+# spikes: both step carefully (the button and a direction) onto them and past: SDLPoP check_spiked kills only running, a running jump's start and a jump's landing; D18 (section 21): the spikes spring up under both once, a hit point each
 0 0 0  0 0 0 *2
 0 1 0  0 1 0
 0 0 0  0 0 0 *6
