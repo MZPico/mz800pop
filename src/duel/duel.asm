@@ -324,7 +324,9 @@ d_ready:        xor     a               ; (harness: the state before the first t
 d_tick:         xor     a
                 ld      (HITP_DELTA), a
                 ld      (GUARDHP_DELTA), a
-                call    process_trobs   ; (the torches' flicker: prandom, which no logic reads; not hashed)
+                call    d18_pre         ; (D18: the spikes under the players, before they move)
+                call    process_trobs   ; (the torches' flicker: prandom, which no logic reads; not hashed; the spikes)
+                call    d18_post        ; (D18: a spike sprung up under a player: a hit point)
                 ld      hl, GUARD_REC + OF_CHARID      ; (D11: the shadow sees the kid on every level)
                 ld      (hl), CHARID_GUARD
                 call    check_can_guard_see_kid
@@ -452,6 +454,54 @@ df_body:        ld      a, (K_ROOM)
 df_in:          db      0
 df_hp:          dw      0
 
+; d18_post: a spike sprung up under a living player: its hit points - 1 (not below 0), the sound
+d18_post:       ld      ix, KID_REC     ; (both decided first: one player's impaling makes a shared spike 0xff, which
+                ld      hl, d18_v       ; must not spare the other: a draw)
+                call    d18_q
+                ld      ix, GUARD_REC
+                ld      hl, d18_v + 3
+                call    d18_q
+                ld      ix, KID_REC
+                ld      hl, d18_v + 2
+                ld      de, HITP_CURR
+                call    d18_h
+                ld      ix, GUARD_REC
+                ld      hl, d18_v + 5
+                ld      de, GUARDHP_CURR
+d18_h:          bit     0, (hl)         ; (d18_q: hit)
+                ret     z
+                jr      d18_hp
+; d18_q: HL = a player's d18_v entry: its third byte 1 when the spike under it sprang up (and the player lives), else 0
+d18_q:          ld      c, (hl)
+                inc     hl
+                ld      b, (hl)
+                inc     hl
+                ld      a, (hl)         ; (the modifier before)
+                ld      (hl), 0
+                rla
+                ret     c               ; (out before)
+                ld      a, b
+                or      c
+                ret     z
+                bit     7, (ix+OF_ALIVE)
+                ret     z               ; (dead: alive >= 0)
+                ld      a, (bc)
+                inc     a
+                ret     z               ; (0xff: harmless)
+                dec     a
+                rla
+                ret     nc              ; (not out now)
+                inc     (hl)
+                ret
+d18_hp:
+                ld      a, (de)
+                or      a
+                jp      z, d18_k
+                dec     a
+                ld      (de), a
+                jp      z, d18_k
+                ld      a, 13
+                jp      snd_play
 ; d_hurt: check_sword_hurt the duel's way (D13, the user's change 2026-11-11: both hurt in one tick is a clash, nobody
 ; is hurt, both play attack_was_parried, the kid first; D10: the shadow hurt by the kid's rules and sound; D12: take_hp
 ; on its own hit points: the kid's path with the two exchanged)
@@ -641,6 +691,7 @@ ds_x:           ld      a, 0xff
 d_lvl:          db      1               ; (the game's start loaded level 1)
 d_mtch:         db      0
 d_room:         db      0
+d_spl:          db      0, 0, 0         ; (the placed spikes still in the level: room, then two places; 0: none)
 d_arow:         db      0
 d_c1:           db      0
 d_c2:           db      0
@@ -1384,6 +1435,41 @@ dbl_s:          ld      a, d
 dbl_n:          pop     bc
                 djnz    dbl_p
                 ret
+; D18 (docs/duel-design.md 21, the user's rule 2026-11-13: spikes hurt while fighting): a spike that springs up
+; (process_trobs: its modifier into the out phase, bit 7, not a kill's 0xff) under a living player (check_spiked's tile:
+; the record's room, column, row) costs it a hit point (its own) and plays the hurt sound 13, its last one impales it
+; (spiked); once a cycle. duelsim d18
+; d18_pre: per player the spike's modifier address under it (0: none) and its value
+d18_pre:        ld      ix, KID_REC
+                ld      hl, d18_v
+                call    d18_t
+                ld      ix, GUARD_REC
+                ld      hl, d18_v + 3
+d18_t:          push    hl
+                ld      c, (ix+OF_COL)
+                ld      b, (ix+OF_ROW)
+                ld      a, (ix+OF_ROOM)
+                call    k_get_tile
+                ld      de, 0
+                cp      T_SPIKE
+                jr      nz, d18_n
+                ld      a, (CURR_ROOM)
+                or      a
+                jr      z, d18_n
+                call    tile_base       ; DE = the room's modifiers
+                ld      a, (CURR_TILEPOS)
+                add     a, e
+                ld      e, a
+                jr      nc, d18_n
+                inc     d
+d18_n:          pop     hl
+                ld      (hl), e
+                inc     hl
+                ld      (hl), d
+                inc     hl
+                ld      a, (de)         ; (DE 0: a byte of no use)
+                ld      (hl), a
+                ret
 P_tick_end:
                 if P_tick_end > H_TICK_END
                 .error the duel's piece P_tick is larger than its hole (tick_pre .. check_skel)
@@ -1491,6 +1577,27 @@ d_textk:        push    hl
                 pop     hl
                 jp      P_txt
 d_key:          db      0xff, 0, 0, 0   ; the text drawn: kind, numbers (0xff: draw again)
+; d18_k: its last hit point: impaled as by the original rule (spiked: frame 177, the spike harmless to the other), so
+; that it dies where it stands, a running one too
+d18_k:          push    ix
+                pop     hl
+                ld      a, l
+                cp      KID_REC % 256
+                jr      nz, d18_kg
+                call    loadkid
+                call    d18_sp
+                jp      savekid
+d18_kg:         call    loadshad
+                call    d18_sp
+                jp      saveshad
+d18_sp:         ld      a, (K_COL)
+                ld      c, a
+                ld      a, (K_ROW)
+                ld      b, a
+                ld      a, (K_ROOM)
+                call    k_get_tile
+                jp      spiked
+d18_v:          ds      6
 P_free_end:
                 if P_free_end > H_FREE_END
                 .error the duel's piece P_free is larger than its hole (main RAM below W1)
@@ -1883,7 +1990,17 @@ wt_n:           ld      hl, w_pos
 w_pot:          ld      a, (d_aidx)
                 or      a
                 jp      z, d_reset      ; (the fixed arena: none)
-                ld      a, (d_room)
+                ld      a, (d_spl)      ; the last placed spikes plain floor again (docs/duel-design.md 21)
+                or      a
+                jr      z, wpu_x
+                call    tile_base
+                ld      a, (d_spl + 1)
+                call    wpu_f
+                ld      a, (d_spl + 2)
+                call    wpu_f
+                xor     a
+                ld      (d_spl), a
+wpu_x:          ld      a, (d_room)
                 call    tile_base
                 ld      b, 30
 wp_c:           ld      a, (hl)
@@ -1896,6 +2013,7 @@ wp_c:           ld      a, (hl)
 wp_n:           inc     hl
                 inc     de
                 djnz    wp_c
+                call    w_spk           ; (the placed spikes: before the potions, which want plain floor)
                 ld      a, (d_rounds)
                 rrca
                 jp      c, d_reset      ; (an odd round: none)
@@ -1948,7 +2066,80 @@ wp_set:         call    wp_ptr
                 ld      a, b
                 ld      (de), a
                 ret
-; wp_ptr: A = a column of the arena's row -> HL, DE = its tile's, its modifier's address (keeps BC)
+; wpu_f: HL, DE = a room's tiles, modifiers; A = a place: plain floor there (keeps HL, DE)
+wpu_f:          push    hl
+                push    de
+                ld      c, a
+                ld      b, 0
+                add     hl, bc
+                ld      (hl), T_FLOOR
+                ex      de, hl
+                add     hl, bc
+                ld      (hl), 0
+                pop     de
+                pop     hl
+                ret
+; w_spk (duelsim spikes_placed): on the rounds with d_rounds mod 3 == 1, in a room without its own spikes, a mirrored
+; pair: the ends (c1 - 2, c2 + 2) or the centre (c1 + 2, c2 - 2); w_rnd(round + W_SRND) bit 0 picks the one tried first
+; (0: the ends), the other when its tiles are not both plain floor, else none; at rest (modifier 0), kept in d_spl
+w_spk:          ld      a, (d_rounds)
+                ld      c, 3
+                call    w_mod
+                dec     a
+                ret     nz
+                ld      a, (d_room)
+                call    tile_base
+                ld      b, 30
+wsk_c:          ld      a, (hl)
+                and     0x1f
+                cp      T_SPIKE
+                ret     z               ; (the room's own: only those)
+                inc     hl
+                djnz    wsk_c
+                ld      a, (d_rounds)
+                add     a, W_SRND
+                call    w_rnd
+                and     1
+                ld      (wsk_o), a
+                call    wsk_try
+                ret     z
+                ld      a, (wsk_o)
+                xor     1
+                ld      (wsk_o), a
+wsk_try:        ld      a, (wsk_o)      ; -> Z: placed
+                or      a
+                ld      a, (d_c1)
+                jr      nz, wst_c
+                sub     2               ; the ends: c1 - 2, c2 + 2
+                ld      c, a
+                add     a, W_GAP + 4
+                jr      wst_p
+wst_c:          add     a, 2            ; the centre: c1 + 2, c2 - 2
+                ld      c, a
+                inc     a
+wst_p:          call    wp_pair
+                ret     nz
+                ld      a, (d_room)
+                ld      (d_spl), a
+                ld      a, (wp_c1)
+                call    wsk_set
+                ld      (d_spl + 1), a
+                ld      a, (wp_c2)
+                call    wsk_set
+                ld      (d_spl + 2), a
+                xor     a               ; (Z)
+                ret
+; wsk_set: A = the column: a spike there at rest -> A = its place in the room
+wsk_set:        call    wp_ptr
+                ld      (hl), T_SPIKE
+                xor     a
+                ld      (de), a
+                ld      a, (wp_pl)      ; (wp_ptr's place)
+                ret
+W_SRND          equ     0x40            ; (w_rnd's byte for the placed spikes: the round's + this)
+wsk_o:          db      0
+; wp_ptr: A = a column of the arena's row -> HL, DE = its tile's, its modifier's address (keeps BC); its place in the
+; room (row x 10 + column) in wp_pl
 wp_ptr:         push    bc
                 ld      c, a
                 ld      a, (d_arow)
@@ -1958,6 +2149,7 @@ wp_ptr:         push    bc
                 add     a, b
                 add     a, a
                 add     a, c
+                ld      (wp_pl), a
                 ld      c, a
                 ld      a, (d_room)
                 call    tile_base
@@ -1971,6 +2163,7 @@ wp_ptr:         push    bc
 W_PRND          equ     0x80            ; (w_rnd's byte for the potions: the round's + this)
 W_PBUB          equ     4               ; (the still bubble: POTION_FRAM_BUBB's middle frame)
 w_ptyp:         db      1 * 8 + W_PBUB, 2 * 8 + W_PBUB, 5 * 8 + W_PBUB  ; heal, life, poison
+wp_pl:          db      0
 wp_c1:          db      0
 wp_c2:          db      0
 ; ws_sp: A = a column of the arena's row: a spike there plain floor (modifier 0 already)
@@ -2041,7 +2234,9 @@ wl1:            ld      (dir_tab + 3 * CH_ENV + 1), hl
                 call    LV_alter_mods
                 ld      a, 1
                 ld      (level_number), a
-                ld      a, 0xff
+                xor     a
+                ld      (d_spl), a      ; (a placed pair belonged to the level before)
+                dec     a
                 ld      (d_aidx), a
                 ret
 ; w_rnd: A = b (the round, 0xff the level) -> A = 8 bits (duelsim arena_rnd): x = the seed ^ the match << 8 ^ b, three

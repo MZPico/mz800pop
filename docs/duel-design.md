@@ -478,6 +478,8 @@ the drawing keeps them flickering (11.9). **Decided 2026-11-11 (phase 2): they f
 | D14 | bumped, pushed left into a wall of room 0 | **[choice]** the floor check uses the room's own column 9, as SDLPoP does for the left edge (`curr_room == 0 && tile_col == 10` -> the room's column 0). Without it a player bumping the arena's right edge falls back (seq 45 bumpfall) where the left edge gives a plain bump |
 | D15 | xpos_in_drawn_room for room 0 | **[choice]** with both links 0, SDLPoP takes room 0 for the left neighbour: the right edge's wall lands 140 units too far left and a player bumping it is thrown back ~28 units (the left edge: 3). The duel puts room 0's column 0 on the right |
 | D16 | land (seg005 land): the soft landing's sound 17 and is_guard_notice, a 2-row fall's hit point | **(section 17, 2026-11-13)** player 2 lands as the kid (its frame runs with the kid's charid in the Z80): the sound and the notice, and a 2-row fall costs it a hit point instead of SDLPoP's soft landing for the shadow |
+| D17 | proc_get_object (seg006:1858): only the kid drinks | (section 19) player 2 drinks too, on its own hit points (current, maximum, delta) |
+| D18 | (section 21, the user's rule 2026-11-13) process_trobs: a spike springing up | a spike that springs up (into its out phase) under a living player costs it a hit point, its last one impales it (spiked); once a cycle, both players (21.1) |
 
 Not changed (charid tests that stay the shadow's / SDLPoP's): kid_sword_strike = 15 on a strike and justblocked = 4 on
 a parried strike (inputs of the guard AI only, which the duel never runs: they keep their value, they are hashed); land
@@ -1815,4 +1817,89 @@ rest costs nothing.
 - tests/duel_z80.py: all twenty scripts 0 differing lines at 512 KB, 1 MB (4 MB in CI); the code log reaches no hole
   (H_OBJ included).
 - tests/duel_net.py: spike_draw.txt over the relay too.
+- tests/duel_boot.py as before.
+
+## 21. D18 and the placed spikes, as built (2026-11-13)
+
+The user's decisions after section 20: spikes make little sense in a duel if they do not hurt while fighting (**D18**),
+and rooms without spikes get some every third round (**the placed spikes**). Code: src/duel/duel.asm d18_pre, d18_post,
+d18_k (d_tick), w_spk, w_pot's undo, d_spl; tools/duelsim.py d18_tile, d18, spikes_placed, SPIKE_RND; the scripts
+tests/duel_scripts/spike_d18_*.txt and spike_placed_*.txt. The game's own code is unchanged.
+
+### 21.1 D18: spikes hurt while fighting
+
+| Site | Rule |
+|---|---|
+| D18 | in the duel's tick, around process_trobs (where the spikes move): for each player, the tile under it before it (check_spiked's tile: the record's room, column and row, as the last tick left them); when that tile is a spike whose modifier enters its out phase in process_trobs (bit 7 set afterwards, clear before, not a kill's 0xff) and the player is alive, it loses a hit point (its own: HITP_CURR for player 1, GUARDHP_CURR for player 2), with the hurt sound 13. Its last hit point impales it: the game's spiked (frame 177, that spike harmless to the other, the sound 48), so that it dies where it stands, a running player too (without it, a player killed so while running ran on dead and could fall out of the room: found by the random matches). Both players are decided first, then hit (player 1's impaling makes a shared spike 0xff, which must not spare player 2 on the same tile: found by review; tests/duel_scripts/spike_d18_shared.txt). Once a cycle: a spike held out by a player standing near it (check_spike_below re-arms it) does not spring again; the next extension can hurt again. Any frame counts, the sword's too. The original rule (running or jumping onto spikes: death, section 20) is unchanged and acts in the player's frame after it |
+
+A D18 death decides the round as any death; both players at 0 in one tick (two spikes springing together under them)
+is a draw. duelsim: DuelSim.step calls d18_tile for both records, process_trobs, then d18.
+
+### 21.2 The placed spikes
+
+| Rule | As built |
+|---|---|
+| Which rounds | the random arenas' rounds with `rounds mod 3 == 1` (rounds 1, 4, 7...; draws count, as for the potions) |
+| Which rooms | only a room without its own spikes (a room with them keeps only those) |
+| Where | a mirrored pair on the fight row, one of two layouts: **(i) the ends**, two tiles behind each start tile (columns c1 - 2 and c2 + 2: running away is dangerous), or **(ii) the centre**, the two middle tiles between the players (c1 + 2 and c2 - 2). Never on a start tile or next to one; never on a potion (the spikes come first, the potions want plain floor; the potions' columns c1 +- 1, c2 +- 1 are never these anyway) |
+| The choice | `rnd(round + 0x40)` bit 0 (w_rnd / duelsim arena_rnd, from the seed and the match's number): 0 tries the ends first, 1 the centre first; the layout tried first needs both tiles plain floor (the tile byte T_FLOOR, modifier 0, as the room is set up), else the other one is tried, else no spikes that round. Not both at once |
+| Each round | the placed pair is kept (d_spl: the room, two places; duelsim placed) and turned back into plain floor at the next round's start (w_pot), whatever room that is; a level load forgets it (the level is fresh). The spikes start at rest |
+
+### 21.3 Checks
+
+Random matches (tools/duelarenas.py fuzz's input policy for both players, rematches; 300 seeds x 3,000 ticks, 900,000
+ticks on the random arenas with the potions, the spikes, D18 and the placed spikes; level 2 room 3 still in the pool,
+21.4): nobody out of the room, no crash.
+
+| Rounds | Count | D18 hits P1 : P2 | Spike deaths P1 : P2 |
+|---|---|---|---|
+| a room's own spikes | 560 | 103 : 129 | 91 : 116 |
+| placed, the centre | 212 | 51 : 57 | 118 : 108 |
+| placed, the ends | 113 | 19 : 14 | 6 : 6 |
+| no spikes | 3,922 | - | - |
+
+The shares stay within 44-58 % for player 1, the random players' own bias (they favour player 2 by about 45 : 55 in
+rounds won, section 20.2) included. Placed spikes came in 325 rounds; a round with rounds mod 3 == 1 gets none in a room
+with its own spikes or without a plain-floor pair; the centre fits more rooms than the ends (a start tile one or two
+tiles from a wall leaves no room behind it).
+
+### 21.4 Level 14 room 5 and level 2 room 3 left out of the pool
+
+The random matches of an earlier run found a player falling out of the room in **level 14 room 5** (a one-row room,
+`#_________`: pushed back at the fight row's wall end, it fell through and out of the room's rows); the pool's fall check
+(the survey's random duels, 30 seeds per room instead of 6, every pool room, the spikes live, D18) then found one more,
+**level 2 room 3** (grade C). Both happen with stage B's and C's code alike: not the spikes' doing, the survey's six
+seeds had missed them. Both are left out of the pool (duelsim ARENA_POOL: level 14 rooms 1-4, level 2's multi-row
+rooms 6, 13, 16, 20, 24; the user's decision for level 14 room 5, the same rule for level 2 room 3). The arena table
+loses the two entries; the entries after them move, so the arena's index in the state hash changed every random-arena
+script's digest (their rounds, arenas and results are as before). Every other pool room: no fall in 30 seeds x 1,200
+ticks.
+
+### 21.5 Bytes, speed
+
+| | Before (section 20) | Now |
+|---|---|---|
+| Resident duel code | 2,382 B | 2,590 (+208: D18 ~200 over H_TICK, H_AI and H_FREE, the placed spikes' record 3, the calls); free in the holes 301 |
+| P_w2 | 1,224 of 1,536 | 1,384 (w_spk, the undo) |
+| Staged | 2,147 + 2,306 | 2,326 + 2,466 |
+| Floppy (POP800.PR3) | 16 blocks | 18 (22 of the 40 reserved left) |
+| Resident game bytes, launcher, PRES | 0 | 0 |
+
+D18 costs two tile lookups a tick (~1,000 T, 0.01 frames); the placed spikes cost what a room's own do (section 20.3).
+
+### 21.6 Tests
+
+- tests/duel_scripts: spike_d18_p1.txt (seed 0x71, level 8 room 6: player 1 steps en garde onto the spikes and back,
+  three times; each spring a hit point, the third decides the round for player 2), spike_d18_p2.txt (player 2 the
+  same; its first spring a tick later: the tiles are not mirrored to the pixel), spike_d18_draw.txt (both: both at 0 in
+  one tick, a draw), spike_placed_ends.txt (seed 0x07: round 0 as p1_wins.txt, round 1 in level 11 room 14 gets the
+  ends pair, player 1 runs back onto it: spiked) and spike_placed_centre.txt (seed 0x01: round 1 in level 11 room 19
+  gets the centre pair, player 1 steps onto it: D18), spike_d18_shared.txt (random keys, seed 383: at tick 1998 the
+  spike under both players springs with player 1 at 1 hit point and player 2 at 2: player 1 impaled, player 2 still
+  hit; the other order spared player 2. A both-at-1 case on one tile, a draw, did not come up in 2,000 random matches:
+  two players share a spike tile rarely, 22 times in them). New expectations in tests/duel_test.py: `spikes` (the placed
+  pairs), `d18` (the hits: tick and player). spike_careful.txt and spike_jump.txt now take a D18 hit each (2 of 3).
+- tests/duel_z80.py: all twenty-six scripts 0 differing lines at 512 KB, 1 MB (4 MB in CI); the code log reaches no
+  hole.
+- tests/duel_net.py: spike_d18_draw.txt over the relay.
 - tests/duel_boot.py as before.

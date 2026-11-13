@@ -49,11 +49,13 @@ DUEL_KID_FRAMES = True                           # player 2's frames 150-189 fro
 ARENA_POOL = {1: (3, 2, 21, 19, 24), 2: (4, 11, 19, 23, 18), 3: (13, 9, 6, 2), 4: (2, 10, 14, 6, 1),
               5: (12, 16, 18, 7), 6: (16, 12, 2, 4, 6), 7: (22, 2, 13, 6, 19, 12), 8: (6, 24, 16, 4, 3, 12),
               9: (11, 13, 21, 9, 2, 5), 10: (21, 5, 2, 19, 15, 8), 11: (15, 19, 8, 14, 7), 12: (20, 2, 1, 19, 16),
-              13: (23, 16, 1, 19, 10), 14: (1, 2, 3, 4, 5)}
+              13: (23, 16, 1, 19, 10), 14: (1, 2, 3, 4)}
+# (level 14 room 5 and level 2 room 3 (grade C, below) left out 2026-11-13, docs/duel-design.md 21.4: in random play
+# a player fell out of the room)
 # the multi-row arenas (docs/duel-design.md 16; the user's pick 2026-11-13: grade C, several rows the kid's own moves
 # connect both ways, no 2-row drop, a chase of at most ~84 ticks, not starting against a wall), after each level's
 # one-row rooms (the A rooms' table entries stay where they were)
-ARENA_POOL_C = {1: (9,), 2: (3, 6, 13, 16, 20, 24), 5: (6, 10, 13), 6: (13,), 7: (4, 7), 8: (8, 14, 23),
+ARENA_POOL_C = {1: (9,), 2: (6, 13, 16, 20, 24), 5: (6, 10, 13), 6: (13,), 7: (4, 7), 8: (8, 14, 23),
                 9: (1, 4, 10), 11: (24,), 12: (7, 23, 24), 13: (7, 20)}
 ARENA_POOL = {n: rooms + ARENA_POOL_C.get(n, ()) for n, rooms in ARENA_POOL.items()}
 ARENA_LEVELS = 14
@@ -73,6 +75,11 @@ NOFLOOR = {T.empty: 'hole', T.doortop: 'hole (door top)', T.bigpillar_top: 'hole
 # modifier's bubble frame fixed, no trob): heal, life, poison
 POTION_MODS = (1 * 8 + 4, 2 * 8 + 4, 5 * 8 + 4)
 POTION_RND = 0x80               # (arena_rnd's byte: the round's + this)
+# the placed spikes (docs/duel-design.md 21; duel.asm w_spk): in a room without its own spikes, on the rounds with
+# rounds mod 3 == 1, a mirrored pair: (i) the ends, two tiles behind each start tile (c1 - 2, c2 + 2), or (ii) the
+# centre, the two middle tiles between them (c1 + 2, c2 - 2); arena_rnd(round + SPIKE_RND) bit 0 picks the one tried
+# first (0: the ends), the other if its tiles are not both plain floor, else none
+SPIKE_RND = 0x40
 
 def tile_class(t):
     """duel.asm w_cls: 1 a trap or mechanism (floor), 2 no floor (floor in the bottom row), 0 kept"""
@@ -230,7 +237,9 @@ class DuelSim(KidSim):
         self.duel_kid_frames = kid_frames
         if not kid_frames: self.guard_wh = self.image_sizes('shadow')     # chtab 5 = the shadow's images (level 12's)
         self.fixed = seed is None; self.seed16 = (seed or 0) & 0xFFFF; self.mtch = 0
-        self.lvl = ARENA_LEVEL; self.aidx = None; self.arena_log = []; self.potion_log = []
+        self.lvl = ARENA_LEVEL; self.aidx = None; self.arena_log = []; self.potion_log = []; self.spike_log = []
+        self.placed = None                                # (the placed spikes still in the level: room, pos, pos)
+        self.d18_log = []                                 # (D18's hits: tick, player)
         self.arena_set(0)                                 # (the duel's entry, duel.asm w_entry: the fixed arena)
         self.score = [0, 0]; self.rounds = 0; self.timer = 0; self.result = RES_NONE; self.match = MATCH_ON
         self.round_reset()
@@ -264,7 +273,7 @@ class DuelSim(KidSim):
         """duel.asm w_load: level n's blueprint fresh with its alter-mods pass (no level start: the duel's arena setup
         follows), its number 1 for the logic (the level's own rules, e.g. level 12's coupled hit points, stay off: the
         duel's rules were built and checked on level 1), the arena set up again at the next arena_set"""
-        lv = level_fresh(n); lv.number = 1
+        lv = level_fresh(n); lv.number = 1; self.placed = None
         self.level = lv; self.dl1 = bytearray(lv.raw[1440:1696]); self.dl2 = bytearray(lv.raw[1696:1952]); lv.dl2 = self.dl2
         self.lvl = n; self.aidx = None
 
@@ -288,10 +297,15 @@ class DuelSim(KidSim):
         seed: behind both players' start tiles (columns c1 - 1, c2 + 1) when both are plain floor (the tile byte T.floor,
         modifier 0), else between them (c1 + 1, c2 - 1), else none"""
         if self.aidx == 0: return                         # (the fixed arena: none)
-        L = self.level; base = (self.arena - 1) * 30
+        L = self.level
+        if self.placed:                                   # (the last placed spikes: floor again, docs/duel-design.md 21)
+            r, a, b = self.placed; self.placed = None
+            for pos in (a, b): L.fg[(r - 1) * 30 + pos] = T.floor; L.bg[(r - 1) * 30 + pos] = 0
+        base = (self.arena - 1) * 30
         for pos in range(30):
             if L.fg[base + pos] & 0x1F == T.potion: L.fg[base + pos] = T.floor; L.bg[base + pos] = 0
         k = self.rounds & 0xFF
+        self.spikes_placed(k)
         if k & 1: return
         (c1, _), (c2, _) = self.start
         at = lambda c: base + self.arena_row * 10 + c
@@ -302,6 +316,23 @@ class DuelSim(KidSim):
                 for c in (a, b): L.fg[at(c)] = T.potion; L.bg[at(c)] = m
                 self.potion_log.append((self.lvl, self.arena, a, b, m >> 3))
                 return
+
+    def spikes_placed(self, k):
+        """duel.asm w_spk: on the rounds with k mod 3 == 1, in a room without its own spikes, a mirrored pair at the ends
+        (c1 - 2, c2 + 2) or in the centre (c1 + 2, c2 - 2): arena_rnd(k + SPIKE_RND) bit 0 picks the one tried first (0:
+        the ends), the other if its tiles are not both plain floor (the tile byte T.floor, modifier 0), else none"""
+        L = self.level; base = (self.arena - 1) * 30
+        if k % 3 != 1 or any(L.fg[base + p] & 0x1F == T.spike for p in range(30)): return
+        (c1, _), (c2, _) = self.start
+        at = lambda c: base + self.arena_row * 10 + c
+        ok = lambda c: 0 <= c < 10 and L.fg[at(c)] == T.floor and L.bg[at(c)] == 0
+        pairs = [(c1 - 2, c2 + 2), (c1 + 2, c2 - 2)]
+        if arena_rnd(self.seed16, self.mtch, (k + SPIKE_RND) & 0xFF) & 1: pairs.reverse()
+        for a, b in pairs:
+            if ok(a) and ok(b):
+                for c in (a, b): L.fg[at(c)] = T.spike; L.bg[at(c)] = 0
+                self.placed = (self.arena, self.arena_row * 10 + a, self.arena_row * 10 + b)
+                self.spike_log.append((self.lvl, self.arena, a, b)); return
 
     def round_reset(self):
         """a round's start: both at their start tiles, standing, swords sheathed, full hit points, fresh blocks"""
@@ -335,7 +366,9 @@ class DuelSim(KidSim):
         self.sound_tick()
         self.guardhp_delta = 0; self.hitp_delta = 0
         # (no timers, do_mobs, check_skel: the arena has none of it)
-        self.process_trobs()                              # (the torches' flicker: prandom, no logic reads it)
+        pre = [self.d18_tile(c) for c in (self.Kid, self.Guard)]
+        self.process_trobs()                              # (the torches' flicker, the spikes)
+        self.d18(pre)
         self.check_can_guard_see_kid()                    # (duel D11)
         self.char_frame(0, in1)
         self.kid_line = self.trace_line()
@@ -352,6 +385,34 @@ class DuelSim(KidSim):
             self.tick, in1, in2, self.rounds, self.score[0], self.score[1], self.timer, self.result, self.match,
             self.state_hash(), ' '.join(map(str, self.block_bytes(0))), ' '.join(map(str, self.block_bytes(1))))
         return self.kid_line
+
+    def d18_tile(self, c):
+        """(duel D18) the spike under a character (check_spiked's tile: its room, column, row), its modifier: (room, pos,
+        modifier) or None"""
+        if self.get_tile(c.room, c.curr_col, c.curr_row) != T.spike or self.curr_room <= 0: return None
+        return (self.curr_room, self.curr_tilepos, self.mod_at(self.curr_room, self.curr_tilepos))
+    def d18(self, pre):
+        """(duel D18, the user's rule 2026-11-13: spikes hurt while fighting) a spike that springs up (process_trobs: its
+        modifier into the out phase, bit 7, not a kill's 0xff) under a living player costs it a hit point (its own; the
+        hurt sound 13), its last one impales it (spiked, as the original rule does): once a cycle, the original rule
+        (running or jumping onto them: death) unchanged"""
+        hits = []                                         # (both decided first: one player's impaling makes a shared
+        for p, c in enumerate((self.Kid, self.Guard)):    # spike 0xff, which must not spare the other: a draw)
+            if pre[p] is None or c.alive >= 0: continue
+            r, pos, m0 = pre[p]; m = self.mod_at(r, pos)
+            if not m0 & 0x80 and m & 0x80 and m != 0xFF: hits.append(p)
+        for p in hits:
+                if p == 0: self.hitp_curr = hp = max(0, self.hitp_curr - 1)
+                else: self.guardhp_curr = hp = max(0, self.guardhp_curr - 1)
+                self.d18_log.append((self.tick + 1, p))
+                if hp: self.play_sound(13); continue
+                # its last hit point: impaled as by the original rule (spiked: frame 177, the spike harmless to the
+                # other), so that it dies where it stands, a running one too
+                if p == 0: self.loadkid()
+                else: self.loadshad()
+                self.get_tile(self.Char.room, self.Char.curr_col, self.Char.curr_row); self.spiked()
+                if p == 0: self.savekid()
+                else: self.saveshad()
 
     def char_frame(self, p, inp):
         """SDLPoP play_kid_frame for player p (0: the kid's record, 1: the shadow's), with the duel's control"""

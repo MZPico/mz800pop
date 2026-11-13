@@ -1285,3 +1285,12 @@ piece used AND/XOR semantics.
    with live spikes: no trap, nobody out of the room, spike deaths 41-60 % for player 1: no room dropped. Resident
    +6 B (2,382), P_w2 1,224 B, PR3 16 blocks; a spike step ~1-2 frames. Five spike scripts; duel_z80 0 differing lines
    at 512 KB / 1 MB (4 MB in CI), duel_net, duel_boot.
+95. Duel: D18 and the placed spikes (2026-11-13, docs/duel-design.md section 21, the user's decisions after stage C): D18,
+   a spike springing up under a living player (process_trobs: into its out phase) costs it a hit point, its last one
+   impales it (spiked); once a cycle, both players, their own hit points; the original rule unchanged. The placed
+   spikes: in a room without its own, on the rounds with rounds mod 3 == 1, a mirrored pair at the ends (two behind each
+   start tile) or in the centre (the two middle tiles), chosen from the seed, the other layout if the first does not
+   fit, floor again at the next round. Level 14 room 5 and level 2 room 3 left out of the pool (a player fell out of the
+   room in random play: the user's decision, the same rule). Random matches: no fall, D18 and spike deaths 44-58 % for
+   player 1. Resident +208 B (2,590), P_w2 1,384 B, PR3 18 blocks. Six new scripts; duel_z80 0 differing lines at
+   512 KB / 1 MB (4 MB in CI), duel_net, duel_boot.
