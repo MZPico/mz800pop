@@ -7,7 +7,8 @@
 ; tools/ovltool.py equ), so a change of the game moves the pieces with it or fails the build here.
 ;
 ; How it gets there (src/boot/boot.asm, ACT_DUEL; Ctrl+D on PRES's title): the launcher loads POP800.PRS entry
-; PRS_DUEL1 (the staged pieces, one RAM-disk record: page DUEL_STAGE_PAGE at DUEL_STAGE_ADDR, runtime scratch), restores
+; PRS_DUEL1 (the staged pieces, two RAM-disk records of runtime scratch: the holes' pieces at DUEL_STAGE_PAGE /
+; DUEL_STAGE_ADDR, the pieces read during the duel at DUEL_STAGE2_PAGE / DUEL_STAGE2_ADDR: docs/duel-design.md 18), restores
 ; the GAME image, loads entry PRS_DUEL (the piece P_main: main RAM over the game's main loop, level_ready on) and starts
 ; the game at its `start`. The game starts as always (game_start: the video, the tables, the interrupts, level 1's
 ; start: the game's code untouched until then), returns to level_ready = d_boot here, which copies the staged pieces
@@ -57,9 +58,12 @@ SND_MATCHJ      equ     41              ; the match won: the level's end music (
 IN_QUIT         equ     5               ; (bits)
 IN_REMATCH      equ     6
 MATCH_QUIT      equ     3
-DUEL_STAGE_PAGE equ     6               ; the staged pieces: RAM-disk scratch (duel-design 1.5 rule 1: page 6
-DUEL_STAGE_ADDR equ     0x16c0          ; 0x16C0-0x287F; the chopper pictures' pool at runtime, none in the arena)
-DUEL_STAGE_END  equ     0x2880
+DUEL_STAGE_PAGE equ     6               ; the staged pieces d_boot lays into their holes: RAM-disk scratch (duel-design
+DUEL_STAGE_ADDR equ     0x16c0          ; 1.5 rule 1: page 6 0x16C0-0x287F; the complete chopper pictures' pool at
+DUEL_STAGE_END  equ     0x2880          ; runtime: read only once, at d_boot)
+DUEL_STAGE2_PAGE equ    1               ; the pieces read again during the duel (P_w2, P_txt, P_lob, P_bld; duel-design
+DUEL_STAGE2_ADDR equ    0xe918          ; 18.3): the button pictures' slots, page 1 0xE918-0xFC5B (btnstep.asm BC_BASE,
+DUEL_STAGE2_END equ     0xe918 + 4 * 1233       ; 4 x BC_SLOT; runtime only, and an arena has no button: w_cls)
 PORT_JOY2       equ     0xf1
 ; ---- the network (phase 4, docs/duel-design.md 4 and 14; the MZPico NET protocol: BomberNet docs/net-protocol.md)
 NET_GAME        equ     0x5050          ; the game id: "PP" (the user's decision, duel-design 9)
@@ -115,23 +119,39 @@ H_PP2           equ     duel_pp2 + 1
 H_PP2_END       equ     duel_pp2 + 3
 ; the network's holes (phase 4, docs/duel-design.md 14): code the arena never reaches (the call graph and the code log
 ; check them as the others)
-H_OBJ           equ     make_loose_fall         ; objects.asm the loose floors, the knocks, the falling floors (mobs)
-H_OBJ_END       equ     foh2
 H_LR            equ     leave_room              ; kid.asm leave_room, goto_other_room (the arena's edges are walls)
 H_LR_END        equ     kid_tick
-H_SPK           equ     check_spiked            ; objects.asm the spikes
-H_SPK_END       equ     start_chompers
 H_TIME          equ     death_text              ; evres.asm the death text, the clock (show_time)
 H_TIME_END      equ     draw_game_frame
-; the arenas' piece (docs/duel-design.md 15): not a hole of the game's code but W2's top (OVL_WF: the fill overlay's
-; window, used only by a level start's fill; the duel never runs one). P_w2 is staged after the pieces of d_ptab and
-; copied there by d_arena at each use (the compose buffers overwrite it at the next drawing)
+; reserved, no duel code (docs/duel-design.md 18: the spikes of stage C run the game's own code there): the loose floors
+; and the spikes of objects.asm (the call graph and the code log still check that nothing reaches them)
+H_OBJ           equ     make_loose_fall         ; objects.asm the loose floors, the knocks, the falling floors (mobs)
+H_OBJ_END       equ     foh2
+H_SPK           equ     check_spiked            ; objects.asm the spikes
+H_SPK_END       equ     start_chompers
+; the pieces in W2 (docs/duel-design.md 15, 18): not holes of the game's code but W2, copied there from the RAM disk
+; (DUEL_STAGE2) when they are needed; the compose buffers overwrite them at the next drawing. In W2's order: the text
+; overlay (0xA000, loaded by d_text) and P_txt right after it (the texts, loaded with it); P_lob (the lobby, loaded after the lobby's
+; arena draw, left only through resident code); P_w2 (the arenas, in WF: loaded by d_arena at the duel's entry, a
+; match's and a round's start; the level-start overlay is loaded below it by w_load, over P_txt and P_lob)
+H_W2T           equ     TX_ovl_end      ; (right after the text overlay, whose length differs by build: the cheat build's
+H_W2T_END       equ     0xa600          ; has more texts)
+H_W2L           equ     0xa600
+H_W2L_END       equ     OVL_WF
 H_W2A           equ     OVL_WF
 H_W2A_END       equ     OVL_W2_END
                 if LV_ovl_end > H_W2A
                 .error the level-start overlay reaches the arenas' piece in W2 (w_load loads it below P_w2)
                 endif
-DSTAGE_W2       equ     DUEL_STAGE_ADDR + P_ai_end - P_ai + P_kt_end - P_kt + P_tick_end - P_tick + P_free_end - P_free + 13 + P_obj_end - P_obj + P_lr_end - P_lr + P_spk_end - P_spk + P_time_end - P_time
+; the blade pixels (docs/duel-design.md 16.4): only ever read from the RAM disk (d_blade), never laid in main RAM: a
+; piece at a dummy address (SPRBUF_A's; tools/duelpatch.py: staged only)
+H_BLD           equ     0xb000
+H_BLD_END       equ     0xb800
+; DUEL_STAGE2's order (tools/duelpatch.py checks it)
+DSTAGE_W2       equ     DUEL_STAGE2_ADDR
+DSTAGE_TXT      equ     DSTAGE_W2 + P_w2_end - P_w2
+DSTAGE_LOB      equ     DSTAGE_TXT + P_txt_end - P_txt
+DSTAGE_BLD      equ     DSTAGE_LOB + P_lob_end - P_lob
 DIR_DUNGEON     equ     0xd100          ; (src/m4/ovl_level.asm load_level: the env's and the wall's directories in
 DIR_DUNGEON_W   equ     0xd800          ; page RD_LV_PAGE, dungeon and palace)
 DIR_PALACE      equ     0xdb00
@@ -179,11 +199,18 @@ d_ptab:         dw      P_ai, P_ai_end - P_ai
                 dw      P_sd2, 2
                 dw      P_pp1, 2
                 dw      P_pp2, 2
-                dw      P_obj, P_obj_end - P_obj
                 dw      P_lr, P_lr_end - P_lr
-                dw      P_spk, P_spk_end - P_spk
                 dw      P_time, P_time_end - P_time
                 dw      0
+d_boot_end:
+; d_boot and d_ptab are dead once the duel runs (d_entry): variables the duel sets before it reads them lie over them
+d_blk2          equ     d_boot          ; player 2's block (90): ctrl1 (5), grab_timer, have_sword, offguard,
+                                        ; holding_sword, prev_collision_row, the collision rows (80, kid.asm PREV_ROOMS ..
+                                        ; ABOVE_FLAGS); written by d_fresh at every round's reset
+nb_st           equ     d_blk2 + 90     ; the NET card's last status (4; written by n_wait before it is read)
+                if nb_st + 4 > d_boot_end
+                .error the variables over d_boot run past d_ptab
+                endif
 d_script:       dw      0               ; (the harness: the next input pair's RAM-disk address in page RD_LV_PAGE; 0: live)
 d_hnet:         db      0               ; (the harness with d_script: 0 local play at once, tests/duel_z80.py; 1 the menu
                                         ; and the lobby as a player has them, tests/duel_net.py)
@@ -261,24 +288,39 @@ P_main_end:
 ; ================================================================ P_ai: over the guard AI (block 2)
                 org     H_AI
 P_ai:
-; d_entry: the arena (level 1 is started), the first round, the match loop
+; d_entry: the duel's state, the arena (level 1 is started), the first round (P_w2 w_entry), the lobby, the match loop
 d_entry:        ld      sp, STACK
-                xor     a
-                ld      (SND_MODE), a   ; the silent sound model (duel-design 11.4)
-                ld      (NEED_L1M), a   ; (no level 1 music crouch)
-                ld      (TROBS_N), a    ; no tile animations but the torches (P_w2), no falling floors
-                ld      (MOBS_N), a
-                ld      (IS_SHOW_TIME), a
-                ld      (EXIT_TIMER), a
-                ld      (d_rounds), a
-                ld      (d_score1), a
-                ld      (d_score2), a
-                ld      (d_result), a
-                ld      (d_match), a
-                call    erase_text
                 ld      a, 2            ; the fixed arena (level 1 room 3) behind the menu, the seed (P_w2 w_entry)
                 call    d_arena
-                jp      d_lobby
+; d_lobby (d_entry's end): no NET card (d_ndet: a machine without an MZPico): the local duel at once, no menu. Else the
+; arena drawn first, then the menu: the lobby piece P_lob (W2, docs/duel-design.md 18), copied in after that drawing,
+; left only through dlb_go (the match) or d_quit. The harness (tests/duel_z80.py: d_script set, d_hnet 0) plays local
+; at once
+d_lobby:        ld      hl, (d_script)
+                ld      a, h
+                or      l
+                jr      z, dlb_0
+                ld      a, (d_hnet)
+                or      a
+                jr      z, dlb_go
+dlb_0:          call    d_ndet          ; (P_w2: still in W2's top since d_entry's d_arena)
+                jr      nz, dlb_go
+                call    d_draw          ; the arena first (the room's full draw)
+                call    pend_flush
+                ld      a, DUEL_STAGE2_PAGE
+                ld      de, DSTAGE_LOB
+                ld      hl, P_lob
+                ld      bc, P_lob_end - P_lob
+                call    far_copy
+                jp      P_lob
+dlb_go:         call    d_mstart        ; the match's level and its first arena (P_w2), the hash
+d_ready:        xor     a               ; (harness: the state before the first tick) the match: its first tick with
+                ld      (d_rtick), a    ; the HUD's text drawn again
+                dec     a
+                ld      (d_key), a
+                ld      hl, (FRAMES)
+                ld      (LAST_TICK), hl
+                jp      d_loop
 
 ; d_tick: one tick (duelsim DuelSim.step) with the input bytes d_in1, d_in2
 d_tick:         xor     a
@@ -443,109 +485,6 @@ dh1:            ld      a, (GUARD_REC + OF_ACTION)
                 ld      (K_CHARID), a
                 call    dh_x
                 jp      saveshad
-; d_reset: a round's start (duelsim round_reset): both at their start tiles, standing, swords sheathed, full hit
-; points, fresh blocks
-d_reset:        ld      a, (d_c1)                       ; player 1: column, direction right; charid the kid
-                ld      b, a
-                ld      c, 0
-                ld      e, c
-                call    dr_char
-                call    savekid
-                ld      a, (d_c2)                       ; player 2: left, the shadow
-                ld      b, a
-                ld      c, 0xff
-                ld      e, CHARID_SHADOW
-                call    dr_char
-                call    saveshad
-                call    loadkid_and_opp
-                call    d_fresh         ; the blocks: player 1's (the globals), then player 2's
-                call    d_swap
-                call    d_fresh
-                ld      a, ROUND_HP
-                ld      hl, HITP_CURR
-                ld      (hl), a
-                inc     hl
-                ld      (hl), a         ; HITP_MAX
-                ld      (GUARDHP_CURR), a
-                ld      (GUARDHP_MAX), a
-                xor     a
-                ld      (d_rtick), a    ; (the HUD's: drawing only)
-                ld      (HITP_DELTA), a
-                ld      (GUARDHP_DELTA), a
-                ld      (SND_SCREAM), a
-                ld      (KNOCK), a
-                ld      (d_timer), a
-                ld      hl, CAN_SEE     ; can_guard_see_kid .. droppedout (holding_sword, offguard: the block's)
-                ld      b, DROPPEDOUT + 1 - CAN_SEE
-drs_z:          ld      (hl), a
-                inc     hl
-                djnz    drs_z
-                dec     a               ; (audio only: any sound may cut the last round's tune)
-                ld      (d_acur), a
-                ret
-; dr_char: Char (KV) = a fresh record: B = column, C = direction, E = charid; then the stand sequence played
-dr_char:        ld      hl, KV
-                push    bc
-                ld      b, 16
-drc_z:          ld      (hl), 0
-                inc     hl
-                djnz    drc_z
-                pop     bc
-                ld      a, e
-                ld      (K_CHARID), a
-                ld      a, c
-                ld      (K_DIR), a
-                ld      a, b
-                ld      (K_COL), a
-                add     a, FIRST_COL
-                ld      hl, x_bump
-                call    k_tbl
-                add     a, TILE_SIZEX
-                ld      (K_X), a
-                ld      a, (d_arow)
-                ld      (K_ROW), a
-                inc     a
-                ld      hl, y_land
-                call    k_tbl
-                ld      (K_Y), a
-                ld      a, (d_room)
-                ld      (K_ROOM), a
-                ld      a, 0xff
-                ld      (K_ALIVE), a
-                ld      a, SQ_STAND
-                call    seqtbl_offset_char
-                jp      play_seq
-; d_fresh: player 2's block fresh: ctrl1 released, grab_timer 0, have_sword 1, offguard 0, holding_sword 0, no collision
-; rows (prev_collision_row -1, rooms -1, flags 0)
-d_fresh:        ld      hl, d_blk2
-                xor     a
-                ld      b, 6
-dfr1:           ld      (hl), a
-                inc     hl
-                djnz    dfr1
-                inc     a
-                ld      (hl), a         ; have_sword
-                inc     hl
-                dec     a
-                ld      (hl), a         ; offguard
-                inc     hl
-                ld      (hl), a         ; holding_sword
-                inc     hl
-                dec     a
-                ld      (hl), a         ; prev_collision_row
-                inc     hl
-                ld      c, 4
-dfr2:           ld      b, 10
-dfr3:           ld      (hl), 0xff      ; rooms
-                inc     hl
-                djnz    dfr3
-                ld      b, 10
-dfr4:           ld      (hl), 0         ; flags
-                inc     hl
-                djnz    dfr4
-                dec     c
-                jr      nz, dfr2
-                ret
 ; d_swap: player 2's block (d_blk2) <-> the globals (duelsim swap_block)
 d_swap:         ld      de, d_blk2
                 ld      hl, d_blkmap
@@ -711,9 +650,7 @@ d_result:       db      0
 d_match:        db      0
 d_in1:          db      0
 d_in2:          db      0
-d_hashv:        dw      0
-d_blk2:         ds      90              ; player 2's block: ctrl1 (5), grab_timer, have_sword, offguard, holding_sword,
-                                        ; prev_collision_row, the collision rows (80, kid.asm PREV_ROOMS .. ABOVE_FLAGS)
+d_hashv:        dw      0               ; (player 2's block d_blk2: over d_boot, P_main)
 ; the HUD's and the audio's (never read by the logic, never hashed)
 d_acur:         db      0xff            ; the sound the PSG was last given (0xff: none that must be kept)
 d_rtick:        db      0               ; ticks drawn since the round's start (to 255)
@@ -763,11 +700,72 @@ dbl_2:          ld      (dbl_m + 1), a
                 ld      a, (iy+SD_YH)   ; (above the screen's top: none of the seven, but no wrap either)
                 or      a
                 ret     nz
-                ld      a, DUEL_STAGE_PAGE
+                ld      a, DUEL_STAGE2_PAGE
                 call    far_seek
                 in      a, (RD_DATA)
                 ld      b, a
                 jp      dbl_p
+; ---- the NET driver (BomberNet c/common/netdev_card.c's calls on ports 0x50 / 0x51)
+; n_do: A = the command, HL = its parameters, B = their count: the command, then n_wait
+n_do:           call    n_cmd
+; n_wait: the command's end (the status, STSR: nb_st). -> Z, A = 0: done (its output, if any, to read with n_in); NZ:
+; A = the error code (the status' byte 2; 10 the parameters incomplete; 9 no answer in ~20 s: IN_PROGRESS, which
+; NETCREATE and NETJOIN show while they wait for the relay)
+n_wait:         ld      de, (FRAMES)
+nw_l:           ld      a, N_STSR
+                out     (NP_CMD), a
+                ld      hl, nb_st
+                ld      bc, 4 * 256 + NP_CMD
+                inir
+                ld      a, (nb_st)
+                rla
+                jr      c, nw_err       ; (bit 7: ERROR)
+                rla
+                jr      c, nw_prog      ; (bit 6: IN_PROGRESS)
+                ld      a, (nb_st)
+                and     1               ; (bit 0: BUSY, the parameters incomplete)
+                ret     z
+                ld      a, 10
+                ret
+nw_err:         ld      a, (nb_st + 2)
+                or      a
+                ret     nz
+                ld      a, 0xfe
+                or      a
+                ret
+nw_prog:        ld      hl, (FRAMES)
+                or      a
+                sbc     hl, de
+                ld      a, h
+                cp      4               ; (1,024 frames)
+                jr      c, nw_l
+                ld      a, 9
+                or      a
+                ret
+n_cmd:          out     (NP_CMD), a
+                ld      a, b
+                or      a
+                ret     z
+n_out:          ld      c, NP_DATA      ; B bytes from HL
+                otir
+                ret
+n_in:           ld      c, NP_DATA      ; B bytes to HL
+                inir
+                ret
+; n_stat: NETSTATUS (8 bytes to nb_out) -> Z, A = the state; NZ, A = the error code
+n_stat:         ld      a, N_STATUS
+                ld      b, 0
+                call    n_do
+                ret     nz
+                ld      hl, nb_out
+                ld      b, 8
+                call    n_in
+                ld      a, (nb_out)
+                cp      a
+                ret
+d_bltab:                                ; (d_blade: the image, the data's address, wb * 8 - 1)
+                include "../../build/duel_blades_tab.inc"
+d_bltab_end:
 P_ai_end:
                 if P_ai_end > H_AI_END
                 .error the duel's piece P_ai is larger than its hole (the guard AI)
@@ -1310,21 +1308,13 @@ dpp_x:          pop     af
 dpp_p1:         db      161, 158, 0                             ; player 1: the parry (161) as en garde (158)
 dpp_p2:         db      161, 157, 158, 157, 170, 157, 171, 157, 0   ; player 2: the parry and en garde as 157
 
-; the bottom texts (d_hud): 1, 2, 3 = d_key's numbers (0..99); tools/duelpatch.py checks that every one has its
-; glyphs (the game's font + d_font) and fits the line's 160 pixels with its widest numbers
-d_strs:         dw      dst_round, dst_score, dst_won, dst_draw, dst_match, dst_prompt, 0
+; the bottom texts' kinds (d_key's; d_strs in P_txt)
 TX_ROUND        equ     0               ; (d_key's kind: the index here)
 TX_SCORE        equ     1
 TX_WON          equ     2
 TX_DRAW         equ     3
 TX_MATCH        equ     4
 TX_PROMPT       equ     5
-dst_round:      db      'ROUND ', 1, 0
-dst_score:      db      'ROUND ', 1, '   P1 ', 2, ' : ', 3, ' P2', 0
-dst_won:        db      'P', 1, ' WINS ROUND', 0
-dst_draw:       db      'DRAW', 0
-dst_match:      db      'P', 1, ' WINS THE MATCH', 0
-dst_prompt:     db      'ENTER REMATCH  BREAK QUIT', 0
 ; d_blade's pixels: B of them from the RAM disk (dy, dx), each set white (the four planes) where it is in the chunk
 dbl_p:          push    bc
                 in      a, (RD_DATA)    ; dy
@@ -1477,399 +1467,29 @@ hu_new:         ld      hl, d_key
                 ld      (hl), e
                 inc     hl
                 ld      (hl), d
-                ld      a, b            ; the string: d_strs[kind]
-                add     a, a
-                ld      l, a
-                ld      h, 0
-                ld      de, d_strs
-                add     hl, de
-                ld      a, (hl)
-                inc     hl
-                ld      h, (hl)
-                ld      l, a
-; d_text: HL = a string (bytes 1-3: d_key's numbers) on the bottom text line (also the lobby's and the network's texts)
-d_text:         push    hl
-                ld      a, OVL_TEXT     ; the text overlay into W2 (only loaded: its entry is not run)
+                ld      a, b            ; the string: d_strs[kind] (P_txt)
+                inc     a
+                jr      d_textk
+; d_text: HL = a string (bytes 1-3: d_key's numbers; a W2 address: P_txt's or P_lob's texts) on the bottom text line;
+; d_textk: A = a d_strs kind + 1 instead. The game's text overlay into W2 (only loaded: its entry is not run) and the
+; texts' piece P_txt above it (docs/duel-design.md 18), both after the tick's drawing, as text_chk loads the overlay
+d_text:         xor     a
+d_textk:        push    hl
+                push    af
+                ld      a, OVL_TEXT
                 call    ovl_w2
-                ld      hl, d_font      ; the duel's glyphs over its lowercase ones
-                ld      de, TX_txt_font + DFONT_OFS
-                ld      bc, DFONT_N * 9
-                ldir
-                ld      hl, MASKBUF     ; the line's bitmap (text.asm TXB: 7 rows x 20 bytes) blank
-                ld      de, MASKBUF + 1
-                ld      bc, 7 * 20 - 1
-                ld      (hl), 0
-                ldir
-                pop     hl              ; the string into td_str, the numbers in decimal
-                ld      de, TX_td_str
-huf:            ld      a, (hl)
-                inc     hl
-                cp      4
-                jr      nc, huf_c
-                or      a
-                jr      z, huf_e
-                push    hl
-                ld      hl, d_key
-                add     a, l
-                ld      l, a
-                jr      nc, huf1
-                inc     h
-huf1:           ld      a, (hl)
-                call    TX_td_num
+                ld      a, DUEL_STAGE2_PAGE
+                ld      de, DSTAGE_TXT
+                ld      hl, P_txt
+                ld      bc, P_txt_end - P_txt
+                call    far_copy
+                pop     af
                 pop     hl
-                jr      huf
-huf_c:          ld      (de), a
-                inc     de
-                jr      huf
-huf_e:          ld      (de), a
-                call    TX_td_render    ; centred into the bitmap, then the screen (rows 193-199, x 80-239)
-                jp      TX_td_put
+                jp      P_txt
 d_key:          db      0xff, 0, 0, 0   ; the text drawn: kind, numbers (0xff: draw again)
 P_free_end:
                 if P_free_end > H_FREE_END
                 .error the duel's piece P_free is larger than its hole (main RAM below W1)
-                endif
-
-; ================================================================ P_obj: over objects.asm's loose floors (the lobby)
-                org     H_OBJ
-P_obj:
-; d_lobby (d_entry's end): no NET card (d_ndet: a machine without an MZPico): the local duel at once, no menu. Else the
-; menu (1 LOCAL, 2 HOST, 3 JOIN) over the arena drawn first, then the match loop. HOST: a
-; room on the relay (NETCREATE: the game id, the build id, 2 slots of 1 byte, the settings: the delay), its code shown
-; until the other player is in, then ready; JOIN: the code typed (letters, DEL, ENTER), NETJOIN, ready; both: the match
-; starts when the relay says RUNNING (tick 0 on both), ticks 0 .. D-1 sent without keys. An error in words, then the
-; menu again; BREAK: the title. The harness (tests/duel_z80.py: d_script set, d_hnet 0) plays local at once.
-d_lobby:        ld      hl, (d_script)
-                ld      a, h
-                or      l
-                jr      z, dlb_0
-                ld      a, (d_hnet)
-                or      a
-                jp      z, dlb_go
-dlb_0:          call    d_ndet          ; no network card: the local duel at once (the menu only with a network)
-                jp      nz, dlb_go
-                call    d_draw          ; the arena first (the room's full draw)
-dlb_menu:       call    d_nleave        ; (after an error: out of the room)
-                ld      hl, dst_menu
-                call    d_text
-dlb_mk:         call    d_key1
-                cp      K_BREAK
-                jp      z, d_quit
-                cp      '1'
-                jp      z, dlb_go
-                sub     '2'
-                jp      z, dlb_host
-                dec     a
-                jr      nz, dlb_mk
-; JOIN: the code typed into the text (dst_code's dots)
-                ld      hl, dst_code + 10
-                ld      b, 4
-dlj_d:          ld      (hl), '.'
-                inc     hl
-                djnz    dlj_d
-                ld      b, 0
-dlj_s:          ld      a, b
-                ld      (d_jpos), a
-                ld      hl, dst_code
-                call    d_text
-dlj_k:          call    d_key1
-                or      a
-                jr      z, dlj_k
-                cp      K_BREAK
-                jp      z, d_quit
-                ld      c, a
-                ld      a, (d_jpos)
-                ld      b, a
-                ld      a, c
-                cp      K_ENTER
-                jr      z, dlj_go
-                cp      K_DEL
-                jr      z, dlj_del
-                sub     'A'
-                cp      26
-                jr      nc, dlj_k
-                ld      a, b
-                cp      4
-                jr      nc, dlj_k
-                call    dlj_at
-                ld      (hl), c
-                inc     b
-                jr      dlj_s
-dlj_del:        ld      a, b
-                or      a
-                jr      z, dlj_k
-                dec     b
-                ld      a, b
-                call    dlj_at
-                ld      (hl), '.'
-                jr      dlj_s
-dlj_at:         ld      hl, dst_code + 10       ; HL = the code's character A
-                add     a, l
-                ld      l, a
-                ret     nc
-                inc     h
-                ret
-dlj_go:         ld      a, b
-                cp      4
-                jr      nz, dlj_k
-                ld      a, N_JOIN       ; NETJOIN: the game id, the build id, the code (a string, 0x0D)
-                ld      hl, d_ncreate
-                ld      b, 4
-                call    n_cmd
-                ld      hl, dst_code + 10
-                ld      b, 4
-                call    n_out
-                ld      a, 13
-                out     (NP_DATA), a
-                call    n_wait
-                jr      nz, dlb_err
-                ld      hl, nb_out      ; the slot, slots, bytes, settings' length, the settings
-                ld      b, 20
-                call    n_in
-                ld      a, (nb_out + 4) ; settings[0]: the host's delay
-                ld      (d_ndelay), a
-                ld      hl, (nb_out + 5); settings[1, 2]: the host's seed (the arenas)
-                ld      (d_seed), hl
-                ld      a, 2            ; slot 1: player 2
-                ld      (d_netm), a
-                ld      hl, dst_wait
-                call    d_text
-                jp      dlb_ready
-dlb_go:         call    d_mstart        ; the match's level and its first arena (P_w2), the hash
-d_ready:        xor     a               ; (harness: the state before the first tick) the match: its first tick with
-                ld      (d_rtick), a    ; the HUD's text drawn again
-                dec     a
-                ld      (d_key), a
-                ld      hl, (FRAMES)
-                ld      (LAST_TICK), hl
-                jp      d_loop
-dlb_st:         call    d_smsg          ; A = a NETSTATUS state: its text
-                jr      dlb_e
-dlb_err:        ld      hl, dst_link    ; A = an error code: its text
-                cp      9
-                jr      z, dlb_e
-                ld      hl, dst_vers
-                cp      6
-                jr      z, dlb_e
-                ld      hl, dst_room
-                cp      7
-                jr      z, dlb_e
-                ld      hl, dst_err
-dlb_e:          call    d_text
-                ld      b, 100          ; 2 s, then the menu
-dlb_ew:         halt
-                djnz    dlb_ew
-                jp      dlb_menu
-; HOST: the room, its code shown until the other player is in
-dlb_host:       ld      hl, (d_seed)    ; settings[1, 2]: this machine's seed as it is now (after a failed join: the
-                ld      (d_ncreate + 8), hl     ; other host's, which this machine's arenas use too)
-                ld      a, N_CREATE
-                ld      hl, d_ncreate
-                ld      b, 23
-                call    n_do
-                jr      nz, dlb_err
-                ld      hl, dst_code + 10       ; the code (4 letters), 0x0D, the slot (0)
-                ld      b, 4
-                call    n_in
-                ld      hl, nb_out
-                ld      b, 2
-                call    n_in
-                ld      a, 1            ; slot 0: player 1
-                ld      (d_netm), a
-                ld      hl, dst_code
-                call    d_text
-dlh_w:          call    d_key1
-                cp      K_BREAK
-                jp      z, d_quit
-                call    n_stat
-                jr      nz, dlb_err
-                cp      NS_INROOM
-                jr      nz, dlb_st
-                ld      a, (nb_out + 2) ; the members
-                cp      2
-                jr      c, dlh_w
-; both: ready, then the match when the relay starts it
-dlb_ready:      ld      a, N_READY
-                ld      hl, d_one
-                ld      b, 1
-                call    n_do
-                jr      nz, dlb_err
-                ld      hl, nb_out      ; (the seed, the start frame: 0xFFFF while waiting)
-                ld      b, 4
-                call    n_in
-dlr_w:          call    d_key1
-                cp      K_BREAK
-                jp      z, d_quit
-                call    n_stat
-                jp      nz, dlb_err
-                cp      NS_INROOM
-                jr      z, dlr_w
-                cp      NS_RUNNING
-                jp      nz, dlb_st
-                ld      hl, 0           ; tick 0; ticks 0 .. D-1 without keys (BomberNet's net_match_start)
-                ld      (d_ntick), hl
-                ld      (nb_k), hl
-dlr_s:          ld      (nb_f), hl
-                ld      a, N_SEND
-                ld      hl, nb_f
-                ld      b, 6
-                call    n_do
-                jp      nz, dlb_err
-                ld      hl, (nb_f)
-                inc     hl
-                ld      a, (d_ndelay)
-                cp      l
-                jr      nz, dlr_s
-                jp      dlb_go
-
-; d_key1: one frame, then A = the key newly pressed (d_kget), 0 when none or the same as before
-d_key1:         halt
-                call    d_kget
-                ld      hl, d_kprev
-                cp      (hl)
-                ld      (hl), a
-                ret     nz
-                xor     a
-                ret
-; d_kget: A = the key down (KEYMAT, read_inputs): a digit 1-8, a letter A-Z (column 4 A-H, 3 I-P, 2 Q-X, 1 Y Z and
-; higher codes for column 1's other keys), K_BREAK, K_ENTER, K_DEL, else 0
-d_kget:         call    read_inputs
-                ld      hl, KEYMAT + 5
-                ld      de, dk_base
-dk_c:           ld      a, (de)
-                inc     de
-                or      a
-                jr      z, dk_sp
-                ld      c, a
-                ld      a, (hl)
-                dec     hl
-                ld      b, 8
-dk_b:           rla
-                jr      c, dk_hit
-                inc     c
-                djnz    dk_b
-                jr      dk_c
-dk_hit:         ld      a, c
-                ret
-dk_sp:          ld      a, (KEYMAT + 8) ; BREAK (8/7)
-                rla
-                ld      a, K_BREAK
-                ret     c
-                ld      a, (KEYMAT + 0) ; ENTER (0/0)
-                rra
-                ld      a, K_ENTER
-                ret     c
-                ld      a, (KEYMAT + 7) ; DEL (7/6)
-                and     0x40
-                ret     z
-                ld      a, K_DEL
-                ret
-dk_base:        db      '1', 'A', 'I', 'Q', 'Y', 0      ; columns 5, 4, 3, 2, 1: bit 7's character
-
-; ---- the NET driver (BomberNet c/common/netdev_card.c's calls on ports 0x50 / 0x51)
-; d_ndet: Z when a NET card answers: REVD's status {02, 06, 04} (a Unicard-compatible device; a missing card floats the
-; ports), then INFO (no ERROR, OUTPUT, the command, >= 16 bytes) with the NET feature bit (byte 3, bit 3)
-d_ndet:         ld      a, N_REVD
-                ld      b, 0
-                call    n_do
-                ld      hl, nb_st
-                ld      a, (hl)
-                cp      2
-                ret     nz
-                inc     hl
-                ld      a, (hl)
-                cp      N_REVD
-                ret     nz
-                inc     hl
-                ld      a, (hl)
-                cp      4
-                ret     nz
-                ld      hl, nb_out
-                ld      b, 4
-                call    n_in
-                ld      a, N_INFO
-                ld      b, 0
-                call    n_do
-                ret     nz
-                ld      a, (nb_st)
-                and     0x82
-                cp      2
-                ret     nz
-                ld      a, (nb_st + 1)
-                cp      N_INFO
-                ret     nz
-                ld      a, (nb_st + 2)
-                cp      16
-                jr      c, ndt_f
-                ld      hl, nb_out
-                ld      b, 16
-                call    n_in
-                ld      a, (nb_out + 3)
-                cpl
-                and     8
-                ret
-ndt_f:          or      1
-                ret
-; n_do: A = the command, HL = its parameters, B = their count: the command, then n_wait
-n_do:           call    n_cmd
-; n_wait: the command's end (the status, STSR: nb_st). -> Z, A = 0: done (its output, if any, to read with n_in); NZ:
-; A = the error code (the status' byte 2; 10 the parameters incomplete; 9 no answer in ~20 s: IN_PROGRESS, which
-; NETCREATE and NETJOIN show while they wait for the relay)
-n_wait:         ld      de, (FRAMES)
-nw_l:           ld      a, N_STSR
-                out     (NP_CMD), a
-                ld      hl, nb_st
-                ld      bc, 4 * 256 + NP_CMD
-                inir
-                ld      a, (nb_st)
-                rla
-                jr      c, nw_err       ; (bit 7: ERROR)
-                rla
-                jr      c, nw_prog      ; (bit 6: IN_PROGRESS)
-                ld      a, (nb_st)
-                and     1               ; (bit 0: BUSY, the parameters incomplete)
-                ret     z
-                ld      a, 10
-                ret
-nw_err:         ld      a, (nb_st + 2)
-                or      a
-                ret     nz
-                ld      a, 0xfe
-                or      a
-                ret
-nw_prog:        ld      hl, (FRAMES)
-                or      a
-                sbc     hl, de
-                ld      a, h
-                cp      4               ; (1,024 frames)
-                jr      c, nw_l
-                ld      a, 9
-                or      a
-                ret
-n_cmd:          out     (NP_CMD), a
-                ld      a, b
-                or      a
-                ret     z
-n_out:          ld      c, NP_DATA      ; B bytes from HL
-                otir
-                ret
-n_in:           ld      c, NP_DATA      ; B bytes to HL
-                inir
-                ret
-; n_stat: NETSTATUS (8 bytes to nb_out) -> Z, A = the state; NZ, A = the error code
-n_stat:         ld      a, N_STATUS
-                ld      b, 0
-                call    n_do
-                ret     nz
-                ld      hl, nb_out
-                ld      b, 8
-                call    n_in
-                ld      a, (nb_out)
-                cp      a
-                ret
-P_obj_end:
-                if P_obj_end > H_OBJ_END
-                .error the duel's piece P_obj is larger than its hole (objects.asm's loose floors)
                 endif
 
 ; ================================================================ P_lr: over kid.asm leave_room (the lockstep)
@@ -2022,41 +1642,9 @@ P_lr_end:
                 .error the duel's piece P_lr is larger than its hole (kid.asm leave_room)
                 endif
 
-; ================================================================ P_spk: over objects.asm's spikes (the network's texts)
-                org     H_SPK
-P_spk:
-; NETCREATE's parameters (the first 4 also NETJOIN's): the game id, the build id (tools/duelpatch.py: a CRC-16 of the
-; game, its overlays and this patch, so two different disks cannot meet in a room), 2 slots, 1 byte a slot, the
-; settings
-d_ncreate:      dw      NET_GAME
-d_build:        dw      0
-                db      2, 1, 3         ; (the settings' length)
-                db      NET_DELAY       ; settings[0]: the input delay
-                dw      0               ; settings[1, 2]: the arenas' seed (dlb_host: d_seed)
-                ds      13
-; the lobby's and the network's texts (tools/duelpatch.py checks every dst_ string: its glyphs, its width)
-dst_menu:       db      '1 LOCAL  2 HOST  3 JOIN', 0
-dst_code:       db      'ROOM CODE ....', 0     ; (+10: the code)
-dst_wait:       db      'WAITING', 0
-dst_link:       db      'NO LINK', 0
-dst_vers:       db      'OTHER VERSION', 0
-dst_room:       db      'NO SUCH ROOM', 0
-dst_err:        db      'NETWORK ERROR', 0
-dst_desync:     db      'DESYNC', 0
-dst_left:       db      'OTHER PLAYER LEFT', 0
-dst_lost:       db      'CONNECTION LOST', 0
-d_bltab:                                ; (d_blade: the image, the data's address, wb * 8 - 1)
-                include "../../build/duel_blades_tab.inc"
-d_bltab_end:
-P_spk_end:
-                if P_spk_end > H_SPK_END
-                .error the duel's piece P_spk is larger than its hole (objects.asm's spikes)
-                endif
-
 ; ================================================================ P_time: over evres.asm's death text and clock
                 org     H_TIME
 P_time:
-                include "../../build/assets/font_duel.inc"
 ; dh_x (d_hurt; d_tick around player 2's frame): HITP_CURR <-> GUARDHP_CURR, HITP_DELTA <-> GUARDHP_DELTA
 dh_x:           ld      hl, (HITP_CURR)
                 ld      a, (GUARDHP_CURR)
@@ -2078,7 +1666,7 @@ d_mstart:       xor     a
 ; top (after any composed chunk still waiting there), then run (it ends in d_reset)
 d_arena:        push    af
                 call    pend_flush
-                ld      a, DUEL_STAGE_PAGE
+                ld      a, DUEL_STAGE2_PAGE
                 ld      de, DSTAGE_W2
                 ld      hl, P_w2
                 ld      bc, P_w2_end - P_w2
@@ -2091,12 +1679,8 @@ d_ndelay:       db      NET_DELAY       ; the input delay (ticks)
 d_ntick:        dw      0               ; the next tick's number (the relay's frame)
 d_nw0:          dw      0               ; (the wait's start, FRAMES)
 d_nwt:          db      0               ; (WAITING shown)
-d_kprev:        db      0               ; (the lobby's last key)
-d_jpos:         db      0               ; (the code's characters typed)
-d_one:          db      1
 nb_f:           dw      0               ; the lockstep's parameters: the frame, then the input byte (NETSEND: 4 bytes,
 nb_k:           db      0, 0, 0, 0      ; one used) or the hash (NETHASH)
-nb_st:          ds      4               ; the last status
 nb_out:         ds      20              ; a command's output
 P_time_end:
                 if P_time_end > H_TIME_END
@@ -2273,7 +1857,20 @@ wt_n:           ld      hl, w_pos
                 jp      d_reset
 ; w_entry: the duel's entry: the seed (the frame counter; the harness keeps its own; HOST puts it into the room's
 ; settings, dlb_host); the fixed arena behind the menu
-w_entry:        ld      hl, (d_script)
+w_entry:        xor     a
+                ld      (SND_MODE), a   ; the silent sound model (duel-design 11.4)
+                ld      (NEED_L1M), a   ; (no level 1 music crouch)
+                ld      (TROBS_N), a    ; no tile animations but the torches (w_set), no falling floors
+                ld      (MOBS_N), a
+                ld      (IS_SHOW_TIME), a
+                ld      (EXIT_TIMER), a
+                ld      (d_rounds), a
+                ld      (d_score1), a
+                ld      (d_score2), a
+                ld      (d_result), a
+                ld      (d_match), a
+                call    erase_text
+                ld      hl, (d_script)
                 ld      a, h
                 or      l
                 jr      nz, we1
@@ -2368,12 +1965,477 @@ w_mod:          sub     c
                 jr      nc, w_mod
                 add     a, c
                 ret
+; d_reset: a round's start (duelsim round_reset): both at their start tiles, standing, swords sheathed, full hit
+; points, fresh blocks
+d_reset:        ld      a, (d_c1)                       ; player 1: column, direction right; charid the kid
+                ld      b, a
+                ld      c, 0
+                ld      e, c
+                call    dr_char
+                call    savekid
+                ld      a, (d_c2)                       ; player 2: left, the shadow
+                ld      b, a
+                ld      c, 0xff
+                ld      e, CHARID_SHADOW
+                call    dr_char
+                call    saveshad
+                call    loadkid_and_opp
+                call    d_fresh         ; the blocks: player 1's (the globals), then player 2's
+                call    d_swap
+                call    d_fresh
+                ld      a, ROUND_HP
+                ld      hl, HITP_CURR
+                ld      (hl), a
+                inc     hl
+                ld      (hl), a         ; HITP_MAX
+                ld      (GUARDHP_CURR), a
+                ld      (GUARDHP_MAX), a
+                xor     a
+                ld      (d_rtick), a    ; (the HUD's: drawing only)
+                ld      (HITP_DELTA), a
+                ld      (GUARDHP_DELTA), a
+                ld      (SND_SCREAM), a
+                ld      (KNOCK), a
+                ld      (d_timer), a
+                ld      hl, CAN_SEE     ; can_guard_see_kid .. droppedout (holding_sword, offguard: the block's)
+                ld      b, DROPPEDOUT + 1 - CAN_SEE
+drs_z:          ld      (hl), a
+                inc     hl
+                djnz    drs_z
+                dec     a               ; (audio only: any sound may cut the last round's tune)
+                ld      (d_acur), a
+                ret
+; dr_char: Char (KV) = a fresh record: B = column, C = direction, E = charid; then the stand sequence played
+dr_char:        ld      hl, KV
+                push    bc
+                ld      b, 16
+drc_z:          ld      (hl), 0
+                inc     hl
+                djnz    drc_z
+                pop     bc
+                ld      a, e
+                ld      (K_CHARID), a
+                ld      a, c
+                ld      (K_DIR), a
+                ld      a, b
+                ld      (K_COL), a
+                add     a, FIRST_COL
+                ld      hl, x_bump
+                call    k_tbl
+                add     a, TILE_SIZEX
+                ld      (K_X), a
+                ld      a, (d_arow)
+                ld      (K_ROW), a
+                inc     a
+                ld      hl, y_land
+                call    k_tbl
+                ld      (K_Y), a
+                ld      a, (d_room)
+                ld      (K_ROOM), a
+                ld      a, 0xff
+                ld      (K_ALIVE), a
+                ld      a, SQ_STAND
+                call    seqtbl_offset_char
+                jp      play_seq
+; d_fresh: player 2's block fresh: ctrl1 released, grab_timer 0, have_sword 1, offguard 0, holding_sword 0, no collision
+; rows (prev_collision_row -1, rooms -1, flags 0)
+d_fresh:        ld      hl, d_blk2
+                xor     a
+                ld      b, 6
+dfr1:           ld      (hl), a
+                inc     hl
+                djnz    dfr1
+                inc     a
+                ld      (hl), a         ; have_sword
+                inc     hl
+                dec     a
+                ld      (hl), a         ; offguard
+                inc     hl
+                ld      (hl), a         ; holding_sword
+                inc     hl
+                dec     a
+                ld      (hl), a         ; prev_collision_row
+                inc     hl
+                ld      c, 4
+dfr2:           ld      b, 10
+dfr3:           ld      (hl), 0xff      ; rooms
+                inc     hl
+                djnz    dfr3
+                ld      b, 10
+dfr4:           ld      (hl), 0         ; flags
+                inc     hl
+                djnz    dfr4
+                dec     c
+                jr      nz, dfr2
+                ret
+; d_ndet: Z when a NET card answers: REVD's status {02, 06, 04} (a Unicard-compatible device; a missing card floats the
+; ports), then INFO (no ERROR, OUTPUT, the command, >= 16 bytes) with the NET feature bit (byte 3, bit 3)
+d_ndet:         ld      a, N_REVD
+                ld      b, 0
+                call    n_do
+                ld      hl, nb_st
+                ld      a, (hl)
+                cp      2
+                ret     nz
+                inc     hl
+                ld      a, (hl)
+                cp      N_REVD
+                ret     nz
+                inc     hl
+                ld      a, (hl)
+                cp      4
+                ret     nz
+                ld      hl, nb_out
+                ld      b, 4
+                call    n_in
+                ld      a, N_INFO
+                ld      b, 0
+                call    n_do
+                ret     nz
+                ld      a, (nb_st)
+                and     0x82
+                cp      2
+                ret     nz
+                ld      a, (nb_st + 1)
+                cp      N_INFO
+                ret     nz
+                ld      a, (nb_st + 2)
+                cp      16
+                jr      c, ndt_f
+                ld      hl, nb_out
+                ld      b, 16
+                call    n_in
+                ld      a, (nb_out + 3)
+                cpl
+                and     8
+                ret
+ndt_f:          or      1
+                ret
 w_pos:          db      0
                 include "../../build/duel_arenas.inc"
-                include "../../build/duel_blades.inc"   ; (d_blade's pixels: read from the staged copy, not from W2)
 P_w2_end:
                 if P_w2_end > H_W2A_END
                 .error the arenas' piece P_w2 is larger than W2's top
+                endif
+
+; ================================================================ P_txt: the texts (W2 above the text overlay; d_text)
+; d_text's body (docs/duel-design.md 13.2): A = 0: HL = the string; else A = a d_strs kind + 1. The duel's glyphs laid
+; over the loaded overlay's lowercase ones, the line's bitmap blanked, the string with its numbers into td_str, drawn
+                org     H_W2T
+P_txt:          or      a
+                jr      z, dtx_s
+                add     a, a
+                ld      l, a
+                ld      h, 0
+                ld      de, d_strs - 2
+                add     hl, de
+                ld      a, (hl)
+                inc     hl
+                ld      h, (hl)
+                ld      l, a
+dtx_s:          push    hl
+                ld      hl, d_font      ; the duel's glyphs over its lowercase ones
+                ld      de, TX_txt_font + DFONT_OFS
+                ld      bc, DFONT_N * 9
+                ldir
+                ld      hl, MASKBUF     ; the line's bitmap (text.asm TXB: 7 rows x 20 bytes) blank
+                ld      de, MASKBUF + 1
+                ld      bc, 7 * 20 - 1
+                ld      (hl), 0
+                ldir
+                pop     hl              ; the string into td_str, the numbers in decimal
+                ld      de, TX_td_str
+huf:            ld      a, (hl)
+                inc     hl
+                cp      4
+                jr      nc, huf_c
+                or      a
+                jr      z, huf_e
+                push    hl
+                ld      hl, d_key
+                add     a, l
+                ld      l, a
+                jr      nc, huf1
+                inc     h
+huf1:           ld      a, (hl)
+                call    TX_td_num
+                pop     hl
+                jr      huf
+huf_c:          ld      (de), a
+                inc     de
+                jr      huf
+huf_e:          ld      (de), a
+                call    TX_td_render    ; centred into the bitmap, then the screen (rows 193-199, x 80-239)
+                jp      TX_td_put
+                include "../../build/assets/font_duel.inc"
+; the bottom texts (d_hud): 1, 2, 3 = d_key's numbers (0..99); tools/duelpatch.py checks that every one has its
+; glyphs (the game's font + d_font) and fits the line's 160 pixels with its widest numbers
+d_strs:         dw      dst_round, dst_score, dst_won, dst_draw, dst_match, dst_prompt, 0
+dst_round:      db      'ROUND ', 1, 0
+dst_score:      db      'ROUND ', 1, '   P1 ', 2, ' : ', 3, ' P2', 0
+dst_won:        db      'P', 1, ' WINS ROUND', 0
+dst_draw:       db      'DRAW', 0
+dst_match:      db      'P', 1, ' WINS THE MATCH', 0
+dst_prompt:     db      'ENTER REMATCH  BREAK QUIT', 0
+; the network's texts in the match (d_net, d_nfail; WAITING also in the lobby)
+dst_wait:       db      'WAITING', 0
+dst_desync:     db      'DESYNC', 0
+dst_left:       db      'OTHER PLAYER LEFT', 0
+dst_lost:       db      'CONNECTION LOST', 0
+P_txt_end:
+                if P_txt_end > H_W2T_END
+                .error the texts' piece P_txt is larger than its place in W2
+                endif
+
+; ================================================================ P_lob: the lobby (W2; d_lobby copies it in)
+; The menu (1 LOCAL, 2 HOST, 3 JOIN) over the arena drawn first (d_lobby), then the match loop. HOST: a room on the relay
+; (NETCREATE: the game id, the build id, 2 slots of 1 byte, the settings: the delay, the seed), its code shown until the
+; other player is in, then ready; JOIN: the code typed (letters, DEL, ENTER), NETJOIN, ready; both: the match starts
+; when the relay says RUNNING (tick 0 on both), ticks 0 .. D-1 sent without keys. An error in words, then the menu
+; again; BREAK: the title. Only d_text (W2 below P_lob) and code outside W2 are called from here; it is left by dlb_go
+; (the match: the level-start overlay may come into W2) or d_quit (tools/duelpatch.py checks both)
+                org     H_W2L
+P_lob:
+dlb_menu:       call    d_nleave        ; (after an error: out of the room)
+                ld      hl, dst_menu
+                call    d_text
+dlb_mk:         call    d_key1
+                cp      K_BREAK
+                jp      z, d_quit
+                cp      '1'
+                jp      z, dlb_go
+                sub     '2'
+                jp      z, dlb_host
+                dec     a
+                jr      nz, dlb_mk
+; JOIN: the code typed into the text (dst_code's dots)
+                ld      hl, dst_code + 10
+                ld      b, 4
+dlj_d:          ld      (hl), '.'
+                inc     hl
+                djnz    dlj_d
+                ld      b, 0
+dlj_s:          ld      a, b
+                ld      (d_jpos), a
+                ld      hl, dst_code
+                call    d_text
+dlj_k:          call    d_key1
+                or      a
+                jr      z, dlj_k
+                cp      K_BREAK
+                jp      z, d_quit
+                ld      c, a
+                ld      a, (d_jpos)
+                ld      b, a
+                ld      a, c
+                cp      K_ENTER
+                jr      z, dlj_go
+                cp      K_DEL
+                jr      z, dlj_del
+                sub     'A'
+                cp      26
+                jr      nc, dlj_k
+                ld      a, b
+                cp      4
+                jr      nc, dlj_k
+                call    dlj_at
+                ld      (hl), c
+                inc     b
+                jr      dlj_s
+dlj_del:        ld      a, b
+                or      a
+                jr      z, dlj_k
+                dec     b
+                ld      a, b
+                call    dlj_at
+                ld      (hl), '.'
+                jr      dlj_s
+dlj_at:         ld      hl, dst_code + 10       ; HL = the code's character A
+                add     a, l
+                ld      l, a
+                ret     nc
+                inc     h
+                ret
+dlj_go:         ld      a, b
+                cp      4
+                jr      nz, dlj_k
+                ld      a, N_JOIN       ; NETJOIN: the game id, the build id, the code (a string, 0x0D)
+                ld      hl, d_ncreate
+                ld      b, 4
+                call    n_cmd
+                ld      hl, dst_code + 10
+                ld      b, 4
+                call    n_out
+                ld      a, 13
+                out     (NP_DATA), a
+                call    n_wait
+                jr      nz, dlb_err
+                ld      hl, nb_out      ; the slot, slots, bytes, settings' length, the settings
+                ld      b, 20
+                call    n_in
+                ld      a, (nb_out + 4) ; settings[0]: the host's delay
+                ld      (d_ndelay), a
+                ld      hl, (nb_out + 5); settings[1, 2]: the host's seed (the arenas)
+                ld      (d_seed), hl
+                ld      a, 2            ; slot 1: player 2
+                ld      (d_netm), a
+                ld      hl, dst_wait
+                call    d_text
+                jp      dlb_ready
+dlb_st:         call    d_smsg          ; A = a NETSTATUS state: its text
+                jr      dlb_e
+dlb_err:        ld      hl, dst_link    ; A = an error code: its text
+                cp      9
+                jr      z, dlb_e
+                ld      hl, dst_vers
+                cp      6
+                jr      z, dlb_e
+                ld      hl, dst_room
+                cp      7
+                jr      z, dlb_e
+                ld      hl, dst_err
+dlb_e:          call    d_text
+                ld      b, 100          ; 2 s, then the menu
+dlb_ew:         halt
+                djnz    dlb_ew
+                jp      dlb_menu
+; HOST: the room, its code shown until the other player is in
+dlb_host:       ld      hl, (d_seed)    ; settings[1, 2]: this machine's seed as it is now (after a failed join: the
+                ld      (d_ncreate + 8), hl     ; other host's, which this machine's arenas use too)
+                ld      a, N_CREATE
+                ld      hl, d_ncreate
+                ld      b, 23
+                call    n_do
+                jr      nz, dlb_err
+                ld      hl, dst_code + 10       ; the code (4 letters), 0x0D, the slot (0)
+                ld      b, 4
+                call    n_in
+                ld      hl, nb_out
+                ld      b, 2
+                call    n_in
+                ld      a, 1            ; slot 0: player 1
+                ld      (d_netm), a
+                ld      hl, dst_code
+                call    d_text
+dlh_w:          call    d_key1
+                cp      K_BREAK
+                jp      z, d_quit
+                call    n_stat
+                jr      nz, dlb_err
+                cp      NS_INROOM
+                jr      nz, dlb_st
+                ld      a, (nb_out + 2) ; the members
+                cp      2
+                jr      c, dlh_w
+; both: ready, then the match when the relay starts it
+dlb_ready:      ld      a, N_READY
+                ld      hl, d_one
+                ld      b, 1
+                call    n_do
+                jr      nz, dlb_err
+                ld      hl, nb_out      ; (the seed, the start frame: 0xFFFF while waiting)
+                ld      b, 4
+                call    n_in
+dlr_w:          call    d_key1
+                cp      K_BREAK
+                jp      z, d_quit
+                call    n_stat
+                jp      nz, dlb_err
+                cp      NS_INROOM
+                jr      z, dlr_w
+                cp      NS_RUNNING
+                jp      nz, dlb_st
+                ld      hl, 0           ; tick 0; ticks 0 .. D-1 without keys (BomberNet's net_match_start)
+                ld      (d_ntick), hl
+                ld      (nb_k), hl
+dlr_s:          ld      (nb_f), hl
+                ld      a, N_SEND
+                ld      hl, nb_f
+                ld      b, 6
+                call    n_do
+                jp      nz, dlb_err
+                ld      hl, (nb_f)
+                inc     hl
+                ld      a, (d_ndelay)
+                cp      l
+                jr      nz, dlr_s
+                jp      dlb_go
+
+; d_key1: one frame, then A = the key newly pressed (d_kget), 0 when none or the same as before
+d_key1:         halt
+                call    d_kget
+                ld      hl, d_kprev
+                cp      (hl)
+                ld      (hl), a
+                ret     nz
+                xor     a
+                ret
+; d_kget: A = the key down (KEYMAT, read_inputs): a digit 1-8, a letter A-Z (column 4 A-H, 3 I-P, 2 Q-X, 1 Y Z and
+; higher codes for column 1's other keys), K_BREAK, K_ENTER, K_DEL, else 0
+d_kget:         call    read_inputs
+                ld      hl, KEYMAT + 5
+                ld      de, dk_base
+dk_c:           ld      a, (de)
+                inc     de
+                or      a
+                jr      z, dk_sp
+                ld      c, a
+                ld      a, (hl)
+                dec     hl
+                ld      b, 8
+dk_b:           rla
+                jr      c, dk_hit
+                inc     c
+                djnz    dk_b
+                jr      dk_c
+dk_hit:         ld      a, c
+                ret
+dk_sp:          ld      a, (KEYMAT + 8) ; BREAK (8/7)
+                rla
+                ld      a, K_BREAK
+                ret     c
+                ld      a, (KEYMAT + 0) ; ENTER (0/0)
+                rra
+                ld      a, K_ENTER
+                ret     c
+                ld      a, (KEYMAT + 7) ; DEL (7/6)
+                and     0x40
+                ret     z
+                ld      a, K_DEL
+                ret
+dk_base:        db      '1', 'A', 'I', 'Q', 'Y', 0      ; columns 5, 4, 3, 2, 1: bit 7's character
+
+; NETCREATE's parameters (the first 4 also NETJOIN's): the game id, the build id (tools/duelpatch.py: a CRC-16 of the
+; game, its overlays and this patch, so two different disks cannot meet in a room), 2 slots, 1 byte a slot, the
+; settings
+d_ncreate:      dw      NET_GAME
+d_build:        dw      0
+                db      2, 1, 3         ; (the settings' length)
+                db      NET_DELAY       ; settings[0]: the input delay
+                dw      0               ; settings[1, 2]: the arenas' seed (dlb_host: d_seed)
+                ds      13
+; the lobby's texts (tools/duelpatch.py checks every dst_ string: its glyphs, its width)
+dst_menu:       db      '1 LOCAL  2 HOST  3 JOIN', 0
+dst_code:       db      'ROOM CODE ....', 0     ; (+10: the code)
+dst_link:       db      'NO LINK', 0
+dst_vers:       db      'OTHER VERSION', 0
+dst_room:       db      'NO SUCH ROOM', 0
+dst_err:        db      'NETWORK ERROR', 0
+d_kprev:        db      0               ; (the lobby's last key)
+d_jpos:         db      0               ; (the code's characters typed)
+d_one:          db      1
+P_lob_end:
+                if P_lob_end > H_W2L_END
+                .error the lobby's piece P_lob is larger than its place in W2
+                endif
+
+; ================================================================ P_bld: the blade pixels (staged only; d_blade reads them)
+                org     H_BLD
+P_bld:
+                include "../../build/duel_blades.inc"
+P_bld_end:
+                if P_bld_end > H_BLD_END
+                .error the blade pixels are larger than their dummy place
                 endif
 
 ; ================================================================ the patch sites

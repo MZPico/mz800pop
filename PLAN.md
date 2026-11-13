@@ -1258,3 +1258,14 @@ piece used AND/XOR semantics.
    line ("RAM DISK 2M / 4M / 8M") needed nothing. mz800emu: 2M / 4M / 8M (MZPico/mz800emu wasm ca2b709, CI pinned);
    POP800_RD_SIZE takes them; CI's third size is 4M instead of 16M (tests/perf_baseline_4M.json, remeasured; 8M and
    16M compare with it); m5_boot probes all six sizes and checks the screen's line.
+92. Duel: the layout for more room (2026-11-13, docs/duel-design.md section 18, its stage A; the study of potions and traps
+   and the user's decisions there): the code that runs only now and then moved out of the resident holes into W2 pieces
+   copied in when needed: the lobby P_lob (0xA600, after the lobby's arena draw; it calls and leaves only through
+   resident code, tools/duelpatch.py checks it), the texts P_txt (right after the text overlay, loaded with it), the round reset and
+   d_entry's state and the NET detection into P_w2; the blade pixels a staged-only piece; player 2's block over the dead
+   d_boot. The pieces read during the duel are PRS_DUEL1's second RAM-disk record in page 1's button-picture slots
+   (0xE918-0xFC5B); page 6 0x16C0- keeps only d_boot's. H_OBJ and H_SPK carry no duel code: reserved for stage C's
+   spikes. Resident duel code 3,598 -> 2,369 B (holes 2,891 B without the reserved 880, 522 free; 173 before), staged
+   2,134 + 2,101 B, PR3 16 blocks (24 of 40 left); 0 resident game bytes, launcher and PRES unchanged. No behaviour
+   change: duelsim and every digest as before; duel_z80 --cdl 0 differing lines at 512 KB / 1 MB / 4 MB (and 16 MB), duel_boot,
+   duel_net.

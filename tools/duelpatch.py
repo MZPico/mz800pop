@@ -3,8 +3,9 @@
 
   duelpatch.py build      build/duel.bin + duel.sym -> build/duel_main.bin (the piece over the game's main loop:
                           2-byte address, then its bytes: POP800.PRS entry PRS_DUEL, main RAM), build/duel_stage.bin
-                          (the other pieces in d_ptab's order: entry PRS_DUEL1, a RAM-disk record at DUEL_STAGE_PAGE:
-                          DUEL_STAGE_ADDR that d_boot copies into the holes), build/duel_patch.json (both, the hole map
+                          (entry PRS_DUEL1's two RAM-disk records: the pieces d_boot copies into the holes, in d_ptab's
+                          order, at DUEL_STAGE_PAGE: DUEL_STAGE_ADDR; then the W2 pieces and the blade pixels, STAGE2, at
+                          DUEL_STAGE2_PAGE: DUEL_STAGE2_ADDR, read during the duel), build/duel_patch.json (both, the hole map
                           and the figures, for tools/mkgamedisk.py and tests/duel_z80.py); then the checks below
   duelpatch.py report     the hole map and the free bytes
 
@@ -41,14 +42,30 @@ INDIRECT = {
     'frm:fs_oj': [('chain', 'frm:fs_och')],    # (an overlay's site: 'overlay:label', the frames overlay's row chain)
 }
 LN_LAUNCH = 0xb003          # src/boot/launch.inc: the launcher (the duel's end: the level-start overlay's ho_swap)
-# The overlay the duel's pieces call into in window W2 (duel.asm d_hud: the text overlay, loaded by `call ovl_w2`
-# with OVL_TEXT first; its td_render, td_put, td_num called in place, build/duel_text.inc)
+# The overlay the duel's pieces call into in window W2 (duel.asm d_text's body P_txt: the text overlay, loaded by
+# `call ovl_w2` with OVL_TEXT first; its td_render, td_put, td_num called in place, build/duel_text.inc)
 PIECE_W2 = 'text'
-# The arenas' piece (duel.asm P_w2, docs/duel-design.md 15): not in a hole of the game's code but in W2's top (H_W2A:
-# OVL_WF .. OVL_W2_END), staged after d_ptab's pieces (DSTAGE_W2) and copied there by d_arena at each use; its call of
-# the level-start overlay's alter_mods (loaded into W2 below it) is resolved to that overlay
-PIECE_ARENA, HOLE_ARENA, ARENA_W2 = 'P_w2', 'H_W2A', 'level'
-LIVE_HOLES = ('H_D1', 'H_SD', 'H_PP', HOLE_ARENA)     # (the patch sites and the arenas' window: not dropped code)
+# The pieces in W2 (docs/duel-design.md 15, 18): not in holes of the game's code but in W2 (their H_W2*), copied there
+# from the RAM disk when needed: P_w2 the arenas (WF; d_arena), P_txt the texts (above the text overlay; d_text), P_lob
+# the lobby (d_lobby). A jump from a piece into W2 goes to one of them, or to an overlay: P_w2's call of the level-start
+# overlay's alter_mods (w_load loads it below P_w2), the others' to the text overlay
+W2_PIECES = {'P_w2': 'H_W2A', 'P_txt': 'H_W2T', 'P_lob': 'H_W2L'}
+PIECE_ARENA, ARENA_W2 = 'P_w2', 'level'
+# The blade pixels (duel.asm P_bld): read from the RAM disk only (d_blade), never laid in main RAM (a dummy hole)
+STAGED_ONLY = {'P_bld': 'H_BLD'}
+# The second staging record (RAM-disk page DUEL_STAGE2_PAGE: the button pictures' slots, which a duel never uses): the
+# pieces read again during the duel, in this order (duel.asm DSTAGE_*). The first record (page 6) holds d_ptab's
+# pieces, read once by d_boot: on 512 KB and 1 MB it is the complete chopper pictures' pool (stage C's spikes)
+STAGE2 = (('P_w2', 'DSTAGE_W2'), ('P_txt', 'DSTAGE_TXT'), ('P_lob', 'DSTAGE_LOB'), ('P_bld', 'DSTAGE_BLD'))
+# Holes kept free of duel code for stage C (docs/duel-design.md 18: the spikes run the game's own code there); still
+# checked as dropped code (nothing reaches them while the duel has no traps)
+RESERVED = ('H_OBJ', 'H_SPK')
+# The lobby (P_lob) is lost when W2 is drawn into or another overlay is loaded over it: it calls only these (d_text
+# loads W2 below it), and leaves only by a jump to these
+LOBBY_CALLS = {'d_text', 'd_key1', 'd_kget', 'dlj_at', 'd_nleave', 'd_smsg', 'n_do', 'n_cmd', 'n_out', 'n_in', 'n_wait',
+               'n_stat', 'read_inputs'}
+LOBBY_EXITS = {'dlb_go', 'd_quit'}
+LIVE_HOLES = ('H_D1', 'H_SD', 'H_PP', 'H_W2', 'H_BLD')     # (the patch sites, the W2 places, the dummy: not dropped code)
 TEXT_W = 160                # the bottom line's bitmap (text.asm TXB: 20 bytes, x 80..239)
 
 
@@ -94,24 +111,35 @@ def check_pieces(D, pieces, holes, data):
         where[k] = hs[0][2]
     for (a, e, k), (a2, e2, k2) in zip(pieces, pieces[1:]):
         if a2 < e: errs.append('%s and %s overlap' % (k, k2))
-    # d_ptab: the staged pieces' order
+    for k, h in list(W2_PIECES.items()) + list(STAGED_ONLY.items()):
+        if where.get(k) != h: errs.append('%s is not in %s' % (k, h))
+    for k, h in where.items():
+        if h in RESERVED: errs.append('%s lies in %s, reserved for the spikes (stage C)' % (k, h))
+    # d_ptab: the staged pieces' order (the first record)
     main = data['P_main']; t = D['d_ptab'] - D['P_main']; order = []
     while True:
         adr, n = struct.unpack_from('<HH', main, t); t += 4
         if adr == 0: break
         order.append((adr, n))
-    staged = [(a, e - a, k) for a, e, k in pieces if k not in ('P_main', PIECE_ARENA)]
+    later = [k for k, at in STAGE2]
+    staged = [(a, e - a, k) for a, e, k in pieces if k != 'P_main' and k not in later]
     by_addr = {a: (n, k) for a, n, k in staged}
     if sorted(o[0] for o in order) != sorted(by_addr) or any(by_addr[a][0] != n for a, n in order):
         errs.append('d_ptab %s does not list the staged pieces %s' % (order, [(hex(a), n, k) for a, n, k in staged]))
     stage = b''.join(data[by_addr[a][1]] for a, n in order if a in by_addr)
-    if D['DSTAGE_W2'] != D['DUEL_STAGE_ADDR'] + len(stage):
-        errs.append('DSTAGE_W2 %04X, the arenas\' piece is staged at %04X' % (D['DSTAGE_W2'], D['DUEL_STAGE_ADDR'] + len(stage)))
-    stage += data[PIECE_ARENA]
-    if where.get(PIECE_ARENA) != HOLE_ARENA: errs.append('%s is not in %s' % (PIECE_ARENA, HOLE_ARENA))
     room = D['DUEL_STAGE_END'] - D['DUEL_STAGE_ADDR']
     if len(stage) > room: errs.append('the staged pieces: %d bytes, the RAM-disk scratch %d' % (len(stage), room))
-    return errs, where, order, stage
+    # the second record: STAGE2's order, at DSTAGE_*, within the button pictures' slots (src/m4/btnstep.asm)
+    stage2 = b''
+    for k, at in STAGE2:
+        if D[at] != D['DUEL_STAGE2_ADDR'] + len(stage2): errs.append('%s %04X, %s is staged at %04X' % (at, D[at], k, D['DUEL_STAGE2_ADDR'] + len(stage2)))
+        stage2 += data[k]
+    B_ = syms(os.path.join(B, 'ovl_btn.sym'))
+    if (D['DUEL_STAGE2_PAGE'], D['DUEL_STAGE2_ADDR'], D['DUEL_STAGE2_END']) != (B_['BC_PAGE'], B_['BC_BASE'], B_['BC_BASE'] + 4 * B_['BC_SLOT']):
+        errs.append('DUEL_STAGE2 is not the button pictures\' slots (btnstep.asm BC_PAGE, BC_BASE, 4 x BC_SLOT)')
+    room2 = D['DUEL_STAGE2_END'] - D['DUEL_STAGE2_ADDR']
+    if len(stage2) > room2: errs.append('the second staging record: %d bytes, its scratch %d' % (len(stage2), room2))
+    return errs, where, order, (stage, stage2)
 
 
 class Image:
@@ -168,7 +196,8 @@ def call_graph(D, pieces, holes, data):
     S = I.S
     in_piece = lambda a: any(p[0] <= a < p[1] for p in pieces)
     dropped = [h for h in holes if not h[2].startswith(LIVE_HOLES)]      # (the patch sites, the arenas' window: live)
-    arena = (D[PIECE_ARENA], D[PIECE_ARENA + '_end'])
+    w2 = {k: (D[k], D[k + '_end']) for k in W2_PIECES}
+    in_w2 = lambda a: next((k for k, (lo, hi) in w2.items() if lo <= a < hi), None)
     in_hole = lambda a: any(h[0] <= a < h[1] for h in dropped)
     cold = {}
     for (caller, callee), why in COLD.items(): cold.setdefault(S[callee], []).append((caller, why))
@@ -183,8 +212,8 @@ def call_graph(D, pieces, holes, data):
         if t == LN_LAUNCH: return None          # (the level-start overlay's ho_swap: the duel's end, the launcher)
         if sp == 'main' and t == S['rr_bkt_ent']: return ('room', t)   # (room.asm rr_table: only while the room overlay draws)
         if sp == 'main' and in_piece(ins.a) and S['OVL_W2'] <= t < S['OVL_W2_END']:
-            if arena[0] <= t < arena[1]: return ('main', t)                     # (d_arena: into the arenas' piece)
-            ovl = ARENA_W2 if arena[0] <= ins.a < arena[1] else PIECE_W2
+            if in_w2(t): return ('main', t)                                     # (into a W2 piece, copied there first)
+            ovl = ARENA_W2 if in_w2(ins.a) == PIECE_ARENA else PIECE_W2
             assert t in I.ovl_sym[ovl].values(), 'a duel piece jumps to %04X in W2: not a label of the %s overlay' % (t, ovl)
             return (ovl, t)
         r = I.resolve(sp, ins, t, ctx)
@@ -210,6 +239,20 @@ def call_graph(D, pieces, holes, data):
         for nn, how in ins.addrs:
             if in_hole(nn) and not in_piece(nn) and how == 'mem':
                 errs.append('%s names %s inside a hole' % (I.name(sp, a), I.name('main', nn)))
+    names = {v: k for k, v in S.items()}
+    names.update({v: k for k, v in D.items() if not k.startswith(('H_', 'P_')) and any(lo <= v < hi for lo, hi, n in pieces)})
+    lob = w2['P_lob']
+    for f, (sp, t), k in edges:                 # the lobby: only calls that keep W2 above the text overlay, exits to resident code
+        if f[0] != 'main' or not lob[0] <= f[1] < lob[1] or (sp == 'main' and lob[0] <= t < lob[1]): continue
+        n = names.get(t, '%04X' % t)
+        if k in ('call', 'callc', 'rst') and n not in LOBBY_CALLS:
+            errs.append('the lobby (P_lob) calls %s: not in LOBBY_CALLS (it may load W2 over the lobby)' % n)
+        if k in ('jp', 'jr', 'jpc', 'jrc', 'djnz') and n not in LOBBY_EXITS:
+            errs.append('the lobby (P_lob) jumps to %s: not in LOBBY_EXITS' % n)
+    txt = w2['P_txt']
+    for f, (sp, t), k in edges:                 # the texts: into the text overlay or themselves only
+        if f[0] == 'main' and txt[0] <= f[1] < txt[1] and sp == 'main' and in_w2(t) and in_w2(t) != 'P_txt':
+            errs.append('the texts (P_txt) jump into %s' % in_w2(t))
     for sp, a, t in I.unresolved:
         errs.append('%s: a jump into an overlay window (%04X) whose overlay the walk cannot tell' % (I.name(sp, a), t))
     ind = sorted(I.name(sp, a) for (sp, a), ins in seen.items() if ins.kind == 'ind' and not (sp == 'main' and in_piece(a)))
@@ -302,10 +345,10 @@ def build():
     if cg_errs: sys.exit('duelpatch: the call graph reaches the holes:\n  ' + '\n  '.join(cg_errs))
     main = data['P_main']
     open(os.path.join(B, 'duel_main.bin'), 'wb').write(struct.pack('<H', D['P_main']) + main)
-    open(os.path.join(B, 'duel_stage.bin'), 'wb').write(stage)
+    open(os.path.join(B, 'duel_stage.bin'), 'wb').write(stage[0] + stage[1])
     rep = report(D, pieces, holes, where)
     js = {'build_id': bid, 'build_at': D['d_build'], 'main': [[D['P_main'], main.hex()]], 'stage': {'page': D['DUEL_STAGE_PAGE'], 'addr': D['DUEL_STAGE_ADDR'],
-          'data': stage.hex()}, 'holes': rep['holes'], 'figures': rep['figures'], 'call_graph': notes}
+          'data': stage[0].hex()}, 'stage2': {'page': D['DUEL_STAGE2_PAGE'], 'addr': D['DUEL_STAGE2_ADDR'], 'data': stage[1].hex()}, 'holes': rep['holes'], 'figures': rep['figures'], 'call_graph': notes}
     json.dump(js, open(os.path.join(B, 'duel_patch.json'), 'w'), indent=1)
     print_report(rep)
     print("the network's build id %04X" % bid)
@@ -320,11 +363,13 @@ def report(D, pieces, holes, where=None):
         h = [x for x in holes if x[0] <= a and e <= x[1]]
         if h: used[h[0][2]] = used.get(h[0][2], 0) + e - a
     rows = [{'hole': k, 'from': a, 'to': e, 'size': e - a, 'used': used.get(k, 0)} for a, e, k in holes]
-    code = [r for r in rows if not r['hole'].startswith(LIVE_HOLES)]
+    code = [r for r in rows if not r['hole'].startswith(LIVE_HOLES) and r['hole'] not in RESERVED]
     fig = {'holes': sum(r['size'] for r in code), 'used': sum(r['used'] for r in code), 'main': len(dict(
         (k, 1) for k in ['P_main'])) and D['P_main_end'] - D['P_main'],
-           'staged': sum(e - a for a, e, k in pieces if k != 'P_main'),
-           'arenas': D[PIECE_ARENA + '_end'] - D[PIECE_ARENA], 'arenas_room': D['H_W2A_END'] - D['H_W2A'],
+           'staged': sum(e - a for a, e, k in pieces if k != 'P_main' and k not in dict(STAGE2)),
+           'staged2': sum(D[k + '_end'] - D[k] for k, at in STAGE2), 'stage2_room': D['DUEL_STAGE2_END'] - D['DUEL_STAGE2_ADDR'],
+           'w2': {k: [D[k + '_end'] - D[k], D[h + '_END'] - D[h]] for k, h in W2_PIECES.items()},
+           'reserved': sum(r['size'] for r in rows if r['hole'] in RESERVED),
            'stage_room': D['DUEL_STAGE_END'] - D['DUEL_STAGE_ADDR']}
     return {'holes': rows, 'figures': fig}
 
@@ -334,10 +379,11 @@ def print_report(rep):
     for r in rep['holes']:
         print('%-8s %04X-%04X %5d %5d %5d' % (r['hole'], r['from'], r['to'] - 1, r['size'], r['used'], r['size'] - r['used']))
     f = rep['figures']
-    print('code holes %d bytes, the duel %d, free %d; P_main %d bytes (main RAM), staged %d of %d (RAM-disk scratch)' % (
-        f['holes'], f['used'], f['holes'] - f['used'], f['main'], f['staged'], f['stage_room']))
-    print('the arenas\' piece P_w2 %d bytes of W2\'s top %d (staged, copied there at a match\'s and a round\'s start)' % (
-        f['arenas'], f['arenas_room']))
+    print('code holes %d bytes, the duel %d, free %d (and %d reserved for the spikes: %s); P_main %d bytes (main RAM)' % (
+        f['holes'], f['used'], f['holes'] - f['used'], f['reserved'], ', '.join(RESERVED), f['main']))
+    print('staged: %d of %d (page 6, laid in by d_boot), %d of %d (page 1: %s)' % (f['staged'], f['stage_room'], f['staged2'],
+          f['stage2_room'], ', '.join(k for k, at in STAGE2)))
+    print('in W2 when needed: %s' % ', '.join('%s %d of %d' % (k, u, r) for k, (u, r) in f['w2'].items()))
 
 
 if __name__ == '__main__':

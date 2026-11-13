@@ -332,9 +332,12 @@ def prs_file():
     # last entries: they make POP800.PR3 (the launcher's ACT_DUEL)
     dp = json.load(open(os.path.join(B, 'duel_patch.json')))
     named['PRS_DUEL'] = b''.join(records(main_blocks([(a, bytes.fromhex(h)) for a, h in dp['main']])))
-    st = dp['stage']; stage = bytes.fromhex(st['data'])
-    assert (st['addr'] & 0xFFFF) + len(stage) <= 0x10000 and len(stage) <= RD_BLOCK
-    named['PRS_DUEL1'] = b''.join(records([(st['page'], st['addr'], stage)]))
+    recs = []                                       # (two RAM-disk records: page 6 for d_boot, page 1 for the duel's
+    for st in (dp['stage'], dp['stage2']):          # W2 pieces and the blade pixels; docs/duel-design.md 18)
+        stage = bytes.fromhex(st['data'])
+        assert (st['addr'] & 0xFFFF) + len(stage) <= 0x10000 and len(stage) <= RD_BLOCK
+        recs.append((st['page'], st['addr'], stage))
+    named['PRS_DUEL1'] = b''.join(records(recs))
     order = sorted((k for k in named if k != 'PRES'), key=lambda k: P[k])
     assert [P[k] for k in order] == list(range(1, len(order) + 1)), 'pres.asm PRS_* and the entries differ'
     assert order[-2:] == DUEL_ENTRIES, 'the duel\'s entries must come last (POP800.PR3)'
