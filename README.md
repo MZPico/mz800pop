@@ -50,7 +50,9 @@ file's SHA-256 checksum.
    emulation.
 2. Switch on (or reset) the MZ-800 and let it boot from the floppy. Keep the disk writable if you want to save games.
 3. The **loading screen** shows the RAM disk it found and its speed (`RAM DISK 1M, 21.0 T/BYTE`) and a progress bar
-   while the game loads and, with 1 MB or more, while it prepares the animation frames (`PREPARING SPRITES`).
+   while the game loads and, with 1 MB or more, while it prepares the animation frames (`PREPARING SPRITES`). It also
+   shows the game's version under the title (`V0.1.0`) and whether an MZPico network is there for the duel
+   (`NETWORK: MZPICO NET` or `NETWORK: NONE`).
 4. Then the title and the intro play. Press any key, or the joystick's fire, for a new game; **Ctrl+L** continues your
    saved game.
 

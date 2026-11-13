@@ -108,6 +108,8 @@ loader takes 719 frames instead of 708 (+0.22 s with the table's drawing; 5 KB r
 since 2026-11-13 one line under the bar, the size in M when it is a whole number of MB, else in K, and the GAME mean):
 
     RAM DISK 1M, 21.0 T/BYTE
+    NETWORK: MZPICO NET (DUEL: CTRL+D)      (or NETWORK: NONE (DUEL: CTRL+D); src/boot/bootscr.asm net_line, the
+                                             duel's NET detection: docs/duel-design.md 14.3)
 
 How to read it: the number is the GAME mean over the areas ("T/BYTE" = clocks/byte; 21.0 = no wait states, the excess
 the wait clocks a byte), the number to compare between machines. The per-area table (MIN / MAX / ALIGN / MISAL / GAME

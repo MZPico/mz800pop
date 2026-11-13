@@ -33,8 +33,11 @@ $(BUILD)/m0.dsk: $(BUILD)/m0boot.mzf
 # M5: the game disk. src/boot/boot.asm (the floppy loader, load/exec 0xB000) is the IPLPRO bootstrap; the files
 # POP800.D1, D2... hold the compressed RAM-disk data and program (tools/mkgamedisk.py, tools/pzpack.py; compressed
 # blocks are cached in build/pzcache). Needs `make assets` and the game (build/m4game.bin, build/m4ovl.bin).
-$(BUILD)/boot.bin: src/boot/boot.asm src/boot/rdspeed.asm src/boot/bootscr.asm src/boot/fdc.asm src/boot/unpz.asm src/boot/font.inc src/boot/launch.inc | $(BUILD)
+$(BUILD)/boot.bin: src/boot/boot.asm src/boot/rdspeed.asm src/boot/bootscr.asm src/boot/fdc.asm src/boot/unpz.asm src/boot/font.inc src/boot/launch.inc $(BUILD)/version.inc | $(BUILD)
 	cd src/boot && $(PASMO) --bin boot.asm ../../$(BUILD)/boot.bin ../../$(BUILD)/boot.sym
+# the version (VERSION, one semantic version: MAJOR.MINOR.PATCH[-suffix]; tools/version.py checks it) on the loading screen
+$(BUILD)/version.inc: VERSION tools/version.py | $(BUILD)
+	$(PY) tools/version.py $@
 $(BUILD)/boot.mzf: $(BUILD)/boot.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 B000
 # tools/build_assets.py's outputs that the programs and the disk read (its rule: after the `assets` target below)
@@ -91,7 +94,7 @@ m7keys: $(BUILD)/pop800.dsk $(BUILD)/m4test.mzf cheats
 	$(PY) tests/m7_keys.py
 cheats:
 	mkdir -p $(BUILD)/cheat/build
-	rsync -a --delete src Makefile $(BUILD)/cheat/
+	rsync -a --delete src Makefile VERSION $(BUILD)/cheat/
 	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/cheat/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/cheat/build/assets
 	$(MAKE) -C $(BUILD)/cheat CHEATS=1 build/m4game.mzf build/m4test.mzf build/pop800.dsk
@@ -99,7 +102,7 @@ cheats:
 # binaries in build/ stay as they are; tests/m8_pace.py pokes the mode into the release binary instead)
 pace:
 	mkdir -p $(BUILD)/pace/build
-	rsync -a --delete src Makefile $(BUILD)/pace/
+	rsync -a --delete src Makefile VERSION $(BUILD)/pace/
 	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/pace/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/pace/build/assets
 	$(MAKE) -C $(BUILD)/pace PACE=1 build/m4game.mzf build/pop800.dsk

@@ -157,6 +157,7 @@ rs_m1:          call    rs_area
                 ld      a, 255
 rs_h2:          ld      (rd_spd), a
                 call    rs_show
+                call    net_line                ; (bootscr.asm: the network line under it)
                 ld      hl, (rs_gav)            ; the stop
                 ld      de, (rd_max)
                 ex      de, hl
