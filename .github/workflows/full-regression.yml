@@ -2,7 +2,7 @@
 # measurements m2_oracle / m2_ega_capture, docs/ci.md), split into parallel jobs (tools/ci/check_pr.py --full: the parts
 # of FULL in tools/ci/suite.py; docs/ci.md). Runs on demand (Actions tab or `gh workflow run`) and on pushes to
 # regress/** branches (a branch may limit the parts: tools/ci/regress_only). Each part runs at the RAM-disk sizes 512K,
-# 1M and 16M, except the parts whose tests never see the size (1M only), and one part also at 1M with 1 wait state (the
+# 1M and 4M (the top tier: 8M and 16M behave alike), except the parts whose tests never see the size (1M only), and one part also at 1M with 1 wait state (the
 # MZPico): the matrix comes from tools/ci/regress_matrix.py (the inputs of a manual run, or tools/ci/regress_sizes and
 # tools/ci/regress_only on the branch; docs/ci.md "The RAM-disk sizes").
 # The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       sizes:
-        description: 'RAM-disk variants: 512K 1M 16M, 1M+N (N wait states), every-size (empty: tools/ci/regress_sizes or all)'
+        description: 'RAM-disk variants: 512K 1M 4M (also 2M 8M 16M), 1M+N (N wait states), every-size (empty: tools/ci/regress_sizes or all)'
         required: false
         default: ''
       parts:
@@ -34,7 +34,7 @@ env:
   SDL3_TAG: release-3.4.14
   SDL3_IMAGE_TAG: release-3.4.4
   MINIZIP_TAG: 4.2.2
-  MZ800EMU_COMMIT: b4ebc084d639d360888d328d06e1b3bc49236c05   # wasm: MZPico/mz800emu#2 squash-merged (regions, mr1r18_wait)
+  MZ800EMU_COMMIT: ca2b709099139abeb9531f2b71f48084bd7160ce   # wasm: 2M, 4M, 8M RAM-disk sizes (after #2 regions, mr1r18_wait; #3 warp)
   SDLPOP_COMMIT: 3c5add5fb7f83d4ceb542823ab66d00146c4271b
   MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
   BOMBERNET_COMMIT: ae509d5380830119be9fae20faac7272c4b5ac12   # relay/relay.py: the NET relay tests/duel_net.py runs locally

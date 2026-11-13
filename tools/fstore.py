@@ -5,7 +5,7 @@ keys get a pre-shifted, pre-mirrored cell buffer in RAM-disk pages 8+, and where
 The keys are chosen from the test scripts' use (assets/fstore_uses.txt: every kid and sword key the 71 scripts of
 tests/m4-m7_scripts fetched, with its count; remade by `fstore.py --uses build/meas/k`, the output of
 tools/fetchmodel/run_all.sh): class 1 = the most used per byte up to CLASS1_BUDGET (every card from 1 MB), class 2 =
-the rest of them (cards with at least FS_TOP2 + 1 pages, i.e. 16 MB). The sizes come from the image directories, so
+the rest of them (cards with at least FS_TOP2 + 1 pages: 4 MB and more). The sizes come from the image directories, so
 the layout is computed at build time from the user's game data and never committed.
 
 The MZ's fill (src/m4/fstore.asm with the generator src/m4/fsgen.asm, the level-start overlay) walks the same masks in the same order and allocates the
@@ -19,11 +19,11 @@ same way; this tool computes the result it must produce:
 The guard sets (docs/ramdisk-tiers.md section 13): ids FS_GID + 36 * set + frame (set = game.asm guard_type_tbl's
 index, the order of tests/m4_game.py GUARD_SETS). Two layouts, filled at a level start for the level's set by the fill
 overlay (src/m4/fstore.asm fs_guard):
-  g 1 (class 1, rd_top FS_TOP1 up to below FS_TOP2: 1 MB): one region from class 1's end to page FS_TOP1's end, shared
+  g 1 (class 1, rd_top FS_TOP1 up to below FS_TOP2: 1 MB to 3.9 MB): one region from class 1's end to page FS_TOP1's end, shared
       by the six sets and refilled when the set changes; per set the most used keys that fit (assets/fstore_guses.txt:
       the guards' keys the scripts fetched, with the level's set; a set's own use first, then the use pooled over all
       sets, then the other variants of the frames used), allocated in id and variant order like the kid's;
-  g 2 (class 2, from FS_TOP2: 16 MB): every variant of every image of every set, each set in its own region after
+  g 2 (class 2, from FS_TOP2: 4 MB and more): every variant of every image of every set, each set in its own region after
       class 2 (filled at the first level with that set, then kept for the session).
   build/assets/fstore_gmasks.bin  the fill's input per layout and set (FS_GREC bytes each, g 1's six, then g 2's): the
                                 36 mask words, the region's page and address (the entries' first), then padding
@@ -48,6 +48,9 @@ FS_GFLAG = 0x7705           # 6 bytes: guard set s's entries and slots are fille
 FS_DATA = 0x7800            # the entries start here (page 8), then pages 9 and up
 CLASS1_BUDGET = 400 * 1024  # bytes of entries (headers included) on every card from 1 MB
 FS_TOP1 = 15                # rd_top from which the store is on (1 MB)
+FS_TOP2 = 62                # rd_top from which class 2, g 2 and the pictures' page (src/m4/spike.asm FRM_P16, the same
+                            # page) are used (4 MB and more: docs/ramdisk-tiers.md section 15); below it (1 MB up to
+                            # 3.9 MB, 2 MB among them) the 1 MB tier: class 1 and g 1
 CH_SWORD, CH_KID, CH_GUARD = 0, 2, 5
 FS_MPAGE, FS_MADDR = 6, 0xE400  # the masks and the build id (fstore_masks.bin) in the RAM disk (pages 0-7: every size)
 FS_GMADDR = 0xE800          # the guard sets' masks (fstore_gmasks.bin), page FS_MPAGE
@@ -180,7 +183,8 @@ def main():
     assert ends[0][0] < FS_TOP1, 'class 1 does not fit 1 MB'
     gl, gend, guse = guard_layout(ends[0], ends[1])
     fid = build_id(masks, gl)
-    top2 = gend[0]              # class 2 and the whole guard sets (g 2) need pages up to gend's
+    top2 = FS_TOP2              # class 2 and the whole guard sets (g 2) need pages up to gend's, the pictures page FS_TOP2
+    assert gend[0] < FS_TOP2, 'class 2 and g 2 run into the pictures\' page %d' % FS_TOP2
     tab = bytearray(FS_DATA)
     for cls in (1, 2):
         t = tab if cls == 1 else bytearray(tab)

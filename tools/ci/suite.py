@@ -50,9 +50,9 @@ PARTS = {
         ('m5_boot', [PY, 'tests/m5_boot.py']),
         ('m5_save', [PY, 'tests/m5_save.py']),
         ('m8_fstore', [PY, 'tests/m8_fstore.py']),
-        # the other two full-suite RAM-disk sizes, cheaply (m5_boot probes all three itself): the frame budget against
-        # that size's baseline and the frame store's layout (512K: none; 16M: classes 1 + 2), ~1.5 min together
-    ] + [(n + ' ' + size, [PY, f], {'POP800_RD_SIZE': size}) for size in ('512K', '16M')
+        # the other two full-suite RAM-disk sizes, cheaply (m5_boot probes all six itself): the frame budget against
+        # that size's baseline and the frame store's layout (512K: none; 4M: classes 1 + 2, every guard set), ~1.5 min
+    ] + [(n + ' ' + size, [PY, f], {'POP800_RD_SIZE': size}) for size in ('512K', '4M')
          for n, f in (('perfcheck', 'tools/perfcheck.py'), ('m8_fstore', 'tests/m8_fstore.py'))],
     'b': [
         ('m4_test m7', [PY, 'tests/m4_test.py'] + M7),
@@ -131,14 +131,15 @@ FULL = {
 }
 
 # ---- the full regression's RAM-disk dimension (.github/workflows/full-regression.yml, tools/ci/regress_matrix.py;
-# docs/ci.md "The RAM-disk sizes"). Every part runs at 512K, 1M and 16M (POP800_RD_SIZE), except the parts below,
+# docs/ci.md "The RAM-disk sizes"). Every part runs at 512K, 1M and 4M (POP800_RD_SIZE; 4M = the top tier, which 8M and
+# 16M share and the 16M jobs ran until 2026-11-13: docs/ramdisk-tiers.md section 15), except the parts below,
 # whose tests never see the size: kidsim against SDLPoP (no emulator), the logic program m4test (fixed RAM-disk
 # pages, all within 512 KB; it never reads the size: the probe and the frame store are the game's), cutsim, the M0-M3 programs (fixed
 # pages): they run at 1M only. And the parts that also run once at 1M with POP800_RD_WAIT=1 (the MZPico: at least 1 T
 # of wait on every RAM-disk access): the boot from the floppy with the frame store's fill, PRES, the game and the
 # launcher's round trips, the keys: the whole disk path, without a timing reference (the cycle-exact checks,
 # perfcheck, m7_title/m7_cut's step timing, measure a 0-wait card).
-SIZES = ['512K', '1M', '16M']
+SIZES = ['512K', '1M', '4M']
 SIZE_FREE = {'logic', 'oracle-m4m6', 'oracle-m5m7', 'early', 'early-anim'}
 WAIT_PARTS = ['launch-keys']
 # the parts' job times on the runner (minutes, the whole job: setup ~2.5 + the steps; regress/rd-sizes run
@@ -222,7 +223,7 @@ PROGRAMS = {
     'tests/duel_net.py': dict(build=[DUEL_PATCH, M4GAME, ASSETS_GAME], data=['tests/duel_scripts/arenas_dungeon.txt', 'tests/duel_scripts/climb_dungeon.txt'], uses={'emu'},
                               expect=150),
     'tests/duel_boot.py': dict(build=[DISK, DUEL_PATCH, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=60),
-    'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),
+    'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_4M.json'], expect=40),
     'tests/m8_pace.py': dict(build=[M4GAME, ASSETS_GAME],
                              split=lambda: [([s], {}) for s in sorted(literal('tests/m8_pace.py', 'STRETCHES'))], expect=120),
     'tests/m8_fstore.py': dict(build=[M4GAME, ASSETS_GAME], expect=30),

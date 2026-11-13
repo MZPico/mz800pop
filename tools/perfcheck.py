@@ -3,7 +3,8 @@
 frames per tick (1 frame = 71136 T) and compare with tests/perf_baseline.json. The cycle counts come from a
 tracepoint at tick_done (tools/emu.py collect; POP800_EMU_TRACE=0: a breakpoint stop per tick, the old way). A stretch more than the
 tolerance slower than its baseline fails the check. The baseline is the default RAM-disk size's (1 MB: with the frame
-store); tests/perf_baseline_<size>.json, when it exists, is the one for another size (512K, 16M).
+store; 2 MB is the same tier); tests/perf_baseline_<tier>.json is the one for another tier (512K: no store; 4M: the
+4 MB tier, which 8 MB and 16 MB share: docs/ramdisk-tiers.md section 15).
 usage: perfcheck.py [--root DIR] [--update] [--tol PCT]
   --update  write the measured values as the new baseline (after an intended change)"""
 import json, os, sys
@@ -74,10 +75,12 @@ for script, spans in by_script.items():
     m = measure(script, spans)
     for name, (s, t0, t1) in STRETCHES.items():
         if s == script: got[name] = round(m[(t0, t1)], 2)
-# the baseline is the default size's (1 MB, the INI's); another size has its own file if there is one
-# (tests/perf_baseline_512K.json: no frame store; _16M: the store's classes 1 + 2)
+# the baseline is the default size's (1 MB, the INI's; 2 MB is the same tier); another tier has its own file if there is
+# one (tests/perf_baseline_512K.json: no frame store; _4M: the store's classes 1 + 2, all guard sets, the pictures' page:
+# 4 MB and more, so 8M and 16M compare with it too)
 size, = SIZE
-if size != '1M' and os.path.exists(BASE.replace('.json', '_%s.json' % size)): BASE = BASE.replace('.json', '_%s.json' % size)
+tier = {'8M': '4M', '16M': '4M', '2M': '1M'}.get(size, size)
+if tier != '1M' and os.path.exists(BASE.replace('.json', '_%s.json' % tier)): BASE = BASE.replace('.json', '_%s.json' % tier)
 if '--update' in args:
     json.dump(got, open(BASE, 'w'), indent=1)
     print('baseline written:', BASE)

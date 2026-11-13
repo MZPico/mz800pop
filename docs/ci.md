@@ -32,7 +32,7 @@ Four matrix jobs (`a` to `d`) run in parallel; each one:
 4. **Build**: `make ci-build` = `make assets`, then everything `make` builds (the game disk `build/pop800.dsk` too:
    below) plus `build/m4test.mzf`.
 5. **The PR tier**: `make check-pr PART=a` (`b`, `c`, `d`) under `xvfb-run` (the emulator needs an X display), the
-   RAM disk at the INI's 1M; part a also runs perfcheck and m8_fstore at 512K and 16M (a step can carry its own
+   RAM disk at the INI's 1M; part a also runs perfcheck and m8_fstore at 512K and 4M (a step can carry its own
    environment: `(name, command, env)` in `tools/ci/suite.py`). The jobs are named `build + PART @ 1M`. The other
    sizes in full are the full regression's (below).
 
@@ -56,7 +56,7 @@ pr [--part a] [-j 4]` runs the same commands through the local runner: in parall
 | a | `tests/m5_boot.py` | the game disk: the floppy boot through the launcher and PRES's title to the game, main RAM / RAM disk / KV / VRAM against the harness start, byte for byte | ~1.3 min |
 | a | `tests/m5_save.py` | Ctrl+G / Ctrl+A, the saved game on a copy of the disk, a write-protected disk | ~0.5 min |
 | a | `tests/m8_fstore.py` | the frame store's layout and every stored entry (docs/ramdisk-tiers.md section 11) | ~0.2 min |
-| a | `POP800_RD_SIZE=512K` and `16M`: `tools/perfcheck.py`, `tests/m8_fstore.py` | the other two RAM-disk sizes, cheaply: the frame budget against that size's baseline (`tests/perf_baseline_512K.json`: no frame store; `_16M`: classes 1 + 2) and the store's layout (none on 512K) | ~1.1 min (perfcheck 23 / 28 s, m8_fstore 4 / 12 s) |
+| a | `POP800_RD_SIZE=512K` and `4M`: `tools/perfcheck.py`, `tests/m8_fstore.py` | the other two RAM-disk sizes, cheaply: the frame budget against that size's baseline (`tests/perf_baseline_512K.json`: no frame store; `_4M`: classes 1 + 2, every guard set; 8M and 16M compare with it too) and the store's layout (none on 512K) | ~1.1 min (perfcheck 23 / 28 s, m8_fstore 4 / 12 s) |
 | b | `tests/m4_test.py` on all of `tests/m7_scripts` | the same: the sound-ticks and key scripts | ~9 min |
 | b | `tools/oracle_suite.py` on `tests/m7_scripts` + the 7 scripts above | kidsim against SDLPoP | ~9 min |
 | b | `tools/cut_suite.py` | cutsim against SDLPoP, all 63 cutscene cases | ~5 s |
@@ -90,8 +90,9 @@ whole set fits the runners (m7_sound ~1.5 h -> ~5.4 min, m4_test on every script
 
 ### The RAM-disk sizes
 
-The game depends on the RAM disk's size (docs/ramdisk-tiers.md: 512 KB no frame store, 1 MB class 1, 16 MB classes
-1 + 2, the fill at boot), so the full regression runs its parts at the three full-suite sizes, 512K, 1M and 16M
+The game depends on the RAM disk's size (docs/ramdisk-tiers.md: 512 KB no frame store, 1 MB (to 3.9 MB, 2 MB
+among them) class 1, 4 MB and more (8 MB, 16 MB) classes 1 + 2, the fill at boot), so the full regression runs its parts
+at the three full-suite sizes, 512K, 1M and 4M (16M until 2026-11-13: the same tier; docs/ramdisk-tiers.md section 15)
 (`POP800_RD_SIZE`, emu/mz800emu-pop.sh), and one part also at 1M with 1 wait state (`POP800_RD_WAIT=1`). A first
 job, `matrix`, makes the job list (`tools/ci/regress_matrix.py`, from the lists in `tools/ci/suite.py`: `SIZES`,
 `SIZE_FREE`, `WAIT_PARTS`, `PART_MIN`); each job is named `full + PART @ SIZE` (`@ 1M +1 wait`) and runs with
@@ -100,10 +101,10 @@ on branches with the size changed (regress/fs5-512, fs5-1m, fs5-16m; PLAN.md ite
 
 | Part | Sizes | Why |
 |---|---|---|
-| pixels-m4, pixels-m6, pixels-m5 | 512K, 1M, 16M | the game program every tick at the size it is given (tests/m4_game.py setup hands the emulator's size over and runs the fill): the frame store's lookups draw the sprites |
-| sound | 512K, 1M, 16M | perfcheck against that size's baseline, m8_pace (the timing differs with the store), m8_fstore (the layout per size), m5_boot / m5_save (the boot's probe and fill at the job's size; m5_boot also probes all three sizes itself), m7_sound |
-| pres, story | 512K, 1M, 16M | the disk: the boot with or without the fill, PRES's swaps through the RAM disk, the game started from PRES |
-| launch-keys | 512K, 1M, 16M, **1M +1 wait** | the launcher's round trips (game starts after the store is filled), the keys; the wait below |
+| pixels-m4, pixels-m6, pixels-m5 | 512K, 1M, 4M | the game program every tick at the size it is given (tests/m4_game.py setup hands the emulator's size over and runs the fill): the frame store's lookups draw the sprites |
+| sound | 512K, 1M, 4M | perfcheck against that size's baseline, m8_pace (the timing differs with the store), m8_fstore (the layout per size), m5_boot / m5_save (the boot's probe and fill at the job's size; m5_boot also probes 512K, 1M, 2M, 4M, 8M and 16M itself), m7_sound |
+| pres, story | 512K, 1M, 4M | the disk: the boot with or without the fill, PRES's swaps through the RAM disk, the game started from PRES |
+| launch-keys | 512K, 1M, 4M, **1M +1 wait** | the launcher's round trips (game starts after the store is filled), the keys; the wait below |
 | logic | 1M | m4test, the logic program: fixed RAM-disk pages, all within 512 KB, and it never reads the size (the probe, the store and its lookup are the game's, not in m4test.asm); cut_suite runs no emulator |
 | oracle-m4m6, oracle-m5m7 | 1M | kidsim against SDLPoP: no emulator at all |
 | early, early-anim | 1M | the M0-M3 programs: fixed pages (the M1/M3 harness writes the RAM disk's regions directly), nothing reads the size |
@@ -132,7 +133,7 @@ run and three other full regressions (33 jobs, regress/fsgen-*) were queued at t
 to the matrix's order. early @ 1M, the longest job but one, waited 25 min for a runner and then ran 27 min. Before:
 one size, 11 jobs, ~27-33 min wall alone (37-43 min with three runs at once: regress/fs5-*).
 
-| Job (min, the whole job) | 512K | 1M | 16M | 1M +1 wait |
+| Job (min, the whole job; measured with 16M, the 4M jobs' tier) | 512K | 1M | 16M | 1M +1 wait |
 |---|---:|---:|---:|---:|
 | sound | 26.7 | 29.1 | 28.9 | |
 | launch-keys | 21.4 | 26.4 | 25.2 | 25.1 |
@@ -159,11 +160,11 @@ emulator's INI copy per size and wait (`build/emu/mz800emu-512K.ini`, `-w1`) and
 
 How to run it:
 
-- **By hand**: *Actions → Full regression → Run workflow*, choose the branch, optionally *sizes* (e.g. `512K 16M`,
+- **By hand**: *Actions → Full regression → Run workflow*, choose the branch, optionally *sizes* (e.g. `512K 4M`,
   `1M+1`, `every-size`) and *parts* (e.g. `pres story`); or `gh workflow run full-regression.yml --ref BRANCH -f
-  sizes=16M -f parts=pres` (`gh run watch` follows it). Empty: the branch's files below, else everything.
+  sizes=4M -f parts=pres` (`gh run watch` follows it). Empty: the branch's files below, else everything.
 - **By a push to a `regress/**` branch**: `git push origin HEAD:regress/<name>` runs it on that commit.
-- **Some sizes only**: commit a file `tools/ci/regress_sizes` on the branch with the variants: `512K`, `1M`, `16M`,
+- **Some sizes only**: commit a file `tools/ci/regress_sizes` on the branch with the variants: `512K`, `1M`, `4M` (also `2M`, `8M`, `16M`),
   `1M+N` (N wait states, on the parts of `WAIT_PARTS`), `every-size` (the 1M-only parts at every listed size; a
   `1M+N` still runs only the `WAIT_PARTS`); one or more per line, `#` comments allowed. Without 1M (and without
   `every-size`) the 1M-only parts do not run.
@@ -179,7 +180,7 @@ DOSBox capture of the real game in `build/dosbox/`). They are measurements, not 
 `tools/tickcost.py` and `tools/trapscenes.py` (docs/perf.md "Gates and spikes: per-tick measurements") and their
 scenes in `tests/perf_scripts`: no part runs them (`m4_game --every 1` on six of the scenes was a one-off check there).
 
-Locally `python3 tools/ci/check_pr.py --full PART` runs a part one step after the other (with `POP800_RD_SIZE=16M`
+Locally `python3 tools/ci/check_pr.py --full PART` runs a part one step after the other (with `POP800_RD_SIZE=4M`
 before it: at that size), and `make check-full` runs the
 whole set through the local runner without the cache; the full regression is normally the runners' job.
 
@@ -188,7 +189,8 @@ whole set through the local runner without the cache; the full regression is nor
 `tools/testrun.py` runs the tests of `tools/ci/suite.py` in parallel and skips each test that passed before with the
 same inputs. It builds first (`make ci-build`, then what the selected tests need: `make cheats`, the M3 programs).
 
-`POP800_RD_SIZE=512K`, `1M` or `16M` runs every emulator test with that RAM-disk size (the full-suite sizes;
+`POP800_RD_SIZE=512K`, `1M` or `4M` (the full-suite sizes; also `2M`, `8M`, `16M`: mz800emu from MZPico/mz800emu
+`wasm` of 2026-11-13 on) runs every emulator test with that RAM-disk size (
 emu/mz800emu-pop.sh writes an INI copy to build/emu/; unset = emu/mz800emu.ini's 1M). `256K` (and `64K`) is only the
 refusal test's configuration: the loader refuses a RAM disk below 512 KB, so the ordinary boot of tests/m5_boot.py and
 the rest of the suite cannot run with it. `POP800_RD_WAIT=<T>` (0-255) adds that many wait states to every RAM-disk port

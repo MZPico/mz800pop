@@ -1,5 +1,5 @@
 # PR checks: build the port (the game disk included) from a clean checkout and run the PR test tier (make check-pr), the
-# RAM disk at the INI's 1M (part a: a few checks at 512K and 16M too). docs/ci.md.
+# RAM disk at the INI's 1M (part a: a few checks at 512K and 4M too). docs/ci.md.
 # The original DOS data is downloaded at run time (tools/ci/fetch_dos_data.py, md5-checked) and never leaves the job:
 # no artifact, no cache holds it or anything built from it (the repository is public).
 name: PR checks
@@ -22,14 +22,14 @@ env:
   SDL3_TAG: release-3.4.14
   SDL3_IMAGE_TAG: release-3.4.4
   MINIZIP_TAG: 4.2.2
-  MZ800EMU_COMMIT: b4ebc084d639d360888d328d06e1b3bc49236c05   # wasm: MZPico/mz800emu#2 squash-merged (regions, mr1r18_wait)
+  MZ800EMU_COMMIT: ca2b709099139abeb9531f2b71f48084bd7160ce   # wasm: 2M, 4M, 8M RAM-disk sizes (after #2 regions, mr1r18_wait; #3 warp)
   SDLPOP_COMMIT: 3c5add5fb7f83d4ceb542823ab66d00146c4271b
   MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
   BOMBERNET_COMMIT: ae509d5380830119be9fae20faac7272c4b5ac12   # relay/relay.py: the NET relay tests/duel_net.py runs locally
 
 jobs:
   check:
-    # the RAM disk at the INI's 1M; part a also runs perfcheck and m8_fstore at 512K and 16M (tools/ci/suite.py)
+    # the RAM disk at the INI's 1M; part a also runs perfcheck and m8_fstore at 512K and 4M (tools/ci/suite.py)
     name: build + ${{ matrix.part }} @ ${{ matrix.sizes }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -37,7 +37,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {part: a, sizes: '1M (perf + fstore also 512K, 16M)'}
+          - {part: a, sizes: '1M (perf + fstore also 512K, 4M)'}
           - {part: b, sizes: 1M}
           - {part: c, sizes: 1M}
           - {part: d, sizes: 1M}

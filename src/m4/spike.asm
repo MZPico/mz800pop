@@ -174,7 +174,7 @@ FRM_NEXT        equ     FRM_TAB + FRM_N * FE_SIZE
 FRM_CNEXT       equ     FRM_NEXT + 2
 FRM_END         equ     FRM_CNEXT + 1
 LC_VARS         equ     FRM_END                 ; src/m4/frmlow.asm's variables (to 0x076D)
-FRM_P16         equ     62                      ; 16 MB: the slots' page (docs/memory.md); the complete pictures at
+FRM_P16         equ     62                      ; 4 MB+: the slots' page (docs/memory.md); the complete pictures at
 FRM_C16         equ     0x60                    ; + 0x6000 (part 25)
 FRM_P4          equ     0xe000                  ; 512 KB, 1 MB: the slots in page 4 from here (the game image's second
                                                 ; piece ends below: tools/mkgamedisk.py checks it)

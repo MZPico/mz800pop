@@ -23,7 +23,7 @@ else all 64 KB are RAM. Code in the low block must never run inside `blit`.
 | 0x0200-0x027F | 128 | run_rect's recorded ops (RR_PTRS, 64 pointers) |
 | 0x0280-0x029E | 31 | level-event state EV (objects.asm: next level, time left, bottom text and flash timers, feather fall, upside down, mirror, shadow script, checkpoint, restart / level switch / game over flags, keys (KEYS: bit 0 Ctrl+A, bit 2 Ctrl+G, bits 3-7 a key code, src/m4/keys.asm); for the drawing TEXT_GEN, FLASH_NOW, MI_JUMPED, TXT_GEN_SHOWN, the save overlay's text TEXT_MSG / TEXT_MSG_GEN); set by game_init, runtime only |
 | 0x029F | 1 | HO_RDSPD_MAIN (src/boot/launch.inc): the RAM disk's read speed as the boot measured it (src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1: the game pattern's mean, clocks/byte x 5, 105 = 21.0 = no wait states, 255 = 51.0 or more); set by the launcher at every start after zeroing low RAM; 0 in the harness; read by nothing yet (PLAN item 50) |
-| 0x02A0-0x02AF | 16 | HO_MAIN: the launcher's copy of the handoff block (src/boot/launch.inc; magic "P7" = the game was started by the launcher, M7); zeroed by the launcher otherwise, never written by the harness except KEY_OPT 0x02A8 = HO_OPTIONS: bit 0 the sound off (Ctrl+S, M7 step 10; goes through PRES with the block), bit 1 blind (CHEATS only); 0x02AF = HO_RDTOP: the RAM disk's last page as the boot's probe found it (7 = 512 KB, 15 = 1 MB, 255 = 16 MB; set by the launcher at every start; 0 in the harness = the 512 KB layout; read by nothing yet, docs/ramdisk-tiers.md) |
+| 0x02A0-0x02AF | 16 | HO_MAIN: the launcher's copy of the handoff block (src/boot/launch.inc; magic "P7" = the game was started by the launcher, M7); zeroed by the launcher otherwise, never written by the harness except KEY_OPT 0x02A8 = HO_OPTIONS: bit 0 the sound off (Ctrl+S, M7 step 10; goes through PRES with the block), bit 1 blind (CHEATS only); 0x02AF = HO_RDTOP: the RAM disk's last page as the boot's probe found it (7 = 512 KB, 15 = 1 MB, 31 = 2 MB, 63 = 4 MB, 127 = 8 MB, 255 = 16 MB; set by the launcher at every start; 0 in the harness = the 512 KB layout; read by nothing yet, docs/ramdisk-tiers.md) |
 | 0x02B0-0x02B4 | 5 | m4test only: N_SNAP, the 'N' trace snapshot (snd_snap: queued, started, playing, stops) and its counter |
 | 0x02C0-0x02DB | 28 | m4test only: S_SNAP, the 'S' trace snapshot (state_snap) and its counter |
 | 0x0300-0x03C0 | 193 | M5 drawing (overlay.asm, fx.asm): spr_xor's row SXT 0x0300 (73), the descriptors of slot 5 (the guard's splash when both are hurt) SPR_SP2 0x0350 and slot 6 (the mirror image) SPR_MI 0x0368, the sort keys PP_KEYS 0x0380 (7, slot 6 first), PP_ORD, per slot PP_XD (XOR offset) and PP_CL (left clip), PC_SAVE, and single variables to PP_ANYFX 0x03C0 (FL_SHOWN 0x03B8: the flash shown this tick, read by tests/m4_game.py; UP_SHOWN, TXT_VIS); runtime only |
@@ -207,7 +207,9 @@ decision of 2026-10-30 (docs/m7-design.md section 9) it is read from the floppy 
 main RAM; the RAM disk only gets what the swap needs (the launcher 2.2 KB, the game image 24 KB, the handoff block).
 The scratch areas (the shadow room page 1 0x0000-0x7CFF, the torch cache page 6 0x0000-0x287F) are free for PRES.
 
-Pages 8 and up (a 1 MB or 16 MB RAM disk; M8a part 9, docs/ramdisk-tiers.md "As built: step 1"): the frame store, written
+Pages 8 and up (a RAM disk of 1 MB or more; the tiers by HO_RDTOP: 15-61 (1 MB up to 3.9 MB, 2 MB among them) the 1 MB
+layout, pages 8-15 only; 62 and more (FS_TOP2: 4, 8 and 16 MB) the full layout, pages 8-62, nothing above: docs/ramdisk-tiers.md
+section 15; M8a part 9, docs/ramdisk-tiers.md "As built: step 1"): the frame store, written
 only by the fill overlay (src/m4/fstore.asm: at boot the kid's and the sword's keys, at a level start the level's guard set; M8a part 12, docs/ramdisk-tiers.md section 13) on a RAM disk of 1 MB and more (HO_RDTOP >= 15); on 512 KB
 they are not written (page 8 would alias page 0):
 
@@ -217,13 +219,13 @@ they are not written (page 8 would alias page 0):
 | 8 0x7700-0x7704 | the marker: the build id (tools/fstore.py: a CRC of the masks, the kid and sword packs and directories, the kernel's sources and the fill), the class filled (1, 2); written last; cleared by the boot (src/boot/boot.asm), so every boot fills |
 | 8 0x7705-0x770A | the guard sets' flags (part 12): set s's entries and slots are filled; cleared with the key table by the boot's fill; on 1 MB all are cleared (with all guard slots) before a set is filled |
 | 8 0x7800- and 9-14 | class 1 (every card from 1 MB): 891 entries, 409,512 bytes, to page 14 0xC2F4; an entry = ow, h, the byte count (2), the cell buffer as spr_fetch leaves it ((w + 1) * 4 * h bytes); none crosses a page; the order and addresses are tools/fstore.py's (build/assets/fstore_keys.txt) |
-| 14 0xC2F4-15 | 1 MB (g 1): the level's guard set, refilled when the set changes (81.2 KB: 106-150 entries, 81.1 KB a set; part 12; no room cache on 1 MB, the user's decision of 2026-11-03) |
-| 14 0xC2F4-27 0x6130 | class 2 (from rd_top FS_TOP2 = 61 since part 12, i.e. on 16 MB): 1,262 more entries, 823,312 bytes |
-| 27 0x6130-61 0x390C | 16 MB (g 2): the six guard sets whole (every variant), each in its own region (27:6130, 33:814C, 39:6374, 44:5E24, 50:2FAC, 55:1A04), filled at the first level with that set and kept |
-| 61 0x390C-61 | free (16 MB) |
-| 62 0x0000-0x5FFF | 16 MB: M8a part 15's chopper and spike pictures (src/m4/frames.asm FRM_P16: 4 objects x 6 slots of 1 KB; runtime only) |
-| 62 0x6000-0xBFFF | 16 MB: M8a part 25's complete pictures (the rect as the screen shows it with nobody in it, row-major), one per slot at the slot's address + 0x6000; runtime only |
-| 62 0xC000-255 | free (16 MB) |
+| 14 0xC2F4-15 | 1 MB to 3.9 MB (g 1): the level's guard set, refilled when the set changes (81.2 KB: 106-150 entries, 81.1 KB a set; part 12; no room cache on 1 MB, the user's decision of 2026-11-03) |
+| 14 0xC2F4-27 0x6130 | class 2 (from rd_top FS_TOP2 = 62 since 2026-11-13, 61 before: 4 MB and more): 1,262 more entries, 823,312 bytes |
+| 27 0x6130-61 0x390C | 4 MB and more (g 2): the six guard sets whole (every variant), each in its own region (27:6130, 33:814C, 39:6374, 44:5E24, 50:2FAC, 55:1A04), filled at the first level with that set and kept |
+| 61 0x390C-61 | free (4 MB and more) |
+| 62 0x0000-0x5FFF | 4 MB and more: M8a part 15's chopper and spike pictures (src/m4/frames.asm FRM_P16: 4 objects x 6 slots of 1 KB; runtime only) |
+| 62 0x6000-0xBFFF | 4 MB and more: M8a part 25's complete pictures (the rect as the screen shows it with nobody in it, row-major), one per slot at the slot's address + 0x6000; runtime only |
+| 62 0xC000-63 (4 MB), -127 (8 MB), -255 (16 MB) | free |
 
 All six guard sets are resident (tests/m4_game.py GUARD_SETS; the floppy loader loads them all too); loading only the
 level's set (at most 20.4 KB) would need a per-level load from floppy and would free ~90 KB of pages 6-7 for the

@@ -43,13 +43,13 @@ and the game used pages 0-7 only. Nothing in mz800emu needs changing for the tie
 A 2-byte marker (p, p xor 0x5A) at offset 0 of each page p, written from page 255 down to 0, then read back from page 0
 up; the RAM disk is the pages up to the first wrong marker. On a card that ignores the high page bits, page p aliases a
 lower page whose later write replaces the marker; a page without memory behind it does not keep one (an open bus reading
-the same value twice fails the second byte). `rd_top` = the last good page: 7 = 512 KB, 15 = 1 MB, 255 = 16 MB (any
-count of pages works, not only powers of two). Below 8 pages it still refuses (the 256 KB tier changes that later).
+the same value twice fails the second byte). `rd_top` = the last good page: 7 = 512 KB, 15 = 1 MB, 31 = 2 MB, 63 = 4 MB, 127 = 8 MB,
+255 = 16 MB (any count of pages works, not only powers of two; section 15). Below 8 pages it still refuses (the 256 KB tier changes that later).
 The original bytes of all 256 pages are saved in TRKBUF (free until the directory is read) and put back, aliased pages
 last-written-lowest, so a page gets its own bytes. ~0.1 M T (30 ms); the launcher's image grew 35 bytes (2,331 of 3,072).
 
-`tests/m5_boot.py` boots with 512 KB, 1 MB and 16 MB (temporary INIs) to the end of the probe (`rd_probed`): rd_top
-7 / 15 / 255, accepted, and the pattern it put at offsets 0-1 of each reachable page beforehand is back. The 256 KB
+`tests/m5_boot.py` boots with 512 KB, 1, 2, 4, 8 and 16 MB (temporary INIs) to the end of the probe (`rd_probed`): rd_top
+7 / 15 / 31 / 63 / 127 / 255, accepted, and the pattern it put at offsets 0-1 of each reachable page beforehand is back. The 256 KB
 refusal is tested as before.
 
 To check on real hardware: a 1 MB / 16 MB card's behaviour for the page bits it does not decode (the probe assumes
@@ -797,3 +797,57 @@ compared: tests/m5_boot.py RUNTIME_SCRATCH). By size: 16 MB page 62 0x0000-0x5FF
 pages 0-7 (15 x 960 + 5 x 648 bytes: page 4 0xE000-0xFDFF, page 0 0xE868 and 0xFC00, page 6 0x2880, 0xF964 and
 0xFD24, page 1 0xDA58, 0xFC5C and 0x7D00, page 5 0x3AD0); the overlay's own image is in page 0 0xA400. Every chopper
 room has all its pictures on every size; the rooms with 3-4 spikes get 20 of their 23-24 on 512 KB and 1 MB.
+
+## 15. 2, 4 and 8 MB cards (2026-11-13, PLAN.md item 91)
+
+**The tiers by threshold** (HO_RDTOP, the probe's last page; every check in the game is a `>=` compare, nothing asks for
+an exact size):
+
+| rd_top | cards | what is used |
+|---|---|---|
+| below 15 (FS_TOP1) | 512 KB | no frame store (pages 0-7) |
+| 15-61 | 1 MB, 2 MB, any card up to 3.9 MB | class 1 + the level's guard set (g 1), pages 8-15; the chopper and spike pictures in the free pieces of pages 0-7 |
+| 62 (FS_TOP2) and more | 4 MB, 8 MB, 16 MB | classes 1 + 2, the six guard sets kept (g 2) and the pictures' page FRM_P16 = 62: pages 8-62 |
+
+The full layout ends at page 62 0xBFFF (g 2 at page 61 0x390C, the pictures 62 0x0000-0xBFFF), so a 4 MB card (pages
+0-63) holds all of it and 8 MB / 16 MB behave as 4 MB; nothing uses a page above 62. **The user's decision
+(2026-11-13): no special 2 MB tier**; 2 MB behaves exactly as 1 MB (pages 16-31 unused). A middle tier (class 2 from
+page 16, g 1 kept, the pictures on the card's last page) would have cost ~0 code bytes but changed the 16 MB layout;
+the gain on 2 MB would be about the 4 MB tier's against 1 MB below, minus the guard sets.
+
+**The one fix**: FS_TOP2 was the guard sets' end page (61), so a card with pages 0-61 would have taken the full path
+with no page 62 for the pictures. tools/fstore.py now fixes FS_TOP2 = 62 (asserting g 2 ends below it) and
+src/m4/frames.asm stops the build unless FRM_P16 = FS_TOP2. No code changed: 0 resident and 0 overlay bytes.
+
+**The probe** (section 1) needs nothing: the markers go from page 255 down, so on a card that decodes 5, 6 or 7 page
+bits page p aliases p mod 32 / 64 / 128 and keeps the lowest page's marker; the read-back stops at page 32 / 64 / 128:
+rd_top 31 / 63 / 127. The loading screen's line (PR #68, src/boot/rdspeed.asm rs_show) prints whole MB as "M": "RAM
+DISK 2M", "4M", "8M". rdspeed.asm's areas (pages 0, 7, rd_top / 2 + 1, rd_top) work for any size.
+
+**The emulator**: mz800emu models the card as a page mask; MZPico/mz800emu `wasm` ca2b709 adds 2M / 4M / 8M (masks
+0x1f / 0x3f / 0x7f: INI keywords and the ImGui menu). CI pins it (MZ800EMU_COMMIT); emu/mz800emu-pop.sh takes
+`POP800_RD_SIZE=2M/4M/8M`; tests/m4_game.py rd_top is the number of the emulator's RAM-disk pages - 1.
+
+**Tests**: the CI's third size is now **4M** instead of 16M (the same tier, 4x less RAM disk for the emulator; the
+user's decision): tools/ci/suite.py SIZES, part a's perfcheck / m8_fstore, the full regression's @4M jobs;
+tests/perf_baseline_16M.json became _4M.json, remeasured at 4M (perfcheck picks it for 8M and 16M too, 2M uses 1M's).
+tests/m5_boot.py probes 512 KB, 1, 2, 4, 8 and 16 MB and checks the line on the loading screen for each.
+
+Measured (local, the emulator above): m5_boot at 4M OK (the fill 20.3 s on the loading screen, level_ready after 2,448
+frames; HO_RDTOP 63); m8_fstore at 2M (class 1 and g 1, the fill 7.3 s, a guard set 1.8-2.1 s) and at 8M (class 2 and
+g 2, the fill 19.0 s, a set 4.7-5.7 s once); m4_game walk_level1, fight1, level12_shadow_merge and frm_button every 5th
+tick at 2M and 4M: 0 differences; duel_boot at 2M and 4M. perfcheck (frames a tick):
+
+| stretch | 1M baseline | 2M | 4M (the new baseline) | 8M | 16M baseline (before) |
+|---|---:|---:|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 4.28 | 4.28 | 4.21 | 4.21 | 4.21 |
+| level door step (walkthrough 203-207) | 7.73 | 7.91 | 7.91 | 7.91 | 7.73 |
+| room change (walkthrough 89) | 82.28 | 82.33 | 81.50 | 81.50 | 81.44 |
+| walkthrough 190-260 | 5.75 | 5.75 | 5.42 | 5.42 | 5.38 |
+| gate (gate_push 200-260) | 4.02 | 4.04 | 4.04 | 4.04 | 4.02 |
+| traps (traps_b1 0-300) | 4.71 | 4.71 | 4.68 | 4.68 | 4.68 |
+| fight (fight1 60-160, guard on) | 5.63 | 5.68 | 5.44 | 5.43 | 5.42 |
+| choppers (frm_button 20-120) | 6.14 | 6.16 | 5.55 | 5.55 | 5.53 |
+
+(2M = 1M within the noise of the baselines' age; 4M = 8M = the old 16M within 0.5 %: the door step's 7.91 against
+7.73 is on every size, not the tier's.)

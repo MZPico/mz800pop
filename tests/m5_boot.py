@@ -23,8 +23,9 @@ are left out of the RAM-disk comparison (the harness does not write them). tests
 M7 step 3: the launched game's sound model is live (SND_MODE 1: snd_playing = the PSG player); the floppy run is set
 to silent at level_ready, as every harness run is (live decisions only change which sounds start, i.e. the timing).
 Also: the loader's progress bar is full when PRES starts, and with a 256 KB RAM disk (a temporary emulator INI) the
-loader refuses (stops at rd_stop) and the game does not start; the probe finds 512 KB, 1 MB and 16 MB RAM disks
-(rd_top 7, 15, 255; docs/ramdisk-tiers.md section 1) and puts back the bytes it wrote, and the launched game gets the
+loader refuses (stops at rd_stop) and the game does not start; the probe finds 512 KB, 1, 2, 4, 8 and 16 MB RAM disks
+(rd_top 7, 15, 31, 63, 127, 255; docs/ramdisk-tiers.md sections 1, 15), the loading screen's line names the size
+("RAM DISK 2M, 21.0 T/BYTE"), and it puts back the bytes it wrote, and the launched game gets the
 emulator's size at HO_MAIN + HO_RDTOP. The read-speed measurement (src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1):
 with each size every area's MIN / MAX / ALIGN / MISAL / GAME / AVG is 21.0 clocks/byte +-0.1 (mz800emu has no wait
 states), the boot goes on, and the launched game gets HO_RDSPD_MAIN = 105 (21.0 x 5; with POP800_RD_WAIT=w the boot's
@@ -241,7 +242,7 @@ def floppy_run(dsk):
         e.screenshot(os.path.join(BUILD, 'm5_game.png'))
     return s0, s1, s2, (t_boot, t_launch, t_pres, t_title, t_start, t_ready), bar
 
-RD_TOP = {'256K': 3, '512K': 7, '1M': 15, '16M': 255}  # mz800emu's mr1r18_size -> the probe's rd_top (its last page)
+RD_TOP = {'256K': 3, '512K': 7, '1M': 15, '2M': 31, '4M': 63, '8M': 127, '16M': 255}  # mz800emu's mr1r18_size -> the probe's rd_top (its last page)
 def ini_rd_size():
     """the RAM-disk size the default emulator runs with: POP800_RD_SIZE (emu/mz800emu-pop.sh), else the INI's"""
     if os.environ.get('POP800_RD_SIZE'): return os.environ['POP800_RD_SIZE']
@@ -322,7 +323,8 @@ def probe_run(dsk, size):
             e.call('bp_clear'); e.call('bp_add', addr=BS['rd_measured']); e.call('bp_add', addr=BS['rs_stop'])
             r = e.run(100); went_on = r['stopped_by'] == 'breakpoint' and e.call('get_registers')['PC'] == BS['rd_measured']
             res = rd_results(e)
-        return top, kept, zf, res, went_on
+            txt = e.mem(BS['rs_txt'] + 3, 40).split(b'\0')[0].decode('latin-1')    # (rs_show's line, as printed)
+        return top, kept, zf, res, went_on, txt
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -408,7 +410,7 @@ def main():
         dsk = copy_disk(tmp)
         f0, f1, f2, (t_boot, t_launch, t_pres, t_title, t_start, t_ready), bar = floppy_run(dsk)
         ok, pc = refuse_run(dsk)
-        probes = {size: probe_run(dsk, size) for size in ('512K', '1M', '16M')}
+        probes = {size: probe_run(dsk, size) for size in ('512K', '1M', '2M', '4M', '8M', '16M')}
         slow = stop_run(dsk, 'rd_max', 150, 'm5_rdslow.png')
         fault = stop_run(dsk, 'rd_min', 250, 'm5_rdfault.png')
         waits = {w: wait_run(dsk, w, 'm5_rdwait%d.png' % w) for w in (1, 14, 16)} if has_rd_wait() else None
@@ -447,11 +449,14 @@ def main():
     bad += (not same_kv) + (not same_vram)
     print('256 KB RAM disk: loader %s (PC %04X; screenshot build/m5_refuse.png)' % ('refuses at rd_stop' if ok else 'DID NOT REFUSE', pc))
     bad += not ok
-    for size, (top, kept, zf, res, went_on) in probes.items():      # (docs/ramdisk-tiers.md section 1)
+    for size, (top, kept, zf, res, went_on, txt) in probes.items():  # (docs/ramdisk-tiers.md section 1)
         good = top == RD_TOP[size] and kept and zf
         print('%s RAM disk: the probe found pages 0-%d, %s, the bytes it wrote put back: %s%s' % (
             size, top, 'accepted' if zf else 'REFUSED', 'yes' if kept else 'NO', '' if good else '  FAILED'))
         bad += not good
+        want_txt = 'RAM DISK %s, 21.0 T/BYTE' % size
+        print('%s RAM disk: the loading screen says "%s"%s' % (size, txt, '' if txt == want_txt else '  FAILED (want "%s")' % want_txt))
+        bad += txt != want_txt
         want_pages = sorted({0, 7, RD_TOP[size] // 2 + 1, RD_TOP[size]})
         fast = sorted(res) == want_pages and all(209 <= v <= 211 for vs in res.values() for v in vs) and went_on
         print('%s RAM disk: read speed (clocks/byte, MIN MAX ALIGN MISAL GAME AVG) %s; boot %s%s' % (size, ', '.join(

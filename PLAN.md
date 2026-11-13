@@ -1251,3 +1251,10 @@ piece used AND/XOR semantics.
    part ends 49 B below the stack's limit. mz800emu has no setting for 16 KB (DEF_USE_EXTVRAM is a compile-time 1):
    tests/m5_boot.py forces the check's read-back to FFh, and with MZ800EMU_BIN_16K (an emulator built with
    DEF_USE_EXTVRAM 0) also boots a real 16 KB machine.
+91. RAM disks of 2, 4 and 8 MB (2026-11-13, docs/ramdisk-tiers.md section 15): the tiers by threshold: rd_top 15-61
+   (1 MB up to 3.9 MB, 2 MB among them: the user's decision, no special 2 MB tier) the 1 MB layout, 62 and more (4, 8,
+   16 MB) the full one (pages 8-62, nothing above). FS_TOP2 fixed at 62 = FRM_P16 (was 61, the guard sets' end page: a
+   card with pages 0-61 would have used page 62 for the pictures); 0 code bytes. The probe and the loading screen's
+   line ("RAM DISK 2M / 4M / 8M") needed nothing. mz800emu: 2M / 4M / 8M (MZPico/mz800emu wasm ca2b709, CI pinned);
+   POP800_RD_SIZE takes them; CI's third size is 4M instead of 16M (tests/perf_baseline_4M.json, remeasured; 8M and
+   16M compare with it); m5_boot probes all six sizes and checks the screen's line.

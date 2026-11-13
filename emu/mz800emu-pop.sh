@@ -1,7 +1,7 @@
 #!/bin/sh
 # Launch mz800emu with the pop-800 project configuration (used by .mcp.json and tools/emu.py).
 # MZ800EMU_BIN: the emulator binary (default: the local build; CI sets it to its own build, docs/ci.md).
-# POP800_RD_SIZE: the RAM disk's size (mz800emu's mr1r18_size: 64K, 256K, 512K, 1M or 16M; default: mz800emu.ini's,
+# POP800_RD_SIZE: the RAM disk's size (mz800emu's mr1r18_size: 64K, 256K, 512K, 1M, 2M, 4M, 8M or 16M; default: mz800emu.ini's,
 # 1M). POP800_RD_WAIT: the RAM disk's extra wait states, T on every port access (mz800emu's mr1r18_wait, 0-255;
 # default: mz800emu.ini's, 0; the MZPico asserts WAIT, at least 1). POP800_NET_RELAY: the NET device's relay, host:port
 # (mz800emu's [UNICARD] net_relay, the JSON-lines TCP port of BomberNet's relay/relay.py; default: mz800emu.ini's,
@@ -18,8 +18,8 @@ if [ -n "$POP800_RD_SIZE$POP800_RD_WAIT$POP800_NET_RELAY$POP800_UNICARD" ]; then
         *) echo "mz800emu-pop.sh: POP800_UNICARD must be 0 or 1" >&2; exit 2 ;;
     esac
     case "$POP800_RD_SIZE" in
-        ''|64K|256K|512K|1M|16M) ;;
-        *) echo "mz800emu-pop.sh: POP800_RD_SIZE must be 64K, 256K, 512K, 1M or 16M" >&2; exit 2 ;;
+        ''|64K|256K|512K|1M|2M|4M|8M|16M) ;;
+        *) echo "mz800emu-pop.sh: POP800_RD_SIZE must be 64K, 256K, 512K, 1M, 2M, 4M, 8M or 16M" >&2; exit 2 ;;
     esac
     case "$POP800_RD_WAIT" in
         '') ;;
