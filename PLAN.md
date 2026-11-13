@@ -1334,3 +1334,15 @@ piece used AND/XOR semantics.
    from end_of_cut, a 62-byte sprite the tightest). The build prints "PRES may grow by 2 bytes (...): the title art leaves
    444, the cutscene art 2"; PRES 1 byte longer stops it ("PRES has grown into its reserve"), 3 bytes longer with "the
    cutscene art does not fit beside PRES" (both tried). Build check only: the disk is byte-identical.
+101. Duel: the sword by hand (2026-11-14, docs/duel-design.md section 23, the user's request). D19: no automatic draw
+   (SDLPoP control_standing's "opponent near" block, D3 with it; back_pressed's turn that draws) and no automatic
+   sheathe (control_with_sword: the opponent far, unseen or dead); a round starts with both swords sheathed. The button
+   alone, standing, draws (with the opponent seen behind: SDLPoP's turn that draws); a potion in front is drunk first
+   (check_get_item's order); down en garde sheathes as before; a strike on a sheathed player kills (SDLPoP). D20, what
+   the sheathed fight reached that the arenas never met (falls out of the room in 18 pool rooms in the random duels):
+   no bump_into_opponent, no fall beyond the room's side columns, the collision rows taken at the round's start; then 0
+   falls in all 95 rooms (6 + 40 seeds a room). Patch sites D19a/b/c, D20b (game labels, 0 game bytes); resident duel
+   code +112 B (2,844, 49 free; d18_t and dh_x moved to make room), P_w2 1,469 B, PR3 20 blocks, launcher and PRES unchanged. Scripts: the old fights
+   kept by explicit presses, apart/edges rewritten, climb_* and spike_c_shared regenerated, new draw_p1/p2,
+   sheathe_down, potion_draw, unarmed, duel_blade/p2_both_ways. duel_test 39/39, duel_z80 --cdl 0 differing lines at
+   512 KB / 1 MB (4 MB in CI), duel_boot, duel_net.

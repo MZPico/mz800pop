@@ -1,11 +1,12 @@
 # duel
-# expect digest 1f76b35001e16657
+# expect digest be06a48c0fd8055a
 # expect rounds 2
 # expect score 0:1
 # expect mirror p1_wins.txt
 # player 2 wins a round: p1_wins with the players swapped (the screen mirrored)
 # tests/duel_test.py checks that every tick mirrors p1_wins (x -> 270 - x, the records swapped)
-0 0 0 0 0 0 *8
+0 0 1 0 0 1
+0 0 0 0 0 0 *7
 0 0 0 -1 0 0
 0 0 0 0 0 0 *3
 0 0 0 -1 0 0
@@ -37,4 +38,6 @@
 0 0 0 -1 0 0
 0 0 0 0 0 0 *3
 0 0 0 -1 0 0
-0 0 0 0 0 0 *43
+0 0 0 0 0 0 *22
+0 0 1 0 0 1
+0 0 0 0 0 0 *20

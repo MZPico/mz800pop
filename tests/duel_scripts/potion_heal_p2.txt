@@ -1,10 +1,11 @@
 # duel
-# expect digest 973cc5e8055c8d93
+# expect digest 23400793c430101a
 # seed 0x24
 # expect potions 11:14:1:8:1
 # expect hps 3/3:3/3,3/3:2/3,3/3:3/3
 # potions heal: player 1 steps in and strikes once (player 2: 2 of 3), player 2 sheathes, turns and drinks the heal potion behind it: 3 of 3
-0 0 0  0 0 0 *8
+0 0 1  0 0 1
+0 0 0  0 0 0 *7
 1 0 0  0 0 0
 0 0 0  0 0 0 *3
 1 0 0  0 0 0

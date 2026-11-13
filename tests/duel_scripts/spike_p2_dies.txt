@@ -1,11 +1,12 @@
 # duel
-# expect digest 2594c666db6d9037
+# expect digest 0121cfd56cd01eb1
 # seed 0x71
 # expect rounds 1
 # expect score 1:0
 # expect mirror spike_p1_dies.txt 10
 # spikes: the mirror of spike_p1_dies.txt, player 2 runs onto them
-0 0 0  0 0 0 *2
+0 0 1  0 0 1
+0 0 0  0 0 0
 0 0 0  0 1 0
 0 0 0  0 0 0 *2
 0 0 0  -1 0 0 *20

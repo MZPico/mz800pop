@@ -357,6 +357,13 @@ class DuelSim(KidSim):
         self.Char = self.Kid.copy(); self.Opp = self.Guard.copy()
         for k, v in fresh_block().items(): setattr(self, k, v)
         self.pblock = fresh_block()
+        for p in (0, 1):                                  # (duel D20c: both players' collision rows taken where they
+            if p: self.swap_block(); self.loadshad_and_opp()      # stand, so that a turn and a run at once still bump)
+            else: self.loadkid_and_opp()
+            self.load_frame_to_obj(); self.load_fram_det_col(); self.set_char_collision(); self.check_collisions()
+            if p: self.saveshad(); self.swap_block()
+            else: self.savekid()
+        self.loadkid_and_opp()
         self.hitp_curr = self.hitp_max = self.guardhp_curr = self.guardhp_max = ROUND_HP
         self.hitp_delta = self.guardhp_delta = 0
         self.can_guard_see_kid = self.justblocked = self.guard_refrac = self.kid_sword_strike = 0
@@ -446,7 +453,7 @@ class DuelSim(KidSim):
         if C.room != 0:
             self.play_seq(); self.fall_accel(); self.fall_speed()
             self.load_frame_to_obj(); self.load_fram_det_col(); self.set_char_collision()
-            self.bump_into_opponent()
+            # (duel D20a: no bump_into_opponent: an unarmed player facing an armed one close is not thrown back)
             self.check_collisions(); self.check_bumped(); self.check_gate_push()
             self.check_action(); self.check_press(); self.check_spike_below(); self.check_spiked(); self.check_chomped_kid()
             self.check_knock()

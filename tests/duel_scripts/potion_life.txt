@@ -1,11 +1,12 @@
 # duel
-# expect digest 8f1c58afb7249ffa
+# expect digest 8d1484401dc06b0a
 # seed 0x03
 # expect potions 8:4:1:8:2
 # expect hps 3/3:3/3,4/4:4/4
 # expect symmetric 2
 # potions life: both players drink the life potion behind them at once, in mirror (D17: player 2 on its own hit points): both 4 of 4
-0 0 0  0 0 0 *2
+0 0 1  0 0 1
+0 0 0  0 0 0
 0 1 0  0 1 0
 0 0 0  0 0 0 *2
 -1 0 0  1 0 0

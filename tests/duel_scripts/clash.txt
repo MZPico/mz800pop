@@ -1,11 +1,12 @@
 # duel
-# expect digest 28d27ac7d6985150
+# expect digest 8175f69b48d858b6
 # expect hurt none
 # expect score 0:0
 # expect mirror clash.txt
 # clashes (duel D13, the user's change 2026-11-11): both strike in the same tick, each strike would hurt the other:
 # nobody is hurt, both react as parried (attack_was_parried); the players and inputs are each other's mirror
-0 0 0 0 0 0 *8
+0 0 1 0 0 1
+0 0 0 0 0 0 *7
 1 0 0 -1 0 0
 0 0 0 0 0 0 *3
 1 0 0 -1 0 0

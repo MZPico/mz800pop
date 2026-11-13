@@ -465,7 +465,7 @@ the drawing keeps them flickering (11.9). **Decided 2026-11-11 (phase 2): they f
 |---|---|---|
 | D1 | load_frame (seg006 load_frame) | **[choice]** player 2's frames 150-189 come from the **kid's** frame table (frame_table_kid, chtab 2: the kid's images), not frame_tbl_guard (the shadow's set) (11.8) |
 | D2 | control_standing: `charid != kid` draws with down + forward | player 2 takes the kid's branch (draws when the opponent is near, as the kid) |
-| D3 | control_standing: no auto-draw while `Opp.charid == shadow` jumps (Opp midair or frames 107-117) | **[choice]** for both players (the opponent is always "the shadow"), so the rule is symmetric |
+| D3 | control_standing: no auto-draw while `Opp.charid == shadow` jumps (Opp midair or frames 107-117) | **[choice]** for both players (the opponent is always "the shadow"), so the rule is symmetric. **Retired by D19 (section 23, 2026-11-14): the automatic draw it qualified never runs in the duel** |
 | D4 | forward_with_sword | seq 86 (kid), not 56 |
 | D5 | draw_sword | the kid's: sound 19, offguard = 0, seq 55 |
 | D6 | control_with_sword | the kid's: holding_sword = 0 when alive |
@@ -481,6 +481,8 @@ the drawing keeps them flickering (11.9). **Decided 2026-11-11 (phase 2): they f
 | D16 | land (seg005 land): the soft landing's sound 17 and is_guard_notice, a 2-row fall's hit point | **(section 17, 2026-11-13)** player 2 lands as the kid (its frame runs with the kid's charid in the Z80): the sound and the notice, and a 2-row fall costs it a hit point instead of SDLPoP's soft landing for the shadow |
 | D17 | proc_get_object (seg006:1858): only the kid drinks | (section 19) player 2 drinks too, on its own hit points (current, maximum, delta) |
 | D18' | (section 21, rule C, the user's rule 2026-11-13; replaced D18) after process_trobs: raised spikes stepped onto | a living player whose feet tile becomes a raised spike (a step, a push, from one spike to the next) or under whom the spike rises loses a hit point, at most one a tick; standing and fencing in place on them is safe; its last one impales it (spiked); both players (21.1) |
+| D19 | (section 23, the user's request 2026-11-14) control_standing, back_pressed, control_with_sword | the sword by hand: no automatic draw (the opponent near, the turn that draws), no automatic sheathe (the opponent far or unseen, the opponent dead); the button alone draws (the opponent seen behind: the turn that draws), down en garde sheathes |
+| D20 | (section 23) bump_into_opponent, check_on_floor, the round's reset | what D19 newly reaches kept inside the arena: no bump into an armed opponent, no fall beyond the room's side columns, the collision rows taken at the start tiles |
 
 Not changed (charid tests that stay the shadow's / SDLPoP's): kid_sword_strike = 15 on a strike and justblocked = 4 on
 a parried strike (inputs of the guard AI only, which the duel never runs: they keep their value, they are hashed); land
@@ -549,7 +551,9 @@ charid). D12 is one read in control_kid.
   is_screaming, knock 0. The match's first round starts from the same reset (tick 0).
 - **[choice]** Columns 2 and 7 are 83 units apart (70 + 13 for facing each other): inside the kid's draw distance (90),
   so **both draw their swords on the first tick of every round** with no key pressed (the kid's auto-draw, control_standing)
-  and stand en garde ~8 ticks later. Columns 1 and 8 (111) would start them sheathed.
+  and stand en garde ~8 ticks later. Columns 1 and 8 (111) would start them sheathed. **Since D19 (section 23,
+  2026-11-14) no sword is drawn by itself: a round starts with both standing, swords sheathed, until a player presses
+  its button.**
 - **Quit** (bit 5 of either player's byte): match = 3 at that tick, nothing else changes (the network sends NETLEAVE
   after it). **Rematch** (bit 6 of either byte) after a match's end (match 1 or 2): score, rounds and result to 0,
   match 0, the reset. Both are logic, so both machines act at the same tick (design 2.3).
@@ -659,7 +663,7 @@ approved, the blue suit and grey hair chosen 2026-11-11)plane swap; 8: no death 
    ticks after it change nothing. **D13 changed by the user 2026-11-11**: simultaneous hits are a clash, nobody is
    hurt (11.2).
 6. ROUND_END_TICKS = 36; the match ends 36 ticks after the deciding tick; quit at once, rematch after the end.
-7. Start columns 2 and 7: both draw their swords on a round's first tick.
+7. Start columns 2 and 7: both draw their swords on a round's first tick (until D19, section 23: now both start sheathed).
 8. In the duel no death music, death text or restart on the button; the death counter never waits on a sound; the
    silent sound model.
 9. The hash: the explicit 68-byte list (11.7), without OPP_REC, CHAR_SAVE and the collision rows.
@@ -2091,3 +2095,123 @@ as the game does (a few pieces more or less per room).
 - tests/duel_boot.py: both runs (with and without the Unicard), the icons, the seeds and the local SHIFT as above.
 - tests/duel_net.py: all scenarios, the new `shift` one included.
 - tests/duel_test.py: 26 of 26.
+
+## 23. The sword by hand (2026-11-14)
+
+The user's request: no automatic raising and hiding of the sword in the duel, and a round starts with the swords off.
+Both players, local and over the network (the rules are logic: duelsim and the Z80 tick for tick; the hash's layout
+unchanged).
+
+### 23.1 What SDLPoP does by itself (seg005, seg006)
+
+| Where | What happens without a key | Duel (D19) |
+|---|---|---|
+| control_standing, its `have_sword` block | the opponent seen (can_guard_see_kid >= 2) at -10..89: holding_sword = 1; in front (-6..89): **draw_sword** (seq 55) unless the shadow jumps (D3); just behind (-6..-1): back_pressed | **D19a**: never runs (cs_guard skipped, D3 with it) |
+| back_pressed | any turn with the opponent seen behind and room to turn (distance_to_edge_weight >= 2): **turn_draw_sword** (seq 89) | **D19b**: a plain turn (seq 5) |
+| control_with_sword | the opponent unseen (another row, a wall, dead) or >= 90 away: holding_sword = 0, at frame 171 **put_sword_away** (seq 92), also after a kill | **D19c**: swordfight as when near: en garde until the player sheathes |
+| control_with_sword | the opponent seen behind (< -4): turn_with_sword (seq 60) | kept: it turns, neither draws nor sheathes |
+
+The manual controls SDLPoP has: **down en garde** (swordfight at frames 158/170/171: put_sword_away_fast, seq 93; the
+kid's D7: offguard 1, guard_refrac 9, holding_sword 0): kept. There is **no manual draw** for the kid: after a down
+(offguard 1) the button held near a seen guard only lets the automatic block draw again. A guard (charid >= 2) draws
+with down + forward (control_standing, control_guard_inactive: the AI's gesture); D2 keeps player 2 on the kid's branch.
+The button standing also picks up (check_get_item, before everything else: a potion or the sword at the character's tile
+or in front; `shift2 && shift`), and with a direction it is the shift branch: backward a turn, up a jump up, down a
+crouch or a climb down, forward **the careful step** (safe_step).
+
+### 23.2 The controls as built (D19)
+
+- **Draw: the button alone, standing, the sword sheathed**: a new press with the button still held and no direction
+  (`control_shift2 == HELD and control_shift == HELD and control_x == control_y == 0`): player 1 `/`, `?`, joystick 1 or
+  the network's button, player 2 Q or joystick 2. The press is used (shift2 IGNORE, as draw_sword does), so holding the
+  button on does not strike. The only free gesture of SDLPoP's standing controls: with a direction the button keeps its
+  meanings (the careful step), alone it did nothing. **With the opponent seen behind**, the press turns and draws
+  (SDLPoP's own turn_draw_sword, back_pressed with its edge guard: next to a wall a plain turn, then a second press
+  draws). Without it a player drew facing away, and turn_with_sword or a hit from behind pushed it into the wall at its
+  back (the random duels: falls out of the room, 23.3).
+- **The potion first**: check_get_item comes before the draw as in the game, so the button next to a potion in front
+  drinks it; the next press draws. To draw without drinking: turn away first (the press then turns and draws towards the
+  opponent) or step off. tests/duel_scripts/potion_draw.txt.
+- **Sheathe: down en garde**, as in the game (D7). Nothing else sheathes: walking apart, losing sight of the opponent
+  (another row) and **winning a round** leave the sword drawn (the winner stands en garde until the reset).
+- **A round starts sheathed**: the reset already made both stand with the sword sheathed; only the automatic draw on
+  tick 1 drew them.
+- **A player struck with its sword sheathed dies at once** (SDLPoP hurt_by_sword, "hurt when not in fighting pose":
+  take_hp(100), stabbed_to_death); before D19 a duel player was never sheathed next to an armed one. unarmed.txt.
+- D3 (no automatic draw while the opponent jumps) is moot: its block never runs (kidsim keeps it for the game).
+  holding_sword (only the death music's choice, never played in the duel) stays 0; offguard is still written by
+  draw_sword and the down (hashed in the blocks), read by nothing in the duel.
+
+### 23.3 What D19 reaches that the arenas never met (D20)
+
+With automatic swords a player near the other was always en garde and facing it. With the sword by hand a sheathed
+player stands, turns and runs next to an armed one, draws facing away, is hit from behind. The random duels of the
+pool's survey (tools/duelarenas.py fuzz) found **falls out of the room in 18 rooms** with D19 alone (the old rules: none,
+60 seeds a room). Three mechanisms, each SDLPoP's at a room-0 edge or a thick wall:
+
+1. **bump_into_opponent** (seg006): a sheathed player facing an armed one within 15 units is thrown back (seq 47): at
+   the arena's edge into room 0's column (-1 or 10), whose tile is a wall without floor: its next move falls.
+2. **A turn and a run at once** (control_turning: start_run_after_turn): check_collisions skips the turn's frames; with
+   the rows still empty from the round's reset (rooms -1) there is nothing to compare, and a wall next to the start tile
+   is run through (2-3 tiles thick: in_wall cannot push out, the player falls into the row below, out of the bottom).
+3. **Drawn facing away**, then turned (turn_with_sword) or hit from behind into the wall at its back.
+
+The rules (the duel only; kidsim's game path unchanged):
+
+| Rule | Where | What |
+|---|---|---|
+| **D20a** | duelsim char_frame / duel.asm d_frame | bump_into_opponent not run: a sheathed player is not thrown back by an armed one (it can walk up to it; a strike kills it) |
+| **D20b** | kidsim check_on_floor / kid.asm check_on_floor's floor test (site duel_d20b) | no floor under a player whose column is outside the room (room 0's): its weight point back into the edge column (column 0 at its first pixel, 9 at its last), the tile asked again; a floor there: no fall |
+| **D20c** | duelsim round_reset / duel.asm d_reset | both players' collision rows taken where they stand (load_frame_to_obj, load_fram_det_col, set_char_collision, check_collisions, each in its own block) |
+| (D19a's turn) | 23.2 | the button with the opponent behind turns and draws (mechanism 3) |
+
+With them **no fall in the whole pool**: the survey's random duels (6 seeds a room and one more per further run) and
+40 seeds a room more (95 rooms x 40 x 1,200 ticks). No room dropped.
+
+### 23.4 Sites, bytes, speed
+
+| | Before (section 21's rule C) | Now |
+|---|---|---|
+| Patch sites (game labels only, 0 game bytes) | D14, D15, SD1/2, PP1/2 | + **D19a** (kid.asm cst0's `jp cs_guard` operand -> d19a), **D19b** (back_pressed's `jp back_pressed_g` operand -> bpg_turn), **D19c** (guard.asm cws3: `jp swordfight` over its `ld a,(K_CHARID)`), **D20b** (check_on_floor's `call k_is_floor` operand -> d20b): 9 B |
+| Resident duel code | 2,732 B (159 free) | **2,844 (49 free)**: d19a 29 (H_LR), d19d 31 (H_TICK), d20b 42 (its test in H_KT, the push in H_TIME), d_ptab's 4 entries 16 (H_MAIN), d_frame -3; to make room d18_t moved from P_main to H_AI, dh_x from H_TIME to P_main (3 B shorter) (H_FREE is smaller in the cheat build: nothing of D19 / D20 there) |
+| P_w2 | 1,424 of 1,536 | 1,469 (d_reset's collision rows, player 2 with the kid's charid as in d_tick) |
+| Staged | 2,447 + 2,506 | 2,568 + 2,551 |
+| Floppy (POP800.PR3) | 19 blocks | **20** (20 of the 40 reserved left) |
+| Launcher, PRES, resident game bytes | 0 | 0 |
+
+Speed: d19a runs standing only (a few loads); d20b on a missing floor only; the reset's two collision passes once a
+round. Nothing measurable a tick.
+
+### 23.5 Tests
+
+- tests/duel_test.py: 39 scripts. The old fights kept by explicit presses: the button alone at every tick the old rules
+  drew (both players, each round's first tick); where a potion stood in front at a round's start (arenas_palace's third
+  round, the first of spike_placed_ends and spike_c_pushed_p1 / p2) both turn away and press (the turn that draws), the rest shifted by five ticks. The
+  results are unchanged (rounds, score, arenas, potions, spikes, mirrors); the traces differ where the old rules
+  sheathed by themselves (the winner of a round stays en garde). Rewritten: **apart.txt** (walking apart with the swords
+  drawn, out of range and back: never sheathed, mirrored), **edges.txt** (the draws by the button). Regenerated with
+  random keys (duelarenas' fuzz policy, random.Random(n)) for the same purpose: climb_dungeon (78, 1,100 ticks: both
+  change rows in level 8 room 14, then rooms 4 and 23 as before), climb_palace (15: both change rows in level 11 room 24,
+  then rooms 14 and 19 as before), spike_c_shared (4018: rule C's shared spike at tick 1736 in level 8 room 4,
+  column 5, player 1 impaled, player 2 hit; under 2,048 ticks: the harness's script page holds 4 KB). New: **draw_p1.txt / draw_p2.txt** (the button with a direction is the careful step, alone it
+  draws; each the other's mirror), **sheathe_down.txt** (down sheathes: the ticks checked), **potion_draw.txt** (the
+  potion in front drunk by the button, then the draw; the other turns away and draws, its potion left), **unarmed.txt**
+  (a strike on a sheathed player kills it at once).
+- tests/duel_z80.py --cdl: every script 0 differing lines at 512 KB and 1 MB (4 MB in CI); the code log reaches no hole.
+- tests/duel_z80.py's blade check: tests/duel_blade/p2_both_ways.txt (player 2 draws, strikes and sheathes facing left,
+  runs past player 1 and does it all facing right) replaces turned_draw / turned_sheathe (random keys that turned
+  player 2 by the automatic swords); 10 pairs required, not 14: frames 237 and 239 (the slow put_sword_away, seq 92) are
+  the automatic sheathe's and no longer shown (16.4).
+- tests/duel_boot.py: player 1's `/` draws (sound 19), player 2 does not draw by itself; the arena comes from the
+  title's seed, so when round 0's potions stand in front the press drinks instead (duelsim decides which the check expects).
+- tests/duel_net.py: all scenarios.
+
+### 23.6 Decisions for the user (defaults chosen)
+
+1. **The draw**: the button alone (default). Alternative: the button + up (no conflict at all: button + up is jump up,
+   as up alone), if "the button first, then forward" for a careful step draws by mistake too often.
+2. **The opponent behind**: the button turns and draws (default, SDLPoP's turn_draw_sword).
+3. **A sheathed player struck dies at once** (SDLPoP, default), or a sword hit costs it one hit point as en garde.
+4. **The winner stays en garde** after a round (default: nothing sheathes by itself), or the old put_sword_away after a
+   kill.
+5. **D20a**: no bump into an armed opponent (default); SDLPoP's bump would need another edge fix to be safe.

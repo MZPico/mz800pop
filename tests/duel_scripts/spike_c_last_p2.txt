@@ -1,5 +1,5 @@
 # duel
-# expect digest 85dfa021fc18e143
+# expect digest 8d633ac530779a12
 # seed 0x71
 # expect rounds 1
 # expect d18 27:2,47:2,71:2
@@ -7,7 +7,8 @@
 # expect mirror spike_c_last_p1.txt 10
 # expect impaled 71:2:5
 # rule C: spike_c_last_p1.txt's moves mirrored, player 2's
-0x00 0x00 *8
+0x10 0x10
+0x00 0x00 *7
 0x00 0x01
 0x00 0x00 *3
 0x00 0x01

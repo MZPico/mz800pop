@@ -1,0 +1,15 @@
+# duel
+# expect digest e7191cd48d72a367
+# expect hurt none
+# expect score 0:0
+# expect sheathe 16,31
+# the sword put away by hand (D19: down while en garde, SDLPoP's put_sword_away_fast; nothing puts it away by
+# itself): both draw on the first tick, player 1 sheathes with down, later player 2; then player 1 draws again
+0 0 1 0 0 1
+0 0 0 0 0 0 *14
+0 1 0 0 0 0
+0 0 0 0 0 0 *14
+0 0 0 0 1 0
+0 0 0 0 0 0 *14
+0 0 1 0 0 0
+0 0 0 0 0 0 *14

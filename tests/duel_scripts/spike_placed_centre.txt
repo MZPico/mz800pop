@@ -1,11 +1,12 @@
 # duel
-# expect digest 40663f64e25a10c5
+# expect digest 6f355adad535311e
 # seed 0x01
 # expect rounds 1
 # expect spikes 11:19:4:5
 # expect d18 198:1
 # the placed spikes: round 0 as p1_wins.txt; round 1 gets the centre pair (c1 + 2, c2 - 2): player 1 steps en garde onto it (five steps: its body raises the spike at column 4, its feet tile reaches it with the spike out): rule C, a hit point
-0 0 0  0 0 0 *8
+0 0 1  0 0 1
+0 0 0  0 0 0 *7
 1 0 0  0 0 0
 0 0 0  0 0 0 *3
 1 0 0  0 0 0
@@ -37,7 +38,9 @@
 1 0 0  0 0 0
 0 0 0  0 0 0 *3
 1 0 0  0 0 0
-0 0 0  0 0 0 *83
+0 0 0  0 0 0 *22
+0 0 1  0 0 1
+0 0 0  0 0 0 *60
 1 0 0  0 0 0
 0 0 0  0 0 0 *3
 1 0 0  0 0 0

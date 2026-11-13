@@ -9,8 +9,8 @@ the 129 bytes as the harness reads them, and duelsim's. Drawing and audio, every
 images each player is drawn with (the blades, DRAW_MAP), the bottom text's key (duel.asm d_key: hud_key) and the
 round's and match's tunes (duel.asm ds_j: jingles). Taken by tracepoints (tools/emu.py: the emulator never stops).
 Then (with the default scripts, or --blades) player 2's blade (docs/duel-design.md 16.4, duel.asm d_blade): at the ticks
-player 2 is first drawn in each of the seven body images that carry the blade in each facing (all 14 pairs required;
-tests/duel_blade's two scripts turn player 2 round), the blade's pixels
+player 2 is first drawn in each of the body images that carry the blade in each facing (all 10 pairs the duel shows
+since D19 required; tests/duel_blade/p2_both_ways.txt turns player 2 round), the blade's pixels
 (tools/duelblade.py) on the screen are white, its suit light blue (with d_blade disabled the check fails: checked).
 The inputs: the script's two bytes a tick in RAM-disk page 5 (game.asm RD_SCRIPT), read by duel.asm d_input (d_script).
 
@@ -129,16 +129,18 @@ def ranges(S, D):
 
 
 # player 2's blade (duel.asm d_blade): scripts where player 2 shows the images that carry it, together every image in
-# both facings (tests/duel_blade: player 2 turned to face right, found by a duelsim search)
-BLADE_SCRIPTS = ('duel_scripts/apart.txt', 'duel_scripts/clash.txt', 'duel_blade/turned_sheathe.txt',
-                 'duel_blade/turned_draw.txt')
+# both facings (tests/duel_blade: player 2 runs past player 1 and does it all facing right too)
+BLADE_SCRIPTS = ('duel_scripts/apart.txt', 'duel_scripts/clash.txt', 'duel_blade/p2_both_ways.txt')
+# the images of frames 237 and 239 (put_sword_away, seq 92: SDLPoP's automatic sheathe) are never shown since D19 (the
+# sword by hand, docs/duel-design.md 23: down puts it away fast, frames 234, 236, 238, 240)
+BLADE_UNSHOWN = (169, 171)
 
 
 def blade_check(S, D):
-    """[failures]: for every (image, facing) pair of the seven images, at the first tick of BLADE_SCRIPTS that duelsim
-    draws player 2 so (drawn_ids), after its drawing the blade's pixels white on the screen; all 14 pairs required"""
+    """[failures]: for every (image, facing) pair of the blade images the duel shows, at the first tick of BLADE_SCRIPTS that duelsim
+    draws player 2 so (drawn_ids), after its drawing the blade's pixels white on the screen; all 10 pairs required"""
     import duelblade as BL
-    fails = []; seen = set(); plan = []; todo = set((i, d) for i in BL.BANDS for d in (-1, 0))
+    fails = []; seen = set(); plan = []; todo = set((i, d) for i in BL.BANDS if i not in BLADE_UNSHOWN for d in (-1, 0))
     for script in BLADE_SCRIPTS:
         inputs, opts = DS.read_duel_script(os.path.join(ROOT, 'tests', script)); sim = DS.DuelSim(seed=opts['seed']); want = {}
         for t, (a, b) in enumerate(inputs, 1):
@@ -170,7 +172,8 @@ def blade_check(S, D):
                     suit, '' if ok else ' ' + str(got)), flush=True)
                 if not ok: fails.append('%s tick %d image %d' % (script, t - 1, img))
                 seen.add((img, mir))
-    if len(seen) != 2 * len(BL.BANDS): fails.append('(image, mirror) pairs checked: %d of %d' % (len(seen), 2 * len(BL.BANDS)))
+    want_n = 2 * len([i for i in BL.BANDS if i not in BLADE_UNSHOWN])
+    if len(seen) != want_n: fails.append('(image, mirror) pairs checked: %d of %d' % (len(seen), want_n))
     return fails
 
 
@@ -316,7 +319,7 @@ def main():
             total += len(errs)
     if blades:
         bf = blade_check(S, D)
-        print('player 2\'s blade: %s' % ('; '.join(bf) if bf else 'white in all seven images, both facings'))
+        print('player 2\'s blade: %s' % ('; '.join(bf) if bf else 'white in every image the duel shows, both facings'))
         total += len(bf)
     print('total differing:', total)
     sys.exit(1 if total else 0)

@@ -1,12 +1,13 @@
 # duel
-# expect digest e8f9e82e319db400
+# expect digest 9ed14b37158fc8cc
 # seed 0xca
 # expect match 3
 # expect rounds 1,1,2,1
 # expect score 0:0
 # expect arenas 12:2,12:24,12:2,12:19,10:2
 # the random arenas (docs/duel-design.md 15): match.txt's moves with the seed 0xca: the match on level 12 (dungeon), after the rematch (R1) level 10 (palace), loaded in the duel; a room of the level's pool every round
-0 0 0 0 0 0 *8
+0 0 1 0 0 1
+0 0 0 0 0 0 *7
 1 0 0 0 0 0
 0 0 0 0 0 0 *3
 1 0 0 0 0 0
@@ -38,7 +39,9 @@
 1 0 0 0 0 0
 0 0 0 0 0 0 *3
 1 0 0 0 0 0
-0 0 0 0 0 0 *42
+0 0 0 0 0 0 *22
+0 0 1 0 0 1
+0 0 0 0 0 0 *19
 1 0 0 0 0 0
 0 0 0 0 0 0 *3
 1 0 0 0 0 0
@@ -70,7 +73,9 @@
 1 0 0 0 0 0
 0 0 0 0 0 0 *3
 1 0 0 0 0 0
-0 0 0 0 0 0 *42
+0 0 0 0 0 0 *22
+0 0 1 0 0 1
+0 0 0 0 0 0 *19
 0 0 0 -1 0 0
 0 0 0 0 0 0 *3
 0 0 0 -1 0 0
@@ -102,7 +107,9 @@
 0 0 0 -1 0 0
 0 0 0 0 0 0 *3
 0 0 0 -1 0 0
-0 0 0 0 0 0 *42
+0 0 0 0 0 0 *22
+0 0 1 0 0 1
+0 0 0 0 0 0 *19
 1 0 0 0 0 0
 0 0 0 0 0 0 *3
 1 0 0 0 0 0
@@ -135,7 +142,8 @@
 0 0 0 0 0 0 *3
 1 0 0 0 0 0
 0 0 0 0 0 0 *54
-0 0 0 0 0 0 R1
-0 0 0 0 0 0 *30
+0 0 0 R1 0 0 0
+0 0 1 0 0 1
+0 0 0 0 0 0 *29
 0 0 0 0 0 0 Q2
 0 0 0 0 0 0 *5
