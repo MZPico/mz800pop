@@ -1,5 +1,5 @@
 # duel
-# expect digest 688603226c37a398
+# expect digest 3fd5aa9bab201703
 # seed 0x18
 # expect match 3
 # expect rounds 1,1,2,1

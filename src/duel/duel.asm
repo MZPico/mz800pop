@@ -281,6 +281,32 @@ d_quit:         call    d_nleave
 dq_stop:        halt
                 jr      dq_stop
 
+; D18' / rule C (docs/duel-design.md 21, the user's rule 2026-11-13: stepping onto raised spikes hurts): d18_t, IX = a
+; player's record, C = the feet tile's column (d18_q): A = 1 when that tile (the record's room and row) is a raised
+; spike (its modifier in the out phase: bit 7 set, not a kill's 0xff), else 0. duelsim d18_raised
+d18_t:          ld      b, (ix+OF_ROW)
+                ld      a, (ix+OF_ROOM)
+                call    k_get_tile
+                cp      T_SPIKE
+                jr      nz, d18_0
+                ld      a, (CURR_ROOM)
+                or      a
+                jr      z, d18_0
+                call    tile_base       ; DE = the room's modifiers
+                ld      a, (CURR_TILEPOS)
+                add     a, e
+                ld      e, a
+                jr      nc, d18_t1
+                inc     d
+d18_t1:         ld      a, (de)
+                inc     a
+                jr      z, d18_0        ; (0xff: harmless)
+                dec     a
+                rlca
+                and     1
+                ret
+d18_0:          xor     a
+                ret
 P_main_end:
                 if P_main_end > H_MAIN_END
                 .error the duel's main piece is larger than the game's main loop
@@ -327,9 +353,8 @@ d_ready:        xor     a               ; (harness: the state before the first t
 d_tick:         xor     a
                 ld      (HITP_DELTA), a
                 ld      (GUARDHP_DELTA), a
-                call    d18_pre         ; (D18: the spikes under the players, before they move)
                 call    process_trobs   ; (the torches' flicker: prandom, which no logic reads; not hashed; the spikes)
-                call    d18_post        ; (D18: a spike sprung up under a player: a hit point)
+                call    d18_post        ; (rule C: raised spikes stepped onto or risen under a player: a hit point)
                 ld      hl, GUARD_REC + OF_CHARID      ; (D11: the shadow sees the kid on every level)
                 ld      (hl), CHARID_GUARD
                 call    check_can_guard_see_kid
@@ -457,45 +482,28 @@ df_body:        ld      a, (K_ROOM)
 df_in:          db      0
 df_hp:          dw      0
 
-; d18_post: a spike sprung up under a living player: its hit points - 1 (not below 0), the sound
-d18_post:       ld      ix, KID_REC     ; (both decided first: one player's impaling makes a shared spike 0xff, which
-                ld      hl, d18_v       ; must not spare the other: a draw)
+; d18_post (rule C, docs/duel-design.md 21.1): per player, after process_trobs, A = a raised spike under it (d18_t) and
+; the tile against the last tick's (d18_v); a living player hit when on a raised spike now and not on that same tile
+; with it raised at the last tick (it stepped, was pushed or moved onto it, or the spike rose under it): its hit points
+; - 1, the sound, the last one impales it (d18_k). Both decided first, then hit (one player's impaling makes a shared
+; spike 0xff, which must not spare the other: a draw)
+d18_post:       ld      ix, KID_REC
+                ld      hl, d18_v
                 call    d18_q
                 ld      ix, GUARD_REC
-                ld      hl, d18_v + 3
+                ld      hl, d18_v + 4
                 call    d18_q
                 ld      ix, KID_REC
-                ld      hl, d18_v + 2
+                ld      hl, d18_v + 3
                 ld      de, HITP_CURR
                 call    d18_h
                 ld      ix, GUARD_REC
-                ld      hl, d18_v + 5
+                ld      hl, d18_v + 7
                 ld      de, GUARDHP_CURR
-d18_h:          bit     0, (hl)         ; (d18_q: hit)
+d18_h:          bit     1, (hl)         ; (d18_q: hit)
                 ret     z
+                res     1, (hl)
                 jr      d18_hp
-; d18_q: HL = a player's d18_v entry: its third byte 1 when the spike under it sprang up (and the player lives), else 0
-d18_q:          ld      c, (hl)
-                inc     hl
-                ld      b, (hl)
-                inc     hl
-                ld      a, (hl)         ; (the modifier before)
-                ld      (hl), 0
-                rla
-                ret     c               ; (out before)
-                ld      a, b
-                or      c
-                ret     z
-                bit     7, (ix+OF_ALIVE)
-                ret     z               ; (dead: alive >= 0)
-                ld      a, (bc)
-                inc     a
-                ret     z               ; (0xff: harmless)
-                dec     a
-                rla
-                ret     nc              ; (not out now)
-                inc     (hl)
-                ret
 d18_hp:
                 ld      a, (de)
                 or      a
@@ -1451,41 +1459,42 @@ dbl_s:          ld      a, d
 dbl_n:          pop     bc
                 djnz    dbl_p
                 ret
-; D18 (docs/duel-design.md 21, the user's rule 2026-11-13: spikes hurt while fighting): a spike that springs up
-; (process_trobs: its modifier into the out phase, bit 7, not a kill's 0xff) under a living player (check_spiked's tile:
-; the record's room, column, row) costs it a hit point (its own) and plays the hurt sound 13, its last one impales it
-; (spiked); once a cycle. duelsim d18
-; d18_pre: per player the spike's modifier address under it (0: none) and its value
-d18_pre:        ld      ix, KID_REC
-                ld      hl, d18_v
-                call    d18_t
-                ld      ix, GUARD_REC
-                ld      hl, d18_v + 3
-d18_t:          push    hl
-                ld      c, (ix+OF_COL)
-                ld      b, (ix+OF_ROW)
-                ld      a, (ix+OF_ROOM)
-                call    k_get_tile
-                ld      de, 0
-                cp      T_SPIKE
-                jr      nz, d18_n
-                ld      a, (CURR_ROOM)
+; d18_q: HL = a player's d18_v entry: room, column, row (the feet tile at the last tick on the floor, replaced by this
+; tick's), the state (bit 0: a raised spike on it; bit 1: hit now). Off the floor (the frame without the kid frame
+; table's needs-floor flag: a jump, a turn, the sword's moving frames) the entry is neither hit nor replaced. The feet
+; tile: the column check_spiked uses standing still (the weight 3 pixels behind x sheathed, 13 en garde), at x and the
+; facing (duelsim d18_col)
+d18_q:          push    hl
+                ld      l, (ix+OF_FRAME)
+                ld      h, 0
+                ld      d, h
+                ld      e, l
+                add     hl, hl
+                add     hl, hl
+                add     hl, de
+                ld      de, RD_FRAMES_KID + 4   ; (the flags byte)
+                add     hl, de
+                ex      de, hl
+                call    rd_logic
+                pop     hl
+                and     F_NEEDS_FLOOR
+                ret     z
+                ld      b, 3
+                ld      a, (ix+OF_SWORD)
                 or      a
-                jr      z, d18_n
-                call    tile_base       ; DE = the room's modifiers
-                ld      a, (CURR_TILEPOS)
-                add     a, e
-                ld      e, a
-                jr      nc, d18_n
-                inc     d
-d18_n:          pop     hl
-                ld      (hl), e
-                inc     hl
-                ld      (hl), d
-                inc     hl
-                ld      a, (de)         ; (DE 0: a byte of no use)
-                ld      (hl), a
-                ret
+                jr      z, d18_w
+                ld      b, 13
+d18_w:          ld      a, (ix+OF_DIR)
+                rla
+                ld      a, (ix+OF_X)
+                jr      c, d18_l        ; (facing left: x + the weight)
+                sub     b
+                sub     b
+d18_l:          add     a, b
+                push    hl
+                call    get_tile_div_mod_m7
+                pop     hl
+                jp      d18_q2
 P_tick_end:
                 if P_tick_end > H_TICK_END
                 .error the duel's piece P_tick is larger than its hole (tick_pre .. check_skel)
@@ -1601,19 +1610,20 @@ d18_k:          push    ix
                 cp      KID_REC % 256
                 jr      nz, d18_kg
                 call    loadkid
+                ld      a, (d18_v + 1)  ; (the spike that hit it: the feet tile's column d18_q kept, not K_COL)
                 call    d18_sp
                 jp      savekid
 d18_kg:         call    loadshad
+                ld      a, (d18_v + 5)
                 call    d18_sp
                 jp      saveshad
-d18_sp:         ld      a, (K_COL)
-                ld      c, a
+d18_sp:         ld      c, a
                 ld      a, (K_ROW)
                 ld      b, a
                 ld      a, (K_ROOM)
                 call    k_get_tile
                 jp      spiked
-d18_v:          ds      6
+d18_v:          ds      8               ; (rule C: per player the tile of the last tick, its state)
 P_free_end:
                 if P_free_end > H_FREE_END
                 .error the duel's piece P_free is larger than its hole (main RAM below W1)
@@ -1825,6 +1835,40 @@ d_nwt:          db      0               ; (WAITING shown)
 nb_f:           dw      0               ; the lockstep's parameters: the frame, then the input byte (NETSEND: 4 bytes,
 nb_k:           db      0, 0, 0, 0      ; one used) or the hash (NETHASH)
 nb_out:         ds      20              ; a command's output
+; d18_q2: d18_q's rest, A = the feet tile's column
+d18_q2:         ld      c, a            ; (C: the column)
+                ld      b, 0            ; (B: the tile changed)
+                ld      a, (ix+OF_ROOM)
+                call    d18_c
+                ld      a, c
+                call    d18_c
+                ld      a, (ix+OF_ROW)
+                call    d18_c
+                push    hl
+                push    bc
+                call    d18_t           ; (A: a raised spike on it)
+                pop     bc
+                pop     hl
+                ld      c, a
+                or      a
+                jr      z, d18_s        ; (no raised spike: 0)
+                bit     7, (ix+OF_ALIVE)
+                jr      z, d18_s        ; (dead: alive >= 0; 1)
+                ld      a, b
+                or      a
+                jr      nz, d18_x       ; (onto it: hit)
+                bit     0, (hl)
+                ld      a, c
+                jr      nz, d18_s       ; (on it raised already: 1)
+d18_x:          ld      a, 3            ; (it rose under the player: hit)
+d18_s:          ld      (hl), a
+                ret
+d18_c:          cp      (hl)
+                jr      z, d18_c1
+                ld      (hl), a
+                inc     b
+d18_c1:         inc     hl
+                ret
 P_time_end:
                 if P_time_end > H_TIME_END
                 .error the duel's piece P_time is larger than its hole (evres.asm death_text, show_time)

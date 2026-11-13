@@ -8,7 +8,8 @@ mirrored around the start tiles' middle: x -> 270 - x in the fixed arena), '# ex
 ticks at which the kid and the shadow first put their drawn swords away), '# expect arenas 12:1,12:16' (a '# seed'
 script's random arenas, docs/duel-design.md 15: the rounds' level:room in order), '# expect potions 8:4:1:8:2' (the
 potion pairs placed, docs/duel-design.md 19: level:room:column:column:type in order), '# expect spikes 11:14:0:9' (the placed spikes, docs/duel-design.md 21: level:room:column:column in order), '# expect
-d18 18:1,58:2' (D18's hits: tick:player in order), '# expect hps 3/3:3/3,3/3:2/3' (the
+d18 18:1,58:2' (rule C's hits, D18': tick:player in order), '# expect impaled 71:1:4' (rule C's
+impalings: tick:player:the spike's column, the feet tile's), '# expect hps 3/3:3/3,3/3:2/3' (the
 hit points' states in order, each kept at least a tick: player 1's current/maximum:player 2's), '# expect symmetric
 N' (every tick player 2 is player 1 mirrored around their start tiles' middle, x within N pixels: the same frame,
 action, alive and hit points, the opposite direction; N 2 when a potion is drunk: SDLPoP get_item moves a drinker
@@ -23,7 +24,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import duelsim as D
 
 EXPECT_KEYS = {'rounds', 'score', 'match', 'matches', 'mirror', 'digest', 'hurt', 'sheathe', 'arenas', 'potions', 'hps',
-               'symmetric', 'spikes', 'd18'}
+               'symmetric', 'spikes', 'd18', 'impaled'}
 
 
 def match_changes(lines):
@@ -111,7 +112,10 @@ def check(path, update):
         if got != ex['spikes']: errs.append('placed spikes %s, expected %s' % (got, ex['spikes']))
     if 'd18' in ex:
         got = ','.join('%d:%d' % (t, p + 1) for t, p in sim.d18_log)
-        if got != ex['d18']: errs.append('D18 hits %s, expected %s' % (got, ex['d18']))
+        if got != ex['d18']: errs.append('rule C hits %s, expected %s' % (got, ex['d18']))
+    if 'impaled' in ex:
+        got = ','.join('%d:%d:%d' % (t, p + 1, c) for t, p, c in sim.d18_kills)
+        if got != ex['impaled']: errs.append('rule C impalings %s, expected %s' % (got, ex['impaled']))
     if 'hps' in ex:
         seq = []
         for k, g in records(path):
