@@ -1,6 +1,6 @@
 # The duel easter egg: analysis and design (2026-11-10)
 
-Status: **multi-row arenas built (section 17, PLAN status 88); the random arenas built (section 15, PLAN status 86); phase 4 built (network play: section 14, PLAN status 85); phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
+Status: **the layout for more room built (section 18, PLAN status 92; the potions' and traps' study and the user's decisions there); multi-row arenas built (section 17, PLAN status 88); the random arenas built (section 15, PLAN status 86); phase 4 built (network play: section 14, PLAN status 85); phase 3 built (the HUD, the texts, the sound: section 13, PLAN status 84); phase 2 built (the local duel in Z80, a patch over the game: section 12, PLAN status 82; the blades 12.8, status 83); phase 1 (the duel's logic in Python: section 11, PLAN status 81); the user's decisions in section 9, later iterations in section 10.** The duel is built after the remaining speed work and the AV fine-tuning (PLAN.md
 item 35d). This note says what it needs, and above all what has to be **reserved now** so the work in between does not
 take it (section 1.5). Figures are from main 960bcaf unless a section says otherwise; frames are 71,136 T (20 ms).
 
@@ -1427,3 +1427,266 @@ the two characters cost, the drawing of a character on another row included (cli
 - tests/duel_z80.py --cdl: all eleven scripts 0 differing lines at 512 KB, 1 MB, 16 MB; the code log reaches no hole.
 - tests/duel_net.py: scenario 1 plays climb_dungeon.txt over the relay too (both traces as duelsim's every tick).
 - tests/duel_boot.py, tests/duel_test.py (11 of 11, the earlier digests unchanged).
+
+## 18. More room, potions and traps: the study and the layout as built (2026-11-13)
+
+A feasibility study for the next duel stages (potions, traps), then its stage A, the layout, built (18.3). The study's
+figures come from main 1b1744b (`make duel`: code holes 3,771 B, 3,598 used, 173 free; staged 4,286 of 4,544 B; P_w2
+931 of 1,536 B; POP800.PR3 15 blocks); the code-log figures from tests/duel_z80.py's code log and profiler over
+match.txt, arenas_dungeon.txt and climb_dungeon.txt (1,844 ticks, 16 round resets, 3 entries), the pools' figures from
+duelsim.substitute over ARENA_POOL (scratch scripts, not kept). The harness skips the lobby (`d_hnet` 0), so the lobby
+code is classified from the code and from duel_net's path.
+
+### 18.1 When each duel piece runs
+
+| When | Code (piece: bytes) | Code log (1,844 ticks) |
+|---|---|---|
+| Once at the launch (dead afterwards) | d_boot, d_ptab (P_main: 114) | 0 (the harness lays the pieces itself) |
+| Once per duel entry | d_entry (P_ai 48); w_entry (P_w2) | 3 |
+| **Before the match (the lobby)** | d_lobby .. dlr_s without dlb_go / d_ready (P_obj 395), d_key1 / d_kget (70), d_ndet (79); NETCREATE's parameters and d_build (P_spk 23); the lobby texts dst_menu, dst_code, dst_link, dst_vers, dst_room, dst_err (P_spk 88); d_kprev, d_jpos, d_one (P_time 3) | 0 (duel_net only) |
+| At the match's start | dlb_go, d_ready (20), d_mstart (7), d_arena (22, the loader), P_w2 w_match / w_load | 3 |
+| **At a round's start** | d_reset, dr_char, d_fresh (P_ai 199, called only from P_w2 w_set); P_w2 | 16 |
+| **When a text changes** (about 4 a round) | hu_new (23), d_text + huf (70), d_strs + the HUD texts (P_tick 107), d_font (P_time 63), the in-match network texts dst_wait, dst_desync, dst_left, dst_lost (P_spk 49) | hu_new 40 times |
+| At the match's end or a quit | d_quit (14), d_nleave (19), d_round's rematch branch (~20) | 3 |
+| After a network failure | d_nfail, d_smsg (40) | 0 |
+| **Every tick: the logic (lockstep)** | d_loop .. d_tend (62), d_input (131), **d_net + dn_* (P_lr 222)**, **the NET core n_do .. n_stat (P_obj 97)**, d_tick (117), d_frame (178), d_hurt (79), d_swap (51), d_hash (86), d_round (~125), dh_x (28), d14 / d15 (50), the state (110 incl. d_blk2 90) | 1,845 |
+| Every tick: the drawing and the audio | d_draw (60), d_sdraw (159), d_blade (48) + dbl_p (90) + d_bltab (28), d_ppchar (44), d_ghp (62) + d_bswap (27), d_hud's key (119), d_snd (105) | 1,842 |
+
+Only the "every tick" rows must stay resident. The lockstep (d_net, the NET core) stays where it is or moves to
+another resident hole.
+
+### 18.2 Which windows are free, and when
+
+| Moment | W1 (0x7C00) | W2 low (0xA000-0xA9FF) | WF (0xAA00-0xAFFF) |
+|---|---|---|---|
+| d_boot → d_entry | the room overlay | free | free → P_w2 (d_arena 2) |
+| Lobby: the arena's full draw (d_draw) | the room overlay | the compose buffers: **everything is lost** | lost |
+| Lobby: the menu, HOST, JOIN | room / rare | the text overlay 0xA000-0xA3FC at each d_text; **0xA400-0xA9FF free** | free (P_w2 is not needed until dlb_go) |
+| dlb_go → d_mstart | | the level-start overlay 0xA000-0xA904 (w_load, only when the level changes) | P_w2 |
+| A tick: the logic | rare (on hits), events (potions, B), frames (choppers and spikes, C) | free | P_w2 is stale |
+| A tick: the drawing | | the compose buffers | the compose buffers |
+| After the drawing: d_hud → d_text | | the text overlay (and P_txt below) | stale |
+| A round's start (d_round → d_arena 1) | | free | P_w2 (after pend_flush) |
+
+### 18.3 The layout: the occasional code in W2 (built, PLAN status 92)
+
+| Piece | Where, when loaded | Content | Bytes |
+|---|---|---|---|
+| **P_lob** (new) | W2 0xA600-0xA9FF. Copied by a resident stub of ~22 B **after** the lobby's d_draw (pend_flush, far_copy). It is lost at dlb_go (resident), which is also its only way out | the lobby, the keys, NETCREATE's parameters and d_build, the lobby texts, the lobby's variables | ~660 of 1,024 |
+| **P_txt** (new) | W2 0xA400-0xA5FF, just above the text overlay (assert: ovl_end <= P_txt). Copied by the resident d_text stub (~22 B) together with the text overlay | d_text's body (the glyphs, the bitmap, the string with its numbers), d_strs, the HUD texts, the in-match network texts, d_font | ~320 of 512 |
+| **P_w2** (grows) | WF, as today: at the match's and every round's start | + d_reset / dr_char / d_fresh (199), d_entry's body (~40), d_ndet (79; it runs before the lobby's draw, while P_w2 is still in W2). − the blade pixels (227), which are only ever read from the staged copy (d_blade) and become a staged-only blob | 931 → ~1,020 of 1,536 |
+| d_boot / d_ptab's 114 B (H_MAIN) | dead after d_entry | runtime-set variables over them: d_blk2 (90, written by d_fresh before its first read) and nb_out (20) | 0 |
+| Stays resident | | dlb_go / d_ready (20), the NET core (97), d_bltab (28), the d_lobby / d_text stubs | |
+
+**As built** (the user's decisions, below; tools/duelpatch.py's report):
+
+| | Before | Now |
+|---|---|---|
+| Code holes (resident while a duel runs) | 3,598 of 3,771 B, 173 free | **2,369 of 2,891 B, 522 free**; H_OBJ (675) and H_SPK (205) carry no duel code: **reserved for the spikes** (stage C runs the game's own code there; still checked as unreached while the duel has no traps) |
+| Duel code resident | 3,598 B | **2,369 B (-1,229)**: the lobby, the NET detection, the texts and the font, the round reset and d_entry's body out; the NET core (n_do .. n_stat), dlb_go / d_ready and d_bltab moved into H_AI; d_lobby and d_text stubs |
+| P_w2 (WF) | 931 of 1,536 | 1,019 (+ d_reset, dr_char, d_fresh, d_ndet, d_entry's state; - the blade pixels) |
+| P_txt (right after the text overlay: 0xA3FD, the cheat build's 0xA430) | - | 299 of 515 (464 in the cheat build: its text overlay has more texts) (d_text's body, d_font, the HUD and in-match network texts) |
+| P_lob (0xA600) | - | 556 of 1,024 (the lobby, the key reading, NETCREATE's parameters and the build id, the lobby texts) |
+| P_bld (staged only) | (in P_w2) | 227 (the blade pixels; d_blade reads them from page 1) |
+| Over d_boot / d_ptab (dead after d_entry) | - | d_blk2 (90) and nb_st (4) |
+| Staged | 4,286 of 4,544 (page 6) | **2,134 of 4,544 (page 6, read once by d_boot) + 2,101 of 4,932 (page 1: P_w2, P_txt, P_lob, P_bld)** |
+| Floppy (POP800.PR3) | 15 blocks | **16** (24 of the 40 reserved left) |
+| Resident game bytes, launcher, PRES, the game's overlays | 0, unchanged | **0, unchanged** (PRS_DUEL1 is two RAM-disk records: the launcher's loader takes any number) |
+
+**The staging.** The pieces read again during the duel (P_w2, P_txt, P_lob, P_bld) are a second RAM-disk record of
+PRS_DUEL1 at page 1 0xE918-0xFC5B: the button pictures' slots (btnstep.asm BC_BASE, 4 x BC_SLOT; runtime only, and an
+arena never has a button: w_cls turns them into floor). Checked by a scratch run before: a pattern there and in page 4
+0xE000-0xFDFF survived the level 1 start, d_boot and whole duels with a level load. Page 6 0x16C0- keeps only d_ptab's
+pieces, read once: on 512 KB and 1 MB it is the complete chopper pictures' pool of M8a part 25, which stage C's spikes
+may then use.
+
+**tools/duelpatch.py**: the W2 pieces by address range (W2_PIECES: a jump from a piece into W2 goes to one of them, or
+to the level-start overlay from P_w2, to the text overlay from the others); P_bld staged only (STAGED_ONLY); the two
+records and their order (STAGE2, duel.asm DSTAGE_*) checked against btnstep.asm's slots; RESERVED (H_OBJ, H_SPK): no
+piece may lie there; the lobby: P_lob calls only LOBBY_CALLS (code that keeps W2 above the text overlay: d_text, the
+NET core, the key reading...) and leaves only by LOBBY_EXITS (dlb_go, d_quit), so nothing loads W2 over it while it
+runs (checked negatively: a `call d_draw` or a jump to d_hash in P_lob fails the build); P_txt jumps to no other W2
+piece. duel.asm puts P_txt at the text overlay's end (its length differs by build: the cheat build's has 51 bytes more) and asserts the order in W2: P_txt < P_lob < P_w2, the level-start overlay's end
+<= P_w2. tests/duel_z80.py's code log skips the W2 places (the overlays run there too) and still checks every other
+hole, H_OBJ and H_SPK included.
+
+**Load-time cost** (far_copy: inir, ~21 T a byte):
+
+| | Bytes | Cost |
+|---|---|---|
+| P_lob, once after the lobby's draw | 556 | ~12 K T, 0.17 frames |
+| P_w2, at the match's and every round's start | 1,019 (931 before) | ~21 K T, 0.3 frames; under the 51-85-frame room draw |
+| P_txt, at each text change, with the text overlay | 299 | +6.3 K T, +0.09 frames; ~4 a round |
+| Floppy | | PR3 +1 block; **no floppy read during a duel** |
+
+**Loading straight from the floppy into W2 / WF is not recommended.** The game has no PZ decoder (only the launcher has
+one, and its RAM-disk copy runs at 0xB000, over SPRBUF_A / B). Its only floppy code is the save overlay, which fills
+W2 itself (its code at 0xA000, its buffers at 0xA700-0xAFFF), so it cannot load into W2. A loader of our own would be
+~0.4-0.5 KB, and a real drive would add ~0.5-1 s per load (motor, seek). The RAM disk's runtime scratch has room to
+spare and the launcher fills it for free.
+
+**Risks** (the checks above cover 1-2):
+1. Code in W2 is volatile: any drawing between the copy and the run destroys it. The lobby must copy P_lob after its
+   d_draw. d_text must keep the overlay's load and P_txt's copy together, after the drawing (as text_chk does today),
+   with pend_flush before them. P_w2 is unchanged.
+2. A path from P_lob or P_txt must never reach w_load (the level overlay covers 0xA000-0xA904). duelpatch.py gets W2
+   pieces by address range (today only PIECE_ARENA and the text overlay), the asserts on the order (text overlay <
+   P_txt < P_lob < WF), and a check that P_lob leaves only through resident labels.
+3. The variables over d_boot: nothing may read d_blk2 before d_fresh (an assert or a review rule); the harness's
+   d_script / d_seed / d_afix stay where they are.
+4. Tests: duel_z80's patch_in and duel_boot write both staging records; duel_net is the only test of P_lob (menu,
+   HOST, JOIN); the code log has nothing to check in the W2 pieces (they are not holes).
+5. 16 MB is unaffected (its frame slots are in page 62).
+
+### 18.4 B: potions
+
+**The code, all of it live in the duel (no hole):**
+
+| Step | SDLPoP | Ours |
+|---|---|---|
+| Take it | seg005 control_standing / control_crouched → check_get_item (seg005:620; no charid test) | objects.asm check_get_item (resident: "reached, must stay", 12.2); rare.asm get_item / do_pickup (the rare overlay, W1) |
+| Drink | play_seq's get-item command → proc_get_object (seg006:1858: **returns unless charid == kid**) | kid.asm ps_getitem (charid test) → events.asm proc_get_object (the events overlay, W1; the same test) |
+| Effects | heal: hitp_delta +1 unless full; life: add_life (max +1, up to 10, full); poison: hitp_delta −1; slow fall: feather_fall (seg000:15F8): the **global** is_feather_fall, used by fall_accel for any character, ended in timers (seg003) when no sound plays or after 225 ticks; upside down: toggle_upside (seg000:15E9): global, the whole screen, reset when the kid dies (play_kid_frame, seg000:1203); open: trigger_button of room 8 | the same; FEATHER is EV + 9, counted in guard.asm timers (**H_TICK: overwritten in a duel**), UPSIDE is EV + 10 (game.asm flips via flip_now = set_flip + a full room draw) |
+| Bubbles | animate_potion (process_trobs) | objects.asm ob_potion (live: the torch path runs at_dispatch); the redraw is view.asm vrd_one's potion case (low block, live); the trob is registered at a room entry by anim_tile_modif (the guard-enter overlay). **w_set registers only the torches** |
+
+**Player 2.** Its frame runs with charid 0, so the Z80 already lets it take and drink (the charid tests pass). The
+effects go through HITP_* while dh_x has exchanged HITP_CURR / DELTA with GUARDHP_* around its frame (section 17.2), so
+heal and poison already land on player 2's own hit points. **Missing: HITP_MAX ↔ GUARDHP_MAX in dh_x** (the life
+potion and the heal's "full" test would otherwise use player 1's maximum): +8 B. duelsim runs player 2 with the
+shadow's charid, so it needs a new rule **D17**: player 2 drinks, on its own hit points (guardhp, guardhp_max). Slow
+fall and upside down are global. A per-player slow fall would need FEATHER in the block (+1 B swapped and hashed) and
+the duel's own 225-tick count (~15 B, since timers is a hole). Its effect is nil in the one-row rooms and small in the
+multi-row ones, and **the pool has no slow-fall potion**. Upside down flips the one shared screen for both players (on
+both machines over the network), costs a full room draw (1-1.7 s) at each flip, and its reset on death is not in
+d_frame. **Proposal: convert both, and open, to heal.**
+
+**The pools** (poolsurvey.py, from what the substitution removes today): **14 of the 97 rooms have potions**, 15 in all:
+11 heal, 2 life, 1 poison, 1 upside down, no slow fall. About 9 are reachable (on the fight run of a one-row room, or
+in a multi-row room). Several sit at or next to a start tile:
+- L2 R13: poison on player 1's start tile, heal on player 2's;
+- L3 R2 and L8 R14: heal on player 2's start tile;
+- L11 R14: heal next to player 1.
+
+Those are unfair as they stand.
+
+**Bytes.**
+- Resident: ~10-30 B (dh_x's maxima 8; optionally the room's tiles in the hash ~10, shared with C).
+- Staged, in P_w2: ~70 B with the rooms' own potions (keep T_POTION: the w_cls table; convert the types ~12; the
+  start-tile rule ~12; potion trobs in wt_l with prandom(6) + 1 in kidsim's anim_tile_modif order ~15; restore the room
+  from the RAM-disk blueprint at every setup ~30, so a room met again has its potions back). ~140 B with random
+  placement.
+
+**Speed:** a bubbling potion costs **~0.45 frames a tick** (docs/perf.md: bubble_redraw), +8 % each on a 5.3-frame tick.
+A frozen bottle (no trob) costs 0. Drinking loads the events overlay into W1 once (~13 K T).
+
+**duelsim** (~50-80 lines): D17; arena_set keeps the potions, converts the types, applies the start-tile rule,
+restores the room's tiles from level_fresh at every setup, and registers the potion trobs as the Z80 does (or not, if
+they are frozen); optionally the random pair. New scripts: each player drinks heal / life / poison, a poison death
+decides a round, a potion taken in one round is back in the next. duel_z80 stays tick-exact.
+
+### 18.5 C: traps
+
+**Where they are now:**
+- **H_SPK** (check_spiked, start_anim_spike, check_spike_below: 205 B) holds P_spk: NETCREATE's parameters, the 11
+  network texts, d_bltab.
+- **H_OBJ** (make_loose_fall .. foh2: the loose floors, the knocks, do_mobs, the falling floors, check_loose_fall_on_kid
+  and the first half of fell_on_your_head: 675 B) holds P_obj: the lobby and the NET driver.
+- **Live, in no hole:** is_spike_harmful, spiked, an_spike / an_chomper / an_loose, start_chompers, check_press,
+  kid2.asm check_chomped_kid / chomped, the traps' sounds, all the drawing (spike.asm, the frames, loose, low and low2
+  overlays: already in the call graph through the torch path).
+- **Not needed:** check_chomped_guard (H_AI) and timers (H_TICK).
+
+**The restore path.** The GAME image in the RAM disk is a PZ record stream (page 3 0xA000-, page 4 0xD400-). It cannot
+be decoded piecewise without the launcher's decoder, which is not resident (its copy runs at 0xB000). So there are two
+ways:
+- (a) **nothing is laid over H_SPK / H_OBJ**. Layout 18.3 moves their content into P_lob / P_txt anyway, so the game's
+  code is simply there. 0 B staged and 0 time; the holes lose 205 B (spikes) and 675 B (loose floors).
+- (b) keep the lobby there and copy back the original bytes, extracted by duelpatch from build/m4game.bin and staged,
+  at dlb_go: 880 B staged, ~19 K T (0.26 frames) once a match.
+
+(a) is recommended with 18.3. The room's own tiles are restored at every round's setup from the level blueprint in RAM
+disk page 5 (untouched), which B needs too.
+
+**SDLPoP's rules for the guard and the shadow:**
+
+| Trap | The kid (play_kid_frame, seg000:0EA8) | The guard and the shadow (play_guard_frame, seg000:0F48: only in the drawn room and while 44 <= x < 211) |
+|---|---|---|
+| Spikes | check_spike_below, check_spiked (seg006:0658), spiked (seg005: take_hp(100); the spikes become harmless to others, modifier 0xFF) | **the same functions: both die** |
+| Choppers | check_chomped_kid (seg004:076B: the collision rows) → chomped (seg004:07BF, take_hp(100)) | **check_chomped_guard** (seg004:0989: the tile at the character and the one to the right, the walls' x): **both die, by different geometry** |
+| Chopper running | animate_chomper (seg007) stops when **the kid** leaves its room or row (or the kid lives and there is no blood): kid-centric; start_chompers (seg007:0F13) for Char's row, at a landing (seg005), in play_seq, at a room entry (the kid) | the same trobs |
+| Loose floors | check_press (seg006:1684) shakes or drops them; do_mobs → check_loose_fall_on_kid (seg007:1591) **loadkid**: a falling floor hits only the kid (fell_on_your_head seg007:15D3, take_hp(1)) | check_press: guards drop floors too, but **are never hit** |
+
+**Player 2 in our Z80** (its frame runs with charid 0):
+- **Spikes**: as SDLPoP's guard. spiked's take_hp lands on its own hit points (dh_x). Symmetric, no new rule.
+- **Choppers**: it would use the kid's check_chomped_kid, so both players share one geometry. That needs a rule
+  **D19** in duelsim, like D16. **an_chomper reads K_ROW / K_ALIVE**, which hold player 1 at process_trobs (d_tick
+  ends with loadkid). A chopper on player 2's row would stop after its cycle when player 1 is elsewhere. Rule **D18**:
+  it keeps running while either player is alive on its row. That needs a patch site in objects.asm an_chomper (a
+  label, as duel_d14) and the same rule in kidsim's animate_chomper. At a round's start, start_chompers must run for
+  the fight row.
+- **Loose floors**: player 2 drops them. A falling floor would hit only player 1 (loadkid), so rule **D20** would make
+  it hit both. A bottom-row loose floor that falls opens a hole out of the closed room, so those stay floor. The user
+  excluded loose floors (section 9), and they cost the most.
+
+**The fairness rules needed:**
+1. A trap on a start column becomes floor. Today that happens in L4 R6, L6 R2 (spikes) and L9 R21, L9 R9, L9 R1
+   (choppers).
+2. A trap death scores for the other player; a same-tick double death is a draw (as now).
+3. D18 and D19.
+4. Every round starts with the room as its blueprint has it.
+5. Optional: the players swap sides every round, which evens out a trap that is 2 tiles from one start and 3 from the
+   other.
+
+**The pools:** **13 of the 97 rooms have spikes, 10 have choppers.** About 10 and 7 respectively are reachable (on the
+fight run or in a multi-row room). Unreachable traps (L7 R2, L8 R4, L8 R12 choppers; L7 R19 spikes) never start: just
+scenery. Loose floors are in 29 rooms (e.g. L11 R8: the whole bottom fight row).
+
+**Bytes.** Spikes and choppers:
+- Resident ~35 B: d_frame's df_body calls check_spike_below, check_spiked, check_chomped_kid (+9); D18 (3 B site + ~22).
+- Plus the hole H_SPK given back (−205 hole bytes; its 188 B are moved by 18.3).
+- Staged ~60 B (P_w2): the start-column rule and the room restore (shared with B), start_chompers for both at the
+  reset (~14).
+
+Loose floors in addition:
+- H_OBJ given back (−675; the NET core and dlb_go, 117 B, moved).
+- do_mobs in d_tick (+3).
+- D20 (~25).
+- The bottom-row conversion (the w_cls table).
+
+**Speed** (docs/perf.md, M8a parts 15 and 25, 1 MB):
+- An active chopper takes a picture step on 5 of its 15 ticks. A step costs 2.7-3.0 frames with a character in its
+  rect and ~1.3 without. That is **~1 frame a tick averaged, +19 %** on the 5.3-frame duel tick, on both machines.
+- A spike step costs 1.9-2.4 frames, on the ~10 ticks after each trigger.
+- A falling floor is drawn as a sprite on every tick of its fall.
+- The busy rooms with 2 choppers and 2 spikes run at 6.7-7.6 frames a tick (median) for the kid alone.
+
+**duelsim** (~50-80 lines):
+- substitute keeps spikes and choppers; the start-column rule; the room restore.
+- D18 in animate_chomper under `duel`; start_chompers for both at round_reset. char_frame already calls the kid's
+  checks for both players, which is D19.
+- Optionally the room's tiles in the hash.
+- Scripts: a spike death and a chopper death for each player; the chopper still running with only player 2 on its row;
+  a trap at a start column.
+- duelarenas.py's survey with live traps (the random duels count the trap deaths; rooms where the chase forces a trap).
+
+### 18.6 The user's decisions (2026-11-13)
+
+1. **A: the layout of 18.3 and the second staging record in page 1: approved** (built).
+2. **B, the types:** heal, life, poison kept; **slow fall, upside down and open become heal.**
+3. **B, placement (b):** from the seed, **a mirrored pair** on the fight run (behind each player's start, the same type),
+   e.g. every other round.
+4. **B:** the potions **come back every round** (the room restored at each setup).
+5. **B: still bottles** (no bubbling: no trob, no 0.45 frames a tick).
+6. **C: spikes only** (no choppers, no loose floors).
+7. **C:** a trap on a start tile becomes floor; **no side swap** per round.
+8. **D18 / D19 not needed** (no choppers).
+9. **The room's tiles in the state hash: yes.**
+
+### 18.7 Recommended order
+
+1. **A first** (built: 18.3). It frees ~1.2 KB of holes and, with page 1, ~4.9 KB of staging. It is the precondition of
+   C on 512 KB and 1 MB (the complete-picture pool), and it gives B and C their room. It changes no rule: duel_z80,
+   duel_boot and duel_net must stay exact.
+2. **B, potions** (~2 days): ~20 B resident, ~70-140 B staged, D17, low risk. Measure the bubble's cost in a duel.
+3. **C, spikes** (~2 days): check_spike_below / check_spiked in d_frame, H_SPK's code live, the start rule, a survey
+   re-run.

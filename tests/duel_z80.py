@@ -72,7 +72,7 @@ def patch_in(e, S, D, script_bytes, seed=None):
     the game's main loop; then the harness's script and its pointer, and the arenas: the script's seed (d_seed), or
     none: the fixed arena every round (d_afix)"""
     j = json.load(open(os.path.join(B, 'duel_patch.json')))
-    st = j['stage']; write_pack(e, bytes.fromhex(st['data']), st['page'], st['addr'])
+    for st in (j['stage'], j['stage2']): write_pack(e, bytes.fromhex(st['data']), st['page'], st['addr'])
     for addr, hx in j['main']:
         e.call('mem_write', addr=addr, data_hex=hx)
     write_pack(e, script_bytes, S['RD_LV_PAGE'], RD_SCRIPT)
@@ -117,9 +117,10 @@ def ranges(S, D):
     gv = (S['KID_REC'], 82)                         # the records, CHAR_SAVE, the globals
     ov = (S['HITP_CURR'], 16)                       # OV: hit points, have_sword, TROBS_N, MOBS_N
     kv = (S['CTRL1'], 6)
-    dv = (D['d_aidx'], D['d_blk2'] + 90 - D['d_aidx'])
-    return {'ready': [gv, ov, kv, dv], 'mid': [gv, ov, (S['LEVEL'], 1440)], 'g': [gv, ov],
-            'n': [(S['SND_STOPS'], 1)], 'end': [gv, ov, kv, dv],
+    dv = (D['d_aidx'], D['d_hashv'] + 2 - D['d_aidx'])     # (the arena's entry, the round state, the inputs, the hash)
+    bv = (D['d_blk2'], 90)                          # (player 2's block: over d_boot, docs/duel-design.md 18)
+    return {'ready': [gv, ov, kv, dv, bv], 'mid': [gv, ov, (S['LEVEL'], 1440)], 'g': [gv, ov],
+            'n': [(S['SND_STOPS'], 1)], 'end': [gv, ov, kv, dv, bv],
             'drawn': [(S[k] + S['SD_FRAME'], 1) for k in ('SPR_A', 'SPR_S', 'SPR_G', 'SPR_GS')] + [(D['d_key'], 4)],
             'jingle': []}
 
@@ -267,7 +268,7 @@ def cdl_check(e, S, D):
     ram = open(path + '_ram.cdl', 'rb').read()
     x = [struct.unpack_from('<I', ram, 16 * a + 8)[0] for a in range(0x10000)]
     pieces = sorted((D[k], D[k + '_end'], k) for k in D if k.startswith('P_') and not k.endswith('_end'))
-    holes = [(D[k], D[k + '_END'], k) for k in D if k.startswith('H_') and not k.endswith('_END') and not k.startswith(('H_D1', 'H_SD', 'H_PP'))]
+    holes = [(D[k], D[k + '_END'], k) for k in D if k.startswith('H_') and not k.endswith('_END') and not k.startswith(duelpatch.LIVE_HOLES)]
     in_piece = lambda a: any(p[0] <= a < p[1] for p in pieces)
     errs = []
     for lo, hi, k in holes:

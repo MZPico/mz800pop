@@ -21,7 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.path.insert(0, os.path.join(ROOT, 'tests'))
 sys.argv, ARGS = sys.argv[:1], sys.argv[1:]                 # (m5_boot reads its own argument)
 from emu import Emu
-from m3_test import syms
+from m3_test import syms, RAMDISK
 import m5_boot as M5
 import duelsim as DS, popdata as PD
 B = os.path.join(ROOT, 'build')
@@ -99,8 +99,12 @@ def run(card, shots, j):
             pieces = sorted((D[k], D[k + '_end'], k) for k in D if k.startswith('P_') and not k.endswith('_end'))
             binb = bytearray(open(os.path.join(B, 'duel.bin'), 'rb').read()); base = min(p[0] for p in pieces)
             binb[j['build_at'] - base:j['build_at'] - base + 2] = j['build_id'].to_bytes(2, 'little')   # (duelpatch.py's)
-            ok = all(e.mem(a, n - a) == binb[a - base:n - base] for a, n, k in pieces if k != 'P_w2')
+            w2 = ('P_w2', 'P_txt', 'P_lob', 'P_bld')        # (copied into W2 when needed, or read from the RAM disk only)
+            ok = all(e.mem(a, n - a) == binb[a - base:n - base] for a, n, k in pieces if k not in w2)
             check('every piece in its hole (PRS_DUEL1 staged, laid in by d_boot)', ok)
+            st = j['stage2']; d2 = bytes.fromhex(st['data'])
+            check('the W2 pieces and the blade pixels staged in RAM-disk page %d (PRS_DUEL1\'s second record)' % st['page'],
+                  e.region(RAMDISK[st['page']], st['addr'], len(d2)) == d2)
             check('the game\'s level 1 started first (level_number 1)', e.mem(G['level_number'], 1)[0] == 1)
             if card:
                 M5.run_to(e, D['dlb_mk'], 1000)
