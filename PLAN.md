@@ -1294,3 +1294,16 @@ piece used AND/XOR semantics.
    room in random play: the user's decision, the same rule). Random matches: no fall, D18 and spike deaths 44-58 % for
    player 1. Resident +208 B (2,590), P_w2 1,384 B, PR3 18 blocks. Six new scripts; duel_z80 0 differing lines at
    512 KB / 1 MB (4 MB in CI), duel_net, duel_boot.
+96. Duel: polish from the playtest (2026-11-13, docs/duel-design.md section 22). The rooms' edges: the drawing took the
+   arena's neighbours from the logic's zeroed links (a wall face over the left edge, a floor strip along the top: the
+   cut arches and walls; 89 of 95 pool rooms differed from the game's drawing); d_lnk now gives the drawing (view_snapshot,
+   d_draw) the room's real links from the level's blueprint and the logic its zeros, so every pool room is drawn
+   pixel-identical to the game's drawing (95 of 95, checked from the emulator), no room dropped. Player 2's hit point
+   icons: the game's shapes in one light blue 9, full and empty (d_p2ic; before: a blue 1 outline next to light blue).
+   The seed: local play's was the game program's frame counter at the duel's entry, the same at every entry (confirmed:
+   0x0068 for any title wait); PRES now hands its frames at Ctrl+D over in K_TICK's place (PRES +11 B, 34 of 64; the
+   cutscene sprites leave 5 B of PRES's reserve), w_entry adds its FRAMES and R. SHIFT: no button in the local duel (one
+   keyboard: the left SHIFT is under player 2's hand; joystick 1, `/` and `?` fire), still the button over the network
+   (the phone's touch overlay). Logic and hash unchanged. Resident +75 B (2,665), P_w2 1,424 B, PR3 18 blocks, launcher
+   unchanged. duel_z80 0 differing lines at 512 KB / 1 MB (4 MB in
+   CI), duel_boot (the icons, two title waits two seeds, the local SHIFT), duel_net (SHIFT over the network), duel_test.

@@ -21,7 +21,7 @@ arenas now use (a third machine joins, both play without a desync, as duelsim wi
 
   POP800_RELAY_PY      the relay (default ~/src/bomberman/relay/relay.py: BomberNet's)
   POP800_RELAY_PYTHON  the Python that runs it (default this one; without fastapi a stand-in: only its TCP side runs)
-usage: duel_net.py [--only match|version|desync|left|lost|nolink|rehost|nocard] [--realtime] [--delay N] [script.txt]
+usage: duel_net.py [--only match|version|desync|left|lost|nolink|rehost|nocard|shift] [--realtime] [--delay N] [script.txt]
        (default tests/duel_scripts/arenas_dungeon.txt; --realtime and --delay: the speed at a real MZ-800's 50 Hz, docs/duel-design.md 14)"""
 import os, socket, subprocess, sys, tempfile, threading, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -275,6 +275,35 @@ def test_match(relay, path):
         a.close(); b.close()
 
 
+def test_shift(relay, path):
+    """over the network SHIFT stays the button (docs/duel-design.md 22.4: either local key set controls the machine's
+    fighter; the phone's touch overlay sends SHIFT as fire), unlike the local duel (tests/duel_boot.py): both machines
+    play live keys (d_script 0); SHIFT held on A, then on B; the agreed input bytes of every tick (d_in1, d_in2 at d_tick)
+    on both machines"""
+    print('9. SHIFT is the button over the network (live keys)')
+    a, b = pair(relay, path)
+    try:
+        start(a, b)
+        for m in (a, b):
+            m.poke(D['d_script'], [0, 0]); m.e.call('bp_clear'); m.e.trace_clear()
+            m.e.trace_add(D['d_tick'], mem=[(D['d_in1'], 2)])
+        def phase(m):
+            if m: m.e.call('input_press_key', key='SHIFT')
+            both(lambda: a.e.run(300), lambda: b.e.run(300))
+            if m: m.e.call('input_release_key', key='SHIFT')
+            both(lambda: a.e.run(100), lambda: b.e.run(100))
+            return [[tuple(r['mem'][0]) for r in m2.e.trace_read()] for m2 in (a, b)]
+        phase(None)                                     # (into the match, no keys)
+        for who, m, slot in (('A (player 1)', a, 0), ('B (player 2)', b, 1)):
+            ra, rb = phase(m)
+            fa, fb = ([p for p in r if p[slot] & 0x10] for r in (ra, rb))
+            other = [p for p in ra + rb if p[1 - slot] & 0x10]
+            check('SHIFT on %s: its fighter\'s agreed byte has the button on both machines (%d, %d ticks), the other\'s not' % (
+                  who, len(fa), len(fb)), fa and fb and not other, (ra[:8], rb[:8]))
+    finally:
+        a.close(); b.close()
+
+
 def test_version(relay, path):
     print('2. a joiner with another build id')
     a, b = pair(relay, path)
@@ -437,7 +466,8 @@ def main():
                         ('version', lambda: test_version(relay, path)),
                         ('desync', lambda: test_desync(relay, path)), ('left', lambda: test_left(relay, path)),
                         ('lost', lambda: test_lost(relay, path)), ('nolink', lambda: test_nolink(path)),
-                        ('rehost', lambda: test_rehost(relay, path)), ('nocard', lambda: test_nocard(path))):
+                        ('rehost', lambda: test_rehost(relay, path)), ('nocard', lambda: test_nocard(path)),
+                        ('shift', lambda: test_shift(relay, path))):
             if only not in (None, name): continue
             try: f()
             except Exception as x:                      # (a scenario that broke: a failed check, the others still run)

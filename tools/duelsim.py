@@ -41,7 +41,7 @@ ROUND_END_TICKS = 36                             # the round end: ticks from the
 DUEL_KID_FRAMES = True                           # player 2's frames 150-189 from the kid's table (False: SDLPoP's shadow)
 
 # ---- the random arenas (docs/duel-design.md 15; the user's decision "B", 2026-11-12): per match a level (any of 1-14),
-# per round a room of that level's pool, both from a 16-bit seed (local play: the frame counter at the duel's start; over
+# per round a room of that level's pool, both from a 16-bit seed (local play: PRES's frames at Ctrl+D, docs 22.3; over
 # the network: the host's, in the room's settings), the match's number and the round's. The pool: the user's pick from
 # tools/duelarenas.py's survey (grade A: one row the players cannot leave, >= 8 tiles; 2026-11-12). Entry 0 of the
 # arena table is the fixed arena (level 1 room 3): the duel's entry draws it behind the menu, and a script without
@@ -108,6 +108,13 @@ def zero_links(level, room):
     """the room's four links 0 (room 0: a wall on every side; its edges collide as walls, D14 / D15)"""
     raw = bytearray(level.raw); o = 1952 + (room - 1) * 4; raw[o:o + 4] = bytes(4); level.raw = raw
     level.roomlinks = list(level.roomlinks); level.roomlinks[room - 1] = (0, 0, 0, 0)
+
+def drawing_level(level, n, room):
+    """the level as the duel's drawing sees it (duel.asm d_lnk, docs/duel-design.md 22.1): the arena room's real links
+    (level n's blueprint) instead of the logic's zeros, the tiles shared with level (a shallow copy)"""
+    import copy
+    lv = copy.copy(level); lv.roomlinks = list(level.roomlinks); lv.roomlinks[room - 1] = Level(n).links(room)
+    return lv
 
 def runs(tl):
     """per row the runs of tiles a player can stand on: [(row, first col, last col)]"""
