@@ -219,7 +219,7 @@ PROGRAMS = {
     'tools/cut_suite.py': dict(build=[ASSETS_ALL], uses={'sdlpop'}, expect=10),
     'tests/duel_test.py': dict(build=[ASSETS_GAME], uses=set(), expect=5),
     'tests/duel_z80.py': dict(build=[DUEL_PATCH, M4GAME, ASSETS_GAME], data=scripts('duel_scripts'), expect=90),
-    'tests/duel_net.py': dict(build=[DUEL_PATCH, M4GAME, ASSETS_GAME], data=['tests/duel_scripts/arenas_dungeon.txt'], uses={'emu'},
+    'tests/duel_net.py': dict(build=[DUEL_PATCH, M4GAME, ASSETS_GAME], data=['tests/duel_scripts/arenas_dungeon.txt', 'tests/duel_scripts/climb_dungeon.txt'], uses={'emu'},
                               expect=150),
     'tests/duel_boot.py': dict(build=[DISK, DUEL_PATCH, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=60),
     'tools/perfcheck.py': dict(build=[M4GAME, ASSETS_GAME], data=['tests/perf_baseline.json', 'tests/perf_baseline_512K.json', 'tests/perf_baseline_16M.json'], expect=40),

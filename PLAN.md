@@ -1227,3 +1227,10 @@ piece used AND/XOR semantics.
    (358 free, -38), PR3 14 blocks. emu/mz800emu-pop.sh POP800_UNICARD=0 (a machine without the card); duel_boot both
    ways, duel_net's nocard scenario. Investigated, not changed: SHIFT (one matrix bit for both keys; options for player
    1's fire with diagrams), the blue player's blade (the blade inside the kid's body images: draw, strike start, sheathe).
+88. Duel: multi-row arenas (2026-11-13, docs/duel-design.md section 17): 25 grade-C rooms (several rows the kid's moves
+   connect both ways, no 2-row drop, a chase of at most 84 ticks, not starting against a wall: the user's pick from
+   tools/duelarenas.py's survey with its new chase measure; D rooms, long chases and wall starts left out) join the
+   per-level pools (98 arenas). D16: player 2 lands as the kid (its soft landing's sound, a 2-row fall's hit point:
+   duelsim and the Z80 alike); d_tick exchanges HITP / GUARDHP around player 2's frame so any take_hp there is its
+   own. P_w2 704 B, holes 3,419 of 3,771 B, staged 3,880; two climbing scripts; duel_z80 0 differing lines at 512 KB /
+   1 MB / 16 MB, duel_net with a multi-row arena, duel_boot.

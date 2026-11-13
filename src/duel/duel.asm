@@ -304,13 +304,15 @@ d_mid:          ld      hl, (K_TICK)    ; (harness: the kid line)
                 ld      (K_CHARID), a
                 inc     a
                 ld      (OPP_REC + OF_CHARID), a
-                ld      a, (KID_SWORD_STRIKE)
+                call    dh_x            ; (its own hit points in HITP: a take_hp in its frame, which runs with the kid's
+                ld      a, (KID_SWORD_STRIKE)   ; charid, takes them from player 2: a 2-row drop, D16, section 16)
                 push    af
                 ld      a, (d_in2)
-                ld      hl, GUARDHP_CURR
+                ld      hl, HITP_CURR
                 call    d_frame
                 pop     af
                 ld      (KID_SWORD_STRIKE), a
+                call    dh_x
                 ld      a, CHARID_SHADOW
                 ld      (K_CHARID), a
                 call    saveshad
@@ -441,19 +443,6 @@ dh1:            ld      a, (GUARD_REC + OF_ACTION)
                 ld      (K_CHARID), a
                 call    dh_x
                 jp      saveshad
-dh_x:           ld      hl, (HITP_CURR) ; HITP_CURR <-> GUARDHP_CURR, HITP_DELTA <-> GUARDHP_DELTA
-                ld      a, (GUARDHP_CURR)
-                ld      (HITP_CURR), a
-                ld      a, l
-                ld      (GUARDHP_CURR), a
-                ld      a, (HITP_DELTA)
-                ld      l, a
-                ld      a, (GUARDHP_DELTA)
-                ld      (HITP_DELTA), a
-                ld      a, l
-                ld      (GUARDHP_DELTA), a
-                ret
-
 ; d_reset: a round's start (duelsim round_reset): both at their start tiles, standing, swords sheathed, full hit
 ; points, fresh blocks
 d_reset:        ld      a, (d_c1)                       ; player 1: column, direction right; charid the kid
@@ -1962,6 +1951,19 @@ P_spk_end:
                 org     H_TIME
 P_time:
                 include "../../build/assets/font_duel.inc"
+; dh_x (d_hurt; d_tick around player 2's frame): HITP_CURR <-> GUARDHP_CURR, HITP_DELTA <-> GUARDHP_DELTA
+dh_x:           ld      hl, (HITP_CURR)
+                ld      a, (GUARDHP_CURR)
+                ld      (HITP_CURR), a
+                ld      a, l
+                ld      (GUARDHP_CURR), a
+                ld      a, (HITP_DELTA)
+                ld      l, a
+                ld      a, (GUARDHP_DELTA)
+                ld      (HITP_DELTA), a
+                ld      a, l
+                ld      (GUARDHP_DELTA), a
+                ret
 ; d_mstart (the lobby's end, every mode): the match's level and its first arena, then the state's hash
 d_mstart:       xor     a
                 call    d_arena

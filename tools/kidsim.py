@@ -1486,7 +1486,7 @@ class KidSim:
         if go == 'alive':
             if C.fall_y < 22: go = 'soft'                         # fell 1 row
             elif C.fall_y < 33:                                   # fell 2 rows
-                if C.charid == CHARID_SHADOW: go = 'soft'
+                if C.charid == CHARID_SHADOW and not self.duel: go = 'soft'   # (duel D16: player 2 as the kid)
                 elif C.charid == CHARID_GUARD: go = 'dead'
                 elif not self.take_hp(1):                         # kid (or skeleton (bug!))
                     self.play_sound(16); self.is_guard_notice = 1; seq = SEQ['medium_land']
@@ -1496,7 +1496,7 @@ class KidSim:
             if C.charid >= CHARID_GUARD or C.sword == SWORD_DRAWN:
                 C.sword = SWORD_DRAWN; seq = SEQ['guard_active_after_fall']
             else: seq = SEQ['soft_land']
-            if C.charid == CHARID_KID: self.play_sound(17); self.is_guard_notice = 1
+            if self.kid_rules(): self.play_sound(17); self.is_guard_notice = 1   # (duel D16: player 2's soft landing as the kid's)
         if go == 'dead': self.take_hp(100); go = 'crushed'
         if go == 'crushed': self.play_sound(0); seq = SEQ['crushed']
         self.seqtbl_offset_char(seq); self.play_seq(); C.fall_y = 0
