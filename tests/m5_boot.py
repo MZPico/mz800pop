@@ -33,7 +33,11 @@ the image (the defaults: 36.0 and 15.0; rd_max 15.0: "too slow", rd_min 25.0: "t
 rs_stop with the message (build/m5_rdslow.png, build/m5_rdfault.png) and the game does not start. With an emulator
 that has mr1r18_wait (POP800_RD_WAIT): +1 T a RAM-disk access reads 22.0 everywhere and the boot goes on, +14 reads
 GAME 35.4 (21 + 14 + 14/32 for the address OUT) and goes on, +16 reads 37.5 and stops it (above 36.0;
-build/m5_rdwait1.png, m5_rdwait14.png, m5_rdwait16.png); without it these are reported as not tested. Prints the boot times in frames (50 per second).
+build/m5_rdwait1.png, m5_rdwait14.png, m5_rdwait16.png); without it these are reported as not tested.
+The VRAM check (src/boot/bootscr.asm): a machine with 16 KB of VRAM (its read-back at vram_cmp forced to FFh, as a
+missing plane reads) halts at vram_stop with the message, before the RAM-disk probe (build/m5_vram16.png); with
+MZ800EMU_BIN_16K naming an mz800emu built with DEF_USE_EXTVRAM 0 (it has no setting for it) a real 16 KB boot as well
+(build/m5_vram16e.png). Prints the boot times in frames (50 per second).
 The disk is mounted from a copy (mz800emu writes a mounted image back on eject, even read-only).
 usage: m5_boot.py [ticks]"""
 import base64, os, re, shutil, sys, tempfile
@@ -362,6 +366,39 @@ def stop_run(dsk, what, value, png):
         e.screenshot(os.path.join(BUILD, png))
     return r['stopped_by'] == 'breakpoint' and pc == BS['rs_stop'] and stuck, mode
 
+def rd_emu_bin(tmp, binary):
+    """a launcher for `binary` with the project's INI (in a directory of its own)"""
+    d = os.path.join(tmp, 'emu16'); os.makedirs(d, exist_ok=True)
+    sh = os.path.join(d, 'launch.sh')
+    open(sh, 'w').write('#!/bin/sh\ncd "%s"\nexec "%s" --config "%s" --no-save-ini "$@"\n' % (
+        d, binary, os.path.join(ROOT, 'emu', 'mz800emu.ini')))
+    os.chmod(sh, 0o755)
+    return sh
+
+def vram16_run(dsk, png, exe=None):
+    """a machine with the standard 16 KB of VRAM (no MZ-1R25: planes III and IV missing, src/boot/bootscr.asm): with
+    exe None the default emulator, where the check's first read-back (vram_cmp) is made to read FFh, as a missing plane
+    reads; with exe an emulator built without the extension (MZ800EMU_BIN_16K). (the boot halted at vram_stop and stays
+    there, before the RAM-disk probe and with no launch, the message drawn in plane I and nothing in planes III-IV)"""
+    with Emu(**({'exe': exe} if exe else {})) as e:
+        e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
+        e.call('reset')
+        if exe is None:
+            run_to(e, BS['vram_cmp'], 400)
+            af = e.call('get_registers')['AF']
+            e.call('set_register', reg='AF', value=0xFF00 | af & 0xFF)
+        e.call('bp_clear')
+        for a in (BS['vram_stop'], BS['rd_probed'], BS['launch_main'], G['start']): e.call('bp_add', addr=a)
+        r = e.run(400); pc = e.call('get_registers')['PC']
+        e.call('bp_clear')
+        for a in (BS['rd_probed'], BS['launch_main'], G['start']): e.call('bp_add', addr=a)
+        r2 = e.run(100)                                 # (it must stay in the loop)
+        stuck = r2['stopped_by'] != 'breakpoint' and e.call('get_registers')['PC'] == BS['vram_stop']
+        pl = e.vram_planes()
+        msg = any(pl[0][r * 40 + c] for r in range(112, 131) for c in range(4, 38))
+        e.screenshot(os.path.join(BUILD, png))
+    return r['stopped_by'] == 'breakpoint' and pc == BS['vram_stop'] and stuck and msg
+
 def main():
     print('harness run (tests/m4_game.py setup, guards on) ...')
     h0, h1, h2 = harness_run()
@@ -375,6 +412,9 @@ def main():
         slow = stop_run(dsk, 'rd_max', 150, 'm5_rdslow.png')
         fault = stop_run(dsk, 'rd_min', 250, 'm5_rdfault.png')
         waits = {w: wait_run(dsk, w, 'm5_rdwait%d.png' % w) for w in (1, 14, 16)} if has_rd_wait() else None
+        vram16 = vram16_run(dsk, 'm5_vram16.png')
+        emu16 = os.environ.get('MZ800EMU_BIN_16K')
+        vram16e = vram16_run(dsk, 'm5_vram16e.png', rd_emu_bin(tmp, emu16)) if emu16 else None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print('boot: loader entered after %d frames, launcher after %d frames (loader %d frames = %.1f s), %sPRES after %d, '
@@ -435,6 +475,15 @@ def main():
                 {'on': 'goes on', 'stop': 'stops at rs_stop', '?': 'NEITHER'}[how],
                 '' if good else '  FAILED (want %s, GAME %.1f-%.1f)' % (want_how, lo / 10, hi / 10), w))
             bad += not good
+    print('16 KB VRAM (the check\'s read-back forced to FFh): %s (screenshot build/m5_vram16.png)' % (
+        'halts at vram_stop with the message, no probe, no launch' if vram16 else 'FAILED'))
+    bad += not vram16
+    if vram16e is None:
+        print('16 KB VRAM, an emulator without the extension: not tested (MZ800EMU_BIN_16K not set)')
+    else:
+        print('16 KB VRAM, the emulator without the extension (MZ800EMU_BIN_16K): %s (screenshot build/m5_vram16e.png)' % (
+            'halts at vram_stop with the message, no probe, no launch' if vram16e else 'FAILED'))
+        bad += not vram16e
     # the handoff is the boot's GAME mean x 5, rounded as rdspeed.asm does ((x10 + 1) / 2, 255 at most); the mean itself
     # within 0.1 of the model for the default emulator's wait states (0: 21.0 -> 105; POP800_RD_WAIT=1: 22.0 -> 110)
     w = emu_rd_wait(); gm = game_model(w); want_spd = min(255, (RD_GAV + 1) // 2)

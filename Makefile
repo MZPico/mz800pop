@@ -33,7 +33,7 @@ $(BUILD)/m0.dsk: $(BUILD)/m0boot.mzf
 # M5: the game disk. src/boot/boot.asm (the floppy loader, load/exec 0xB000) is the IPLPRO bootstrap; the files
 # POP800.D1, D2... hold the compressed RAM-disk data and program (tools/mkgamedisk.py, tools/pzpack.py; compressed
 # blocks are cached in build/pzcache). Needs `make assets` and the game (build/m4game.bin, build/m4ovl.bin).
-$(BUILD)/boot.bin: src/boot/boot.asm src/boot/rdspeed.asm src/boot/fdc.asm src/boot/unpz.asm src/boot/font.inc src/boot/launch.inc | $(BUILD)
+$(BUILD)/boot.bin: src/boot/boot.asm src/boot/rdspeed.asm src/boot/bootscr.asm src/boot/fdc.asm src/boot/unpz.asm src/boot/font.inc src/boot/launch.inc | $(BUILD)
 	cd src/boot && $(PASMO) --bin boot.asm ../../$(BUILD)/boot.bin ../../$(BUILD)/boot.sym
 $(BUILD)/boot.mzf: $(BUILD)/boot.bin
 	$(PY) tools/mkmzf.py $< $@ POP800 B000
