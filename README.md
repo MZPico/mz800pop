@@ -49,10 +49,13 @@ file's SHA-256 checksum.
 1. Put the disk image in the first floppy drive: write it to a real disk, or select it in the MZPico's floppy
    emulation.
 2. Switch on (or reset) the MZ-800 and let it boot from the floppy. Keep the disk writable if you want to save games.
-3. The **loading screen** shows the RAM disk it found and its speed (`RAM DISK 1M, 21.0 T/BYTE`) and a progress bar
-   while the game loads and, with 1 MB or more, while it prepares the animation frames (`PREPARING SPRITES`). It also
-   shows the game's version under the title (`V0.1.0`) and whether an MZPico network is there for the duel
-   (`NETWORK: MZPICO NET` or `NETWORK: NONE`).
+3. The **loading screen** shows:
+   - the game's version under the title (`V0.1.0`);
+   - a progress bar while the game loads (`LOADING...`) and, with 1 MB or more, while it prepares the animation
+     frames (`PREPARING SPRITES`);
+   - the RAM disk it found and its speed (`RAM DISK 1M, 21.0 T/BYTE`);
+   - whether an MZPico network is there for the duel (`NETWORK: MZPICO NET (DUEL: CTRL+D)` or
+     `NETWORK: NONE (DUEL: CTRL+D)`).
 4. Then the title and the intro play. Press any key, or the joystick's fire, for a new game; **Ctrl+L** continues your
    saved game.
 
@@ -104,6 +107,15 @@ the top, with the round and the score on the bottom line).
 | Button (draw, strike) | `/` or `?`, or joystick 1's fire | Q, or joystick 2's fire |
 
 After a match: **ENTER** for a rematch, **BREAK** back to the title.
+
+The swords are drawn and put away by hand:
+
+- Every round starts with both swords **sheathed**.
+- **Draw:** the button alone, standing still. With the opponent behind you, the press turns you round and draws. Next
+  to a potion in front of you, the press drinks it first; press again to draw.
+- **Sheathe:** down, en garde.
+- The button with a direction keeps its game meaning (forward: the careful step).
+- **A player struck with the sword sheathed dies at once.**
 
 The rules in short:
 
