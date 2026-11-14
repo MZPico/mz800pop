@@ -1374,3 +1374,21 @@ piece used AND/XOR semantics.
    resident game bytes 0). Potions, placed spikes and the edges stay mirrored; the HUD follows the kids (the user's
    choice a: the white kid's red strip right, the blue kid's left, "P2 n : n P1"; d_hpl 15 B, holes 39 B free). Scripts flipped or their players exchanged, the random-key ones regenerated.
 
+104. Real floppy drives (2026-11-14, docs/research/mz800-hardware.md "Real drive findings"; the user's first real-floppy
+   test: Greaseweazle, a PC 3.5" drive, the user's MZPico floppy controller board). The image: mzdisk leaves every EDSK
+   sector length 0 and gw wrote sectors without data ("no master"); tools/edsk.py sets 128 << N (tools/mkgamedisk.py:
+   every game disk, the cheats and pacing ones too; the Makefile: m0.dsk), tests/edsk_check.py and the release workflow
+   check it. The loader: fd_init waits ~0.97 s after a real motor start (the ROM's 16 x 60 ms, E517h; fd_on: launch_main
+   stops the motor; not the boot, the ROM left it running), save.asm's sv_find always; LN_PRS_LOAD's A bit 7 (PRS_KEEP)
+   keeps the motor on for a load another follows at once; PRES's sv_off stops it through LN_MOTOR_OFF; 6 tries with a
+   restore, ~0.3 s and a seek again; fd_cmd waits ~9 s for not-busy (0.9 s was shorter than a seek or restore of 30+
+   cylinders at 30 ms); fd_go's BUSY wait 256 polls. The intermittent DISK ERROR that remained (`make diag`: a data CRC
+   on the directory's sector 3, all tries, two floppies) is the MZPico floppy firmware's capture window
+   (src/bus/fdc.cpp:1190, 45,700 transitions: 0.984 of a turn on the all-FFh directory track); its fix is the user's.
+   The game sidesteps it: the boot and the save read only the directory's first block (mkgamedisk checks every looked-up
+   file is in it), and LN_PRS_LOAD reads its entry's absolute blocks from a RAM-disk table (page 0 0xFB00, written by the
+   boot's stream) instead of the directory and the index block: one seek to the data a load instead of two long moves
+   and two reads (~1.5-2.5 s a load on a drive). Bytes: launcher image -44 (2,359 of 2,816 before the table), boot-only
+   code 62 B under its stack reserve (was 18), PRES unchanged (may grow by 2 = PRES_RESERVE), save overlay -2, resident
+   game 0. `make diag` (DIAG=1): DISK ERROR prints the call, the command, the tries' statuses, the WD's registers, the
+   last ID read, the caller and the RAM disk's size and speed. tests/m5_floppy.py models a spinning-up drive.

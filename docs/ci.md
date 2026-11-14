@@ -54,6 +54,8 @@ pr [--part a] [-j 4]` runs the same commands through the local runner: in parall
 | a | `tests/m4_game.py --every 10` walk_level1, fight1, level12_shadow_merge | the game program: the kid's state every tick, VRAM every 10th tick | ~2.5 min |
 | a | `tests/m4_test.py` on 7 earlier scripts: walk_level1, jumps_climbs, fight1, fight_killpush, level12_shadow_merge, feather_fall, level13_jaffar | the Z80 logic against kidsim, every tick | ~9 min |
 | a | `tests/m5_boot.py` | the game disk: the floppy boot through the launcher and PRES's title to the game, main RAM / RAM disk / KV / VRAM against the harness start, byte for byte | ~1.3 min |
+| a | `tests/edsk_check.py` | the shipped disks' Extended DSK sector lengths (128 << N, tools/edsk.py: a real floppy written from a 0 length has no data), no emulator | ~1 s |
+| a | `tests/m5_floppy.py` | the launcher against a modelled real drive (reads fail until T after a motor start): the spin-up wait (~0.97 s after every motor start, none while it runs), T = 0.8 s and 2.0 s boot to the game, a bad disk ends in DISK ERROR | ~2 min |
 | a | `tests/m5_save.py` | Ctrl+G / Ctrl+A, the saved game on a copy of the disk, a write-protected disk | ~0.5 min |
 | a | `tests/m8_fstore.py` | the frame store's layout and every stored entry (docs/ramdisk-tiers.md section 11) | ~0.2 min |
 | a | `POP800_RD_SIZE=512K` and `4M`: `tools/perfcheck.py`, `tests/m8_fstore.py` | the other two RAM-disk sizes, cheaply: the frame budget against that size's baseline (`tests/perf_baseline_512K.json`: no frame store; `_4M`: classes 1 + 2, every guard set; 8M and 16M compare with it too) and the store's layout (none on 512K) | ~1.1 min (perfcheck 23 / 28 s, m8_fstore 4 / 12 s) |
@@ -81,7 +83,7 @@ whole set fits the runners (m7_sound ~1.5 h -> ~5.4 min, m4_test on every script
 | logic | `tests/m4_test.py` on every script (m4, m6, m5, m7), `tools/cut_suite.py`, `tests/duel_test.py` |
 | oracle-m4m6, oracle-m5m7 | `tools/oracle_suite.py` on those sets (kidsim against SDLPoP) |
 | pixels-m4, pixels-m6, pixels-m5 | `tests/m4_game.py --every 1` on that set (the state and VRAM every tick); pixels-m6 also `tests/duel_z80.py --cdl` and `tests/duel_net.py` |
-| sound | `tools/perfcheck.py` (here, not in logic: its baseline is per size), `tests/m7_sound.py` (full), `tests/m5_boot.py`, `tests/m5_save.py`, `tests/m8_pace.py`, `tests/m8_fstore.py` |
+| sound | `tools/perfcheck.py` (here, not in logic: its baseline is per size), `tests/m7_sound.py` (full), `tests/edsk_check.py`, `tests/m5_boot.py`, `tests/m5_floppy.py`, `tests/m5_save.py`, `tests/m8_pace.py`, `tests/m8_fstore.py` |
 | pres | `tests/m7_title.py`, `tests/m7_cut.py` (full: every case, the keys, Ctrl+L) |
 | story | `tests/m7_story.py` |
 | launch-keys | `tests/m7_launch.py`, `tests/duel_boot.py`, `make cheats`, `tests/m7_keys.py`, and in the CHEATS=1 tree `build/cheat/tests/m7_keys.py` (the cheat keys) and `build/cheat/tests/m4_test.py` on the key scripts (the cheats, Z80 against kidsim) |

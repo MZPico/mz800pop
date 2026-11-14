@@ -1,6 +1,6 @@
 # pop-800 build: pasmo assembles raw binaries, tools/mkmzf.py wraps them as MZF,
 # mzdisk (external/mzdisk/build) produces the bootable DSK.
-PASMO ?= pasmo$(if $(CHEATS), --equ CHEATS=1)$(if $(PACE), --equ PACE=$(PACE))
+PASMO ?= pasmo$(if $(CHEATS), --equ CHEATS=1)$(if $(DIAG), --equ DIAG=1)$(if $(PACE), --equ PACE=$(PACE))
 PY    ?= python3
 MZD   ?= external/mzdisk/build
 BUILD  = build
@@ -24,11 +24,12 @@ $(BUILD)/m0boot.mzf: $(BUILD)/m0boot.bin
 
 # M0 test disk (retired as build/pop800.dsk in M5; tests/m0_test.py boots it): formatted MZ-BASIC disk,
 # 2 x 40 tracks, IPLPRO bootstrap = m0boot
-$(BUILD)/m0.dsk: $(BUILD)/m0boot.mzf
+$(BUILD)/m0.dsk: $(BUILD)/m0boot.mzf tools/edsk.py
 	rm -f $@
 	$(MZD)/mzdsk-create $@ --format-basic 40 --sides 2 > /dev/null
 	$(MZD)/mzdsk-fsmz $@ boot put $(BUILD)/m0boot.mzf > /dev/null
 	$(MZD)/mzdsk-fsmz $@ boot | grep -E "start|boot_type"
+	$(PY) tools/edsk.py fix $@ > /dev/null
 
 # M5: the game disk. src/boot/boot.asm (the floppy loader, load/exec 0xB000) is the IPLPRO bootstrap; the files
 # POP800.D1, D2... hold the compressed RAM-disk data and program (tools/mkgamedisk.py, tools/pzpack.py; compressed
@@ -66,7 +67,7 @@ $(BUILD)/assets/cut.inc: tools/cutart.py tools/cutsim.py tools/kidsim.py tools/b
 	$(PY) tools/cutart.py
 $(BUILD)/pres.bin: src/pres/pres.asm src/boot/launch.inc src/boot/unpz.asm src/boot/fdc.asm src/m1/far.asm src/m4/psg.asm src/m4/save.asm $(BUILD)/assets/title.inc src/pres/cut.asm $(BUILD)/assets/cut.inc | $(BUILD)
 	cd src/pres && $(PASMO) --bin pres.asm ../../$(BUILD)/pres.bin ../../$(BUILD)/pres.sym
-$(BUILD)/pop800.dsk: $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin $(BUILD)/duel_main.bin $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin tools/mkgamedisk.py tools/pzpack.py tools/cutart.py tools/cutsim.py
+$(BUILD)/pop800.dsk: $(BUILD)/boot.mzf $(BUILD)/pres.bin $(BUILD)/m4game.mzf $(BUILD)/m4ovl.bin $(BUILD)/duel_main.bin $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin tools/mkgamedisk.py tools/edsk.py tools/pzpack.py tools/cutart.py tools/cutsim.py
 	$(PY) tools/mkgamedisk.py $@ $(BUILD)/boot.mzf
 m5boot: $(BUILD)/pop800.dsk
 	$(PY) tests/m5_boot.py
@@ -106,7 +107,16 @@ pace:
 	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/pace/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/pace/build/assets
 	$(MAKE) -C $(BUILD)/pace PACE=1 build/m4game.mzf build/pop800.dsk
-.PHONY: m7keys cheats pace
+# The floppy diagnostic build (2026-11-14, the real-drive DISK ERROR): DISK ERROR also shows the failed call, the
+# command, the WD2793's status of every try, its track and sector registers and the last ID read (src/boot/boot.asm
+# dg_show); the loading screen has no network line in it (room under the boot's stack reserve). build/diag/build/pop800.dsk
+diag:
+	mkdir -p $(BUILD)/diag/build
+	rsync -a --delete src Makefile VERSION $(BUILD)/diag/
+	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/diag/$$d; done
+	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/diag/build/assets
+	$(MAKE) -C $(BUILD)/diag DIAG=1 build/pop800.dsk
+.PHONY: m7keys cheats pace diag
 m7sound: $(BUILD)/m4game.mzf
 	$(PY) tests/m7_sound.py
 sound-wav: $(BUILD)/assets/sound.bin

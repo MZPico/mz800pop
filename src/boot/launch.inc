@@ -31,10 +31,18 @@
 LN_LOAD         equ     0xb000          ; the launcher's image runs here (outside both programs' images)
 LN_LAUNCH       equ     LN_LOAD + 3     ; jp: start the program the handoff block (RAM disk) asks for
 LN_PRS_LOAD     equ     LN_LOAD + 6     ; call (PRES only, the launcher stays at 0xB000 while PRES runs): A = entry
-                                        ; of POP800.PRS: its records into main RAM; DI, motor off at the end
+                                        ; of POP800.PRS: its records into main RAM; DI, the motor off at the end
+                                        ; unless A has PRS_KEEP (another load follows at once: no spin-up wait)
+PRS_KEEP        equ     0x80            ; (LN_PRS_LOAD: A's bit 7) the motor stays on after this load
 LN_LOADING      equ     LN_LOAD + 9     ; call (PRES; the launcher itself before the GAME image): "LOADING..." on the
                                         ; screen (the loading screen's place, row 100, x 32); AF, AF', BC, DE, HL destroyed
-LN_MAX          equ     0x0c00          ; the launcher's image in the RAM disk: at most this long (copied whole)
+LN_MOTOR_OFF    equ     LN_LOAD + 15    ; call (PRES's save.asm sv_off): the motor off, the launcher's fd_on 0 (A = 0)
+LN_MAX          equ     0x0c00          ; the launcher's area in the RAM disk (the game copies it whole): its image (at
+                                        ; most PRS_TAB_OFF bytes), then the POP800.PRS table
+PRS_TAB_OFF     equ     0x0b00          ; the POP800.PRS table (tools/mkgamedisk.py, written by the boot's stream): in the
+PRS_TAB_RD_ADDR equ     LN_RD_ADDR + PRS_TAB_OFF        ; launcher's area, page LN_RD_PAGE; per entry its first block
+PRS_TAB_MAX     equ     0x0100          ; (absolute, word) and block count (word); 0 blocks: no such entry. LN_PRS_LOAD
+                                        ; reads it instead of the directory and the file's index block (2026-11-14)
 LN_RD_PAGE      equ     0               ; its copy in the RAM disk (written by the boot)
 LN_RD_ADDR      equ     0xf000
 GAME_RD_PAGE    equ     3               ; the game's compressed image (a record stream, tools/mkgamedisk.py): starts here,

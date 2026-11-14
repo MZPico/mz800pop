@@ -105,7 +105,7 @@ Sources: mz800emu source + docs/agent (local checkout at ~/src/mz800emu), Hučí
   disk needs one every 32 us = 113 T), after the last wanted sector force interrupt **D8h**, wait not busy, status
   must read 0. After the load `OUT (DCh),80h` keeps the motor on (the bootstrap starts with it running); `OUT
   (DCh),0` stops it. The loader copies this sequence (multi-sector reads of the whole needed part of a track,
-  retries with a restore, "DISK ERROR" after 4 failures).
+  retries with a restore, "DISK ERROR" after 4 failures; 6 since 2026-11-14, below).
 - mz800emu's WD279x (src/emulator/hw-generic/fdc/wd279x.c, "phase B") executes every command instantly: no
   rotation, no step or settle time, DRQ at once. Boot times measured in the emulator are CPU time only (the
   loader's own delay loops included). On a real drive each track read costs about half a turn of latency plus
@@ -120,7 +120,7 @@ Sources: mz800emu source + docs/agent (local checkout at ~/src/mz800emu), Hučí
   of the INI tests the refusal. The INI's `mr1r18_type = STANDARD` keeps the RAM disk in memory (0xFF at start, no
   file); `SRAM` saves it to `mr1r18_filepath` on every exit.
 - To check on real hardware (not emulated): the real drive's timing (latency, the 1Bh step rate on the
-  installed drive), booting from a drive other than 0 (the loader always uses drive 0), the MZ-1R18 page aliasing
+  installed drive; first real-drive results: "Real drive findings" below), booting from a drive other than 0 (the loader always uses drive 0), the MZ-1R18 page aliasing
   of a 256 KB card (the probe assumes unused page bits are ignored), and MZPico (its FDC emulation and pico_rd
   RAM disk, port 45h): the loader only uses the standard WD2793 ports and the MZ-1R18 protocol.
 
@@ -137,6 +137,99 @@ Sources: mz800emu source + docs/agent (local checkout at ~/src/mz800emu), Hučí
   is mounted write-protected (fs_readonly). FDD storage mode `cached` (the INI default): the image lives in memory
   and is written back to the file at eject (`media_eject`), reset or exit. Writes from a test therefore go to the
   mounted file: tests mount copies (tests/m5_boot.py mounts build/pop800.dsk only for reads).
+
+## Real drive findings (2026-11-14, the first real-floppy test: a PC 3.5" drive, src/boot/boot.asm, src/boot/fdc.asm, src/m4/save.asm, tools/edsk.py, tests/m5_floppy.py)
+The user wrote build/pop800.dsk with a Greaseweazle (gw 0.34) and booted a real MZ-800 from a PC 3.5" DD drive
+(300 rpm, 80 tracks; the 40 cylinders of the image go to its cylinders 0-39, single steps).
+- **"No master" (the ROM found no IPLPRO): the image.** mzdisk (DSKLib) writes every Extended DSK sector-info entry
+  with bytes 6-7, the "actual data length", set to 0; mz800emu ignores the field, gw trusts it and wrote the sectors
+  without data. With 128 << N there (256) the disk boots. The build now sets them (tools/edsk.py fix, called by
+  tools/mkgamedisk.py for every game disk, the cheats and pacing ones included, and by the Makefile for build/m0.dsk);
+  tests/edsk_check.py and the release workflow (tools/edsk.py check) fail on any 0 or wrong length.
+- **DISK ERROR after the boot's load, intermittent: the spin-up.** With the fixed disk the boot loaded, then "DISK
+  ERROR" (the drive seeking): on the loading screen with the bar full (the launcher's first PRES load), on the black
+  screen with "LOADING..." (PRES's first loads), and once a game ran, again when it went back to the title after a
+  death. Every one of these is a load right after a motor start: until then each LN_PRS_LOAD ended with the motor off
+  and the next one's fd_init turned it on and only waited for READY. A PC drive reports READY at once (or the adapter
+  ties it; its pin 34 may even be DISKCHG) while the disk still speeds up (0.3-0.5 s typical, up to ~1 s), and the
+  reads fail until it is at speed; the 4 tries ~70 ms apart (restore + 60 ms each) were over in ~0.3 s. The ROM waits
+  16 x 60 ms (E517h, ~0.97 s) after it turns the motor on, before it even selects the drive (+60 ms) and asks for READY;
+  so the bootstrap's own load was safe, and mz800emu (no rotation, ready at once) never showed it. Fixed:
+  - the launcher's fd_init waits ~0.97 s (16 x delay_long, the ROM's figure; READY is not trusted for it) whenever
+    the motor was stopped (fd_on, the launcher's own record: 0 after motor_off; launch_main always stops the motor,
+    so the first load after any program waits; the boot's load does not, the ROM left the motor running); the save
+    overlay's and PRES's sv_find always waits (the game runs with the motor off); PRES's sv_off stops the motor
+    through the launcher's entry LN_MOTOR_OFF, which clears fd_on;
+  - LN_PRS_LOAD keeps the motor running when A has PRS_KEEP (bit 7): PRES marks the loads that another follows at
+    once (the title's art, the script's back-to-back OP_LOADs, the cutscene room before its sprites; the duel's first
+    piece), so a chain pays one spin-up; a load without it stops the motor (no spinning while the title plays);
+  - retries: 6 tries, after a failed one a restore, ~0.3 s (4 x 60 ms more after the restore's 60 ms) and the seek
+    again; a bad disk ends in DISK ERROR after about 6 x (0.3 s + a turn or the 5-turn RNF + the restore and the seek
+    back): ~2 s in the emulator (tests/m5_floppy.py), up to ~10-15 s on a drive for a far track;
+  - fd_cmd's not-busy wait: 65536 polls ~130 us apart (~9 s; the ROM waits ~6 s, E568h, 7 x 65536 polls); it was
+    0.9 s, shorter than a seek or restore of 30 cylinders or more at 30 ms a step (pv_scene, the ending and the duel
+    lie on cylinders 27-34; PRES's loads seek to the directory on cylinder 0 first), which left the FDC busy and the
+    next command ignored;
+  - fd_go waits for BUSY with 256 polls (~2 ms after the ~110 us delay) instead of 65536 (BUSY sets within
+    microseconds; it only has to tell a command that did not start).
+- Step and settle timing: the seek 1Bh (head load, no verify, r = 30 ms at the WD2793's 1 MHz clock) and the restore
+  0Bh step at 30 ms; PC drives take 3 ms or more, so stepping is well within spec, not a cause. Every seek is followed
+  by fd_type1's ~60 ms delay, longer than a PC drive's head settle (~15-18 ms) and the WD's own 15 ms E delay, so the
+  reads without the settle delay (fd_read_rot's 90h and READ ADDRESS C0h) only ever run on a cylinder the head has
+  been on for at least 60 ms: kept. READ ADDRESS's ID order is only used to pick the first sector to read; any value
+  reads the whole run correctly (it costs at most one more turn). The force interrupt D8h after the last wanted
+  sector is the ROM's; INTRQ is polled, not wired to an interrupt, so its latched interrupt does not matter.
+- The reference driver https://www.ordoz.com/sharp/fddrv/ (M. Hucik, fddrv 0.3, 2012, Z80/SDCC; read only, nothing
+  of it copied): a motor counter (IM2 calls it, the motor stops 128 calls after the last access) and a 500 ms
+  spin-up wait only when the counter says the motor was stopped; no READY check at all; read/write tries 5, after a
+  failure a READ ADDRESS check of the track and, if that fails, a restore by single step-out commands to TRK00;
+  stepping 6 ms (r = 00) with a 6 ms software delay per step and a 6 ms settle; on a BUSY timeout it sends Force
+  Interrupt (D0h) until the FDC answers. Adopted: the idea of a spin-up wait only after a real motor start (our
+  fd_on record), with the ROM's longer ~1 s rather than its 500 ms (a drive we have not measured; the cost is paid
+  once per load chain), not relying on READY, and more tries with a recalibration between them. Not adopted: the
+  interrupt-driven motor-off timer (the launcher has no interrupt of its own; PRS_KEEP chains and launch_main's motor
+  off do the same job), the 6 ms step rate (30 ms is the ROM's and safe on every drive; the seeks are not the
+  bottleneck), the step-by-step seeks and the D0h force interrupt (our fd_cmd now waits long enough that a command
+  never stays busy; only a dead FDC would, and then DISK ERROR follows).
+- Writing the disk: `gw write --drive A pop800.dsk` wrote and verified all 40 cylinders once the lengths were right
+  (the user's command line: gw 0.34 on Windows, a PC 3.5" drive; the Greaseweazle on COM6: `--device COM6`).
+- **The remaining DISK ERROR: the MZPico floppy controller's read window.** With the spin-up fix the user still saw
+  DISK ERROR now and then, on two different floppies, always in the same call. The machine's floppy controller is the
+  user's own work-in-progress MZPico floppy board (firmware ~/src/MZPico-floppy-firmware, a7fbb6f), which emulates the
+  WD for the MZ-800 bus and decodes the drive's flux in software; it also speaks the Greaseweazle protocol (the "gw" on
+  COM6: gw's write, verify and rpm went through the same firmware). The diagnostic build (`make diag`) showed: the
+  launcher's directory read (logical track 1 = cylinder 0, head 0, sectors 1-8, read multiple 94h, PRS entry 0), the
+  WD sector register 03 with 3 sectors taken, status 08 (data CRC) on 5 tries and 10 (record not found) on one, the
+  head on cylinder 0 (track register 00), 512 KB at 0 WS; the boot had read the same sector moments earlier. The
+  sectors 2-8 of that track hold the same bytes (empty directory blocks), so it is no data pattern.
+  - The cause (read in the firmware, not changed): a read command captures one flux window and decodes the wanted
+    sectors from it (a read multiple reuses it; no index sync). The window is sized in flux transitions,
+    `FDC_READ_CAPTURE_BYTES_DD = 45700` (src/bus/fdc.cpp:1190), "~1.05 revolutions" for a measured ~43.5k transitions
+    a revolution. MFM has 8 transitions in a byte of FFh or 00h: the directory track, almost all FFh, has ~46,450 a
+    revolution (gw's layout, gap3 63), so the window covers 0.984 of a turn; 3 ms of every revolution is never
+    captured, and the sector in that hole decodes truncated: CRC error (or record not found). Which sector depends on
+    the rotational phase at the capture, so it is intermittent; retries at a similar phase fail alike. Our compressed
+    data tracks have 39-42k transitions (1.09-1.17 turns): unaffected. The firmware fix (a window of at least one turn
+    plus a sector for the densest data) is the user's.
+  - The game now sidesteps it: the boot's dir_read and save.asm's sv_find read only the directory's first block
+    (sector 1: its 8 entries hold every file looked up, tools/mkgamedisk.py check_lookups fails the build otherwise),
+    and LN_PRS_LOAD no longer reads the directory or POP800.PRS's index block: the boot's stream writes the table of the
+    entries' absolute blocks into the RAM disk (launch.inc PRS_TAB_RD_ADDR, page 0 0xFB00, in the launcher's area;
+    tools/mkgamedisk.py prs_table), and the launcher reads its 4 bytes from there. After the boot nothing reads the
+    directory track again (but a save or Ctrl+L: one sector).
+  - The READ ADDRESS bytes the diagnostic build showed (7B C9 EA 8F EC 83, and 7B C9 EA 8F FC 80 on the second disk)
+    are no ID field in any byte order and no valid CRC; they were written at runtime (not the image's leftovers, not on
+    the disk), so the firmware delivered six bytes that are not a decoded ID (it hands over only CRC-valid IDs). The
+    loader treats any READ ADDRESS trouble as a reason for the plain read, so loads are unaffected. The real WD's ID
+    byte order is still to be seen.
+  - Media: the drive turns at 298.9 rpm (`gw rpm`, -0.37 %); both floppies were HD media with the density hole taped.
+    Not the cause (two disks failed identically), but 2DD / 720 KB media are the safer choice.
+- Seeks per load (mz800emu trace, the title and the story, 512 KB). Before: every LN_PRS_LOAD went to the directory
+  (cylinder 0) and to POP800.PRS's index block (cylinder 18) before the entry's data (e.g. PRS_T_MAIN: 19 -> 0,
+  0 -> 18, 18 -> 19, 19 -> 20, 20 -> 21): ~1.5-2.5 s a load on a drive (30 ms a step + 60 ms a seek, two reads). Now:
+  one move to the entry's first cylinder, then one step a cylinder of data (PRS_T_MAIN: 19 -> 19, 19 -> 20, 20 -> 21).
+  fd_init's fd_cyl FFh only makes the next fd_pos issue a seek (the WD steps from its own track register); restores
+  happen only after a failed try.
 
 ## PSG findings (M7 step 3, 2026-10-30, src/m4/psg.asm, tools/sndsim.py, tests/m7_sound.py)
 - mz800emu's SN76489 (src/emulator/hw-generic/psg/psg.c): clocked at CPU/16 (221.7 kHz); a tone channel toggles every N

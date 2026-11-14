@@ -47,7 +47,9 @@ PARTS = {
         ('perfcheck', [PY, 'tools/perfcheck.py']),
         ('m4_game sample', [PY, 'tests/m4_game.py', '--every', '10'] + M4_GAME),
         ('m4_test early', [PY, 'tests/m4_test.py'] + EARLY),
+        ('edsk_check', [PY, 'tests/edsk_check.py']),
         ('m5_boot', [PY, 'tests/m5_boot.py']),
+        ('m5_floppy', [PY, 'tests/m5_floppy.py']),
         ('m5_save', [PY, 'tests/m5_save.py']),
         ('m8_fstore', [PY, 'tests/m8_fstore.py']),
         # the other two full-suite RAM-disk sizes, cheaply (m5_boot probes all six itself): the frame budget against
@@ -94,7 +96,9 @@ FULL = {
     'sound': [
         ('perfcheck', [PY, 'tools/perfcheck.py']),      # (here, not in logic: its baseline is per size)
         ('m7_sound full', [PY, 'tests/m7_sound.py']),
+        ('edsk_check', [PY, 'tests/edsk_check.py']),
         ('m5_boot', [PY, 'tests/m5_boot.py']),
+        ('m5_floppy', [PY, 'tests/m5_floppy.py']),
         ('m5_save', [PY, 'tests/m5_save.py']),
         ('m8_pace', [PY, 'tests/m8_pace.py']),
         ('m8_fstore', [PY, 'tests/m8_fstore.py']),
@@ -183,7 +187,7 @@ M4TEST = Build(['build/m4test.*'], CORE_SRC)
 M4GAME = Build(['build/m4game.*', 'build/m4ovl.bin', 'build/ovl_*.bin', 'build/ovl_*.sym'],
                CORE_SRC + ['src/boot/**', 'tools/ovltool.py'])
 DISK = Build(['build/pop800.dsk', 'build/pop800_*.mzf', 'build/boot.*', 'build/pres.*'],
-             ['src/**', 'tools/mkgamedisk.py', 'tools/pzpack.py', 'tools/cutart.py', 'tools/cutsim.py', 'VERSION',
+             ['src/**', 'tools/mkgamedisk.py', 'tools/edsk.py', 'tools/pzpack.py', 'tools/cutart.py', 'tools/cutsim.py', 'VERSION',
               'tools/version.py'] + MAKE_SRC)
 CHEAT_KEYS = Build(['build/cheat/build/ovl_keys.*', 'build/cheat/build/m4game.sym'], M4GAME.src)  # (m7_keys release)
 M1 = Build(['build/m1test.*', 'build/m1.pack', 'build/m1.dir', 'build/m1.json'],
@@ -230,6 +234,8 @@ PROGRAMS = {
     'tests/m8_fstore.py': dict(build=[M4GAME, ASSETS_GAME], expect=30),
     'tests/m7_sound.py': dict(build=[M4GAME, ASSETS_ALL], uses={'emu', 'pasmo'}, expect=400),
     'tests/m5_boot.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=90),
+    'tests/edsk_check.py': dict(build=[DISK, M0], uses=set(), expect=3),
+    'tests/m5_floppy.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=120),
     'tests/m5_save.py': dict(build=[DISK, M4GAME, ASSETS_ALL], uses={'emu', 'mzdisk'}, expect=40),
     'tests/m7_launch.py': dict(build=[DISK, M4GAME, ASSETS_ALL],
                                split=[([], {'M7_ONLY': p}) for p in ('round_trip', 'level_end', 'game_over')], expect=200),
