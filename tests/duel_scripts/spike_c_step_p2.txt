@@ -1,9 +1,9 @@
 # duel
-# expect digest d8ee69d2a68f8c25
+# expect digest 97f8137ce5007453
 # seed 0x71
-# expect d18 27:2
-# expect hps 3/3:3/3,3/3:2/3
+# expect hps 3/3:3/3
 # expect mirror spike_c_step_p1.txt 10
+# (the user's change 2026-11-14: raised spikes no longer hurt en garde, standing or in careful steps: the expectations show what is left of this script's hits, none where it fences or steps carefully)
 # rule C: spike_c_step_p1.txt's moves mirrored, player 2's
 0x10 0x10
 0x00 0x00 *7

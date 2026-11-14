@@ -27,8 +27,8 @@ affiliated with or endorsed by the owners of Prince of Persia.
   | 1 MB (or 2 MB) | **recommended**: the prince's and the level's guards' animation frames are prepared in the RAM disk while the game loads (about 7 s), so walking and fighting are smoother |
   | 4 MB or more | the fastest: more of the prince's frames, every guard's frames and the trap pictures are prepared and kept (about 20 s on the loading screen) |
 
-  The loading screen measures the RAM disk's speed; one that is too slow stops the start with
-  `RAM DISK TOO SLOW: ... CLOCKS/BYTE`.
+  The loading screen measures the RAM disk's speed in wait states (`WS`: 0 is a card without waits); one slower than
+  15 WS stops the start with `RAM DISK TOO SLOW: ... WS`.
 - **A floppy drive or the MZPico's floppy emulation** for the disk image (one 320 KB disk). The game also saves your
   progress to it.
 - **Optional: an MZPico card**, for the duel over the network (and, if you like, as the floppy drive). It does not
@@ -39,8 +39,8 @@ affiliated with or endorsed by the owners of Prince of Persia.
 
 Download the disk image `pop800-X.Y.Z.dsk` from the
 **[Releases page](https://github.com/MZPico/mz800pop/releases)**. The first release, 0.1.0, is coming soon; until
-then the disk can only be built from the source (see [For developers](#for-developers)). Each release lists the
-file's SHA-256 checksum.
+then the disk can only be built from the source (see [For developers](#for-developers)). Each release comes with the
+disk's checksum file `pop800-X.Y.Z.dsk.sha256`; `sha256sum -c pop800-X.Y.Z.dsk.sha256` checks your download.
 
 <!-- TODO: link the title's page on mzpico.com (play in the browser) once it is public there; today it is on staging only. -->
 
@@ -49,10 +49,13 @@ file's SHA-256 checksum.
 1. Put the disk image in the first floppy drive: write it to a real disk, or select it in the MZPico's floppy
    emulation.
 2. Switch on (or reset) the MZ-800 and let it boot from the floppy. Keep the disk writable if you want to save games.
-3. The **loading screen** shows the RAM disk it found and its speed (`RAM DISK 1M, 21.0 T/BYTE`) and a progress bar
-   while the game loads and, with 1 MB or more, while it prepares the animation frames (`PREPARING SPRITES`). It also
-   shows the game's version under the title (`V0.1.0`) and whether an MZPico network is there for the duel
-   (`NETWORK: MZPICO NET` or `NETWORK: NONE`).
+3. The **loading screen** shows:
+   - the game's version under the title (`V0.1.0`);
+   - a progress bar while the game loads (`LOADING...`) and, with 1 MB or more, while it prepares the animation
+     frames (`PREPARING SPRITES`);
+   - the RAM disk it found and its speed in wait states (`RAM DISK 1M, 0 WS`; 0 WS is a card without waits);
+   - whether an MZPico network is there for the duel (`NETWORK: MZPICO NET (DUEL: CTRL+D)` or
+     `NETWORK: NONE (DUEL: CTRL+D)`).
 4. Then the title and the intro play. Press any key, or the joystick's fire, for a new game; **Ctrl+L** continues your
    saved game.
 
@@ -105,6 +108,15 @@ the top, with the round and the score on the bottom line).
 
 After a match: **ENTER** for a rematch, **BREAK** back to the title.
 
+The swords are drawn and put away by hand:
+
+- Every round starts with both swords **sheathed**.
+- **Draw:** press the button alone while standing. If your opponent is behind you, you turn round and draw in one go.
+  With a potion right in front of you, the button drinks it first; press again to draw.
+- **Put the sword away:** down, en garde. Nothing puts it away for you, not even winning a round.
+- The button with a direction works as in the game (with forward: the careful step).
+- **A player hit while the sword is sheathed dies at once.**
+
 The rules in short:
 
 - Each round both players have **3 hit points**; the first to win **3 rounds** (best of 5) takes the match. A round
@@ -112,9 +124,10 @@ The rules in short:
 - When both strike at the same moment, the blades **clash** and nobody is hurt.
 - Every match is in a **random level**, every round in a random room of it, dungeon or palace.
 - Every other round a **pair of potions** stands on the floor, one for each player: healing, a longer life, or
-  poison.
-- Some rooms have **spikes**, and every third round some are added. Running or jumping onto them kills as in the game;
-  stepping onto raised spikes costs a hit point.
+  poison. Stand in front of yours with the sword sheathed and press the button to drink it.
+- Some rooms have **spikes**, and every third round some are added. Running, jumping or falling onto them kills as in
+  the game. Careful steps over raised spikes are safe, and so is everything with the sword drawn; only other moves onto
+  raised spikes with the sword sheathed (a turn, a hop) cost a hit point.
 
 **Over the network** (MZPico, through the MZPico NET service; each MZ-800 still needs its own RAM disk card): one player picks `2 HOST` and gets a four-letter
 `ROOM CODE`; the other picks `3 JOIN`, types the code (DEL deletes) and presses ENTER. The match starts when both are
@@ -133,7 +146,7 @@ report it). In emulators the network duel needs a relay running on your PC: see
 - **The RAM disk must be a fast, chip-based card**, with close to zero wait states: the game reads its graphics from
   it all the time. Emulated or file-backed RAM disks, such as the MZPico's, are not supported, even though the MZPico
   itself works for the floppy and the network. The boot measures the RAM disk's speed and stops with
-  `RAM DISK TOO SLOW: ... CLOCKS/BYTE` (and the measured figures) when it is too slow.
+  `RAM DISK TOO SLOW: ... WS` (and the measured figures) when it is slower than 15 wait states.
 - A 256 KB RAM disk card is not enough.
 
 ## For developers

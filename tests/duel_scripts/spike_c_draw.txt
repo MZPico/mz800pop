@@ -1,11 +1,9 @@
 # duel
-# expect digest 0e628e2f5d8facaf
+# expect digest 6d6fc616e5648712
 # seed 0xfd
-# expect rounds 3
-# expect d18 15:1,15:2,47:1,47:2,75:1,75:2
-# expect hps 3/3:3/3,2/3:2/3,1/3:1/3,0/3:0/3,3/3:3/3
+# expect hps 3/3:3/3
 # expect symmetric 10
-# expect impaled 75:1:3,75:2:6
+# (the user's change 2026-11-14: raised spikes no longer hurt en garde, standing or in careful steps: the expectations show what is left of this script's hits, none where it fences or steps carefully)
 # rule C: both players, in mirror (level 7 room 13: player 1 onto the spike at column 3, player 2 onto the one at column 6), step en garde onto the raised spikes, off and on again, three times: a hit point each time, both impaled in one tick: a draw
 0x10 0x10
 0x00 0x00 *7

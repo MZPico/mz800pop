@@ -1,8 +1,8 @@
 # duel
-# expect digest 3ebe62c653273e9d
+# expect digest f5914d39bd36292d
 # seed 0x71
-# expect d18 27:1
-# expect hps 3/3:3/3,2/3:3/3
+# expect hps 3/3:3/3
+# (the user's change 2026-11-14: raised spikes no longer hurt en garde, standing or in careful steps: the expectations show what is left of this script's hits, none where it fences or steps carefully)
 # rule C (docs/duel-design.md 21.1): player 1 steps en garde onto the raised spikes (a hit point), then fences in place on them, four strikes and four parries: its feet tile does not change, no more hit points
 0x10 0x10
 0x00 0x00 *7

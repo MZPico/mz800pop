@@ -219,7 +219,8 @@ d_blk2          equ     d_boot          ; player 2's block (90): ctrl1 (5), grab
                                         ; holding_sword, prev_collision_row, the collision rows (80, kid.asm PREV_ROOMS ..
                                         ; ABOVE_FLAGS); written by d_fresh at every round's reset
 nb_st           equ     d_blk2 + 90     ; the NET card's last status (4; written by n_wait before it is read)
-                if nb_st + 4 > d_boot_end
+nb_out          equ     nb_st + 4       ; a command's output (20; written by each command before it is read)
+                if nb_out + 20 > d_boot_end
                 .error the variables over d_boot run past d_ptab
                 endif
 d_script:       dw      0               ; (the harness: the next input pair's RAM-disk address in page RD_LV_PAGE; 0: live)
@@ -1904,7 +1905,6 @@ d_nw0:          dw      0               ; (the wait's start, FRAMES)
 d_nwt:          db      0               ; (WAITING shown)
 nb_f:           dw      0               ; the lockstep's parameters: the frame, then the input byte (NETSEND: 4 bytes,
 nb_k:           db      0, 0, 0, 0      ; one used) or the hash (NETHASH)
-nb_out:         ds      20              ; a command's output
 ; d18_q2: d18_q's rest, A = the feet tile's column
 d18_q2:         ld      c, a            ; (C: the column)
                 ld      b, 0            ; (B: the tile changed)
@@ -1924,6 +1924,15 @@ d18_q2:         ld      c, a            ; (C: the column)
                 jr      z, d18_s        ; (no raised spike: 0)
                 bit     7, (ix+OF_ALIVE)
                 jr      z, d18_s        ; (dead: alive >= 0; 1)
+                ld      a, (ix+OF_SWORD)        ; (the user's change 2026-11-14: never with the sword drawn, nor
+                or      a                       ; standing, frame 15, nor in a careful step, frames 121-132: 1)
+                jr      nz, d18_e
+                ld      a, (ix+OF_FRAME)
+                cp      15
+                jr      z, d18_e
+                sub     121
+                cp      12
+                jr      c, d18_e
                 ld      a, b
                 or      a
                 jr      nz, d18_x       ; (onto it: hit)
@@ -1932,6 +1941,8 @@ d18_q2:         ld      c, a            ; (C: the column)
                 jr      nz, d18_s       ; (on it raised already: 1)
 d18_x:          ld      a, 3            ; (it rose under the player: hit)
 d18_s:          ld      (hl), a
+                ret
+d18_e:          ld      (hl), c         ; (exempt: raised, no hit)
                 ret
 d18_c:          cp      (hl)
                 jr      z, d18_c1

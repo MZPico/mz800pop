@@ -1,9 +1,9 @@
 # duel
-# expect digest 78842fd0c7449a1d
+# expect digest 99d09fa96e5f8d2e
 # seed 0x07
 # expect rounds 1
-# expect d18 177:2
-# expect hps 3/3:3/3,3/3:2/3,3/3:1/3,3/3:0/3,3/3:3/3,3/3:2/3,3/3:1/3
+# expect hps 3/3:3/3,3/3:2/3,3/3:1/3,3/3:0/3,3/3:3/3,3/3:2/3
+# (the user's change 2026-11-14: raised spikes no longer hurt en garde, standing or in careful steps: the expectations show what is left of this script's hits, none where it fences or steps carefully)
 # rule C: spike_c_pushed_p1.txt's round 1 mirrored: player 2 knocked back onto the spikes behind it (column 9)
 -1 0 0  1 0 0
 0 0 0  0 0 0 *5

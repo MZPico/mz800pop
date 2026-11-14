@@ -25,7 +25,7 @@ to silent at level_ready, as every harness run is (live decisions only change wh
 Also: the loader's progress bar is full when PRES starts, and with a 256 KB RAM disk (a temporary emulator INI) the
 loader refuses (stops at rd_stop) and the game does not start; the probe finds 512 KB, 1, 2, 4, 8 and 16 MB RAM disks
 (rd_top 7, 15, 31, 63, 127, 255; docs/ramdisk-tiers.md sections 1, 15), the loading screen's line names the size
-("RAM DISK 2M, 21.0 T/BYTE"), and it puts back the bytes it wrote, and the launched game gets the
+("RAM DISK 2M, 0 WS"), and it puts back the bytes it wrote, and the launched game gets the
 emulator's size at HO_MAIN + HO_RDTOP. The read-speed measurement (src/boot/rdspeed.asm, docs/ramdisk-tiers.md section 1):
 with each size every area's MIN / MAX / ALIGN / MISAL / GAME / AVG is 21.0 clocks/byte +-0.1 (mz800emu has no wait
 states), the boot goes on, and the launched game gets HO_RDSPD_MAIN = 105 (21.0 x 5; with POP800_RD_WAIT=w the boot's
@@ -229,7 +229,10 @@ def floppy_run(dsk):
             pl = e.vram_planes()                    # the bar full in the bar's colour
             full = all(pl[p][(BS['BAR_ROW'] + r) * 40 + BS['BAR_COL'] + i] == (0xFF if BS['COL_BAR'] >> p & 1 else 0)
                        for p in range(4) for r in range(8) for i in range(32))
-            FILL = dict(act=act, frames=n, table=tab == want, cls=cls, bar=full)
+            pt = text_planes(e, 'PREPARING SPRITES'); m = BS['MSG_LOAD_AT']      # (the launcher's "LOADING..." must not
+            prep = all(pl[q][m + r * 40:m + r * 40 + 17] == (pt[r] if q < 3 else bytes(17))   # overwrite it: main
+                       for q in range(4) for r in range(7))                                  # had "LOADING...SPRITES")
+            FILL = dict(act=act, frames=n, table=tab == want, cls=cls, bar=full, prep=prep)
         t_pres = t_launch + (FILL['frames'] if FILL else 0) + run_to(e, PS['pres'])
         t_title = t_pres + title_start(e)
         t_start = t_title + run_to(e, G['start'])
@@ -349,13 +352,17 @@ def wait_run(dsk, wait, png):
         with Emu(exe=rd_emu(tmp, '1M', wait)) as e:
             e.call('media_insert', slot='fdc0_fd0', path=dsk, ro=True)
             e.call('reset')
-            e.call('bp_add', addr=BS['rd_measured']); e.call('bp_add', addr=BS['rs_stop'])
-            r = e.run(500); pc = e.call('get_registers')['PC']
+            e.call('bp_add', addr=BS['net_line'])       # (rs_show's line as printed: net_line reuses rs_txt)
+            r = e.run(500); assert r['stopped_by'] == 'breakpoint', r
+            line = e.mem(BS['rs_txt'] + 3, 40).split(b'\0')[0].decode('latin-1')
+            e.call('bp_clear'); e.call('bp_add', addr=BS['rd_measured']); e.call('bp_add', addr=BS['rs_stop'])
+            r = e.run(100); pc = e.call('get_registers')['PC']
             how = '?' if r['stopped_by'] != 'breakpoint' else 'on' if pc == BS['rd_measured'] else 'stop'
+            last = e.mem(BS['rs_txt'] + 3, 40).split(b'\0')[0].decode('latin-1')      # (the stop: its second line)
             res = rd_results(e); g = e.mem(BS['rs_gav'], 2); gav = g[0] | g[1] << 8
             e.call('bp_clear'); e.run(3)
             e.screenshot(os.path.join(BUILD, png))
-        return res, how, gav
+        return res, how, gav, line, last
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -473,11 +480,12 @@ def main():
         '%s page %d %04X-%04X' % (w, p, a, a + n - 1) for p, a, n, w in RESERVED))
     bad = (bar != 32)
     if FILL is not None:
-        fill_ok = FILL['act'] == BS['ACT_FILL'] and FILL['table'] and FILL['frames'] > 300 and FILL['bar']
+        fill_ok = FILL['act'] == BS['ACT_FILL'] and FILL['table'] and FILL['frames'] > 300 and FILL['bar'] and FILL['prep']
         print('the frame store (class %d): the boot started the game with ACT_FILL: %s, the fill on the loading screen %d frames '
               '= %.1f s (screenshot build/m5_fill.png), a valid-looking marker left before the boot was not trusted: the key '
-              'table as tools/fstore.py computes it: %s, the bar full: %s%s' % (FILL['cls'], FILL['act'] == BS['ACT_FILL'], FILL['frames'],
-              FILL['frames'] / 50.0, FILL['table'], FILL['bar'], '' if fill_ok else '  FAILED'))
+              'table as tools/fstore.py computes it: %s, the bar full: %s, "PREPARING SPRITES" on it: %s%s' % (FILL['cls'],
+              FILL['act'] == BS['ACT_FILL'], FILL['frames'], FILL['frames'] / 50.0, FILL['table'], FILL['bar'], FILL['prep'],
+              '' if fill_ok else '  FAILED'))
         bad += not fill_ok
     print('the launched game\'s sound mode (psg.asm SND_MODE): %d (%s); set to 0 (silent, as the harness) for the comparison' % (
         SND_MODE_LAUNCHED, 'live' if SND_MODE_LAUNCHED == 1 else 'NOT LIVE'))
@@ -496,7 +504,7 @@ def main():
         print('%s RAM disk: the probe found pages 0-%d, %s, the bytes it wrote put back: %s%s' % (
             size, top, 'accepted' if zf else 'REFUSED', 'yes' if kept else 'NO', '' if good else '  FAILED'))
         bad += not good
-        want_txt = 'RAM DISK %s, 21.0 T/BYTE' % size
+        want_txt = 'RAM DISK %s, 0 WS' % size      # (wait states: clocks/byte - 21, rounded; 21.0 = 0)
         print('%s RAM disk: the loading screen says "%s"%s' % (size, txt, '' if txt == want_txt else '  FAILED (want "%s")' % want_txt))
         bad += txt != want_txt
         want_pages = sorted({0, 7, RD_TOP[size] // 2 + 1, RD_TOP[size]})
@@ -514,9 +522,17 @@ def main():
     if waits is None:
         print('RAM-disk wait states: not tested (the emulator has no mr1r18_wait)')
     else:       # GAME = 21 + w + w / 32 (the address OUT a 32-byte run): +1 22.0, +14 35.4 (goes on), +16 37.5 (the stop)
-        for w, want_how, lo, hi in ((1, 'on', 219, 221), (14, 'on', 353, 355), (16, 'stop', 374, 376)):
-            res, how, gav = waits[w]
+        # the loading screen in wait states (rdspeed.asm put_ws: rounded, halves up): 22.0 -> 1, 35.4 -> 14, 37.5 -> 17
+        # (the stop: "RAM DISK TOO SLOW: 17 WS" over "GAME PATTERN, MAX 15, WORST Pn 17")
+        for w, want_how, lo, hi, want_ws in ((1, 'on', 219, 221, 1), (14, 'on', 353, 355, 14), (16, 'stop', 374, 376, 17)):
+            res, how, gav, line, last = waits[w]
             good = how == want_how and lo <= gav <= hi and all(lo <= vs[4] <= hi for vs in res.values())
+            want_line = 'RAM DISK 1M, %d WS' % want_ws
+            stop_ok = how != 'stop' or (last.startswith('GAME PATTERN, MAX 15, WORST P') and last.endswith(' %d' % want_ws))
+            print('RAM disk +%d T a port access: the loading screen says "%s"%s%s' % (w, line,
+                  '' if line == want_line else '  FAILED (want "%s")' % want_line,
+                  '' if how != 'stop' else ', the stop "%s"%s' % (last, '' if stop_ok else '  FAILED')))
+            bad += line != want_line or not stop_ok
             print('RAM disk +%d T a port access: GAME %.1f clocks/byte (%s), boot %s%s (screenshot build/m5_rdwait%d.png)' % (
                 w, gav / 10, ', '.join('P%d %s' % (p, ' '.join('%.1f' % (v / 10) for v in vs)) for p, vs in sorted(res.items())),
                 {'on': 'goes on', 'stop': 'stops at rs_stop', '?': 'NEITHER'}[how],
