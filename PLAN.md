@@ -1328,3 +1328,9 @@ piece used AND/XOR semantics.
    cleared). In-game level changes keep the old room as before. Launcher +9 B, PRES +3 B (2 B left before the cutscene
    art stops fitting: tools/cutart.py, a 62-byte sprite; mkgamedisk's DUEL_PRES_BYTES check covers only the title art),
    level-start overlay +4 B, resident 0 (m4game.bin unchanged). VRAM 13 ticks after each level start identical to before.
+99. PRES's reserve covers the cutscene art (2026-11-14, docs/memory.md "PRES's free main RAM"): tools/mkgamedisk.py's
+   DUEL_PRES_BYTES (64 B, checked against the title art's bands only) is replaced by PRES_RESERVE = 2, checked against
+   both things that move when PRES grows: the title art (first fit from end_of_pres) and the cutscene art (tools/cutart.py
+   from end_of_cut, a 62-byte sprite the tightest). The build prints "PRES may grow by 2 bytes (...): the title art leaves
+   444, the cutscene art 2"; PRES 1 byte longer stops it ("PRES has grown into its reserve"), 3 bytes longer with "the
+   cutscene art does not fit beside PRES" (both tried). Build check only: the disk is byte-identical.

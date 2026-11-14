@@ -251,7 +251,7 @@ p_duel:         ld      hl, ho_new
                 ld      a, ACT_DUEL
                 jr      p_play_d
 p_duel_end:
-DUEL_PRES_USED  equ     p_duel_end - p_duel + p_duel_k_end - p_duel_k   ; (tools/mkgamedisk.py: within DUEL_PRES_BYTES)
+DUEL_PRES_USED  equ     p_duel_end - p_duel + p_duel_k_end - p_duel_k   ; (the duel's Ctrl+D code, for the figures; tools/mkgamedisk.py PRES_RESERVE)
 
 ; ---------------------------------------------------------------- the title
 title:          di

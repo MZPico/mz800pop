@@ -370,6 +370,15 @@ share one. Nothing of it in the RAM disk beyond the old scratch (page 1 0x0000-0
 group 1, PLT0 black: MZ 4 = EGA attribute 0 (the flash), MZ 0 = EGA 13; PRES restores group 0 identity before the title
 and the game. No game memory changed. Details: docs/m7-design.md §17.
 
+PRES's free main RAM (2026-11-14, PLAN item 99): PRES's code (0x2000-end_of_pres) shares main RAM with two things that
+move when it grows: the title art's PZ bands (tools/mkgamedisk.py title_entries: first fit into 0x1200-0x1FFF,
+end_of_pres-0x7FFF and ART2_START-ART2_END) and the cutscene art (tools/cutart.py: the engine to end_of_cut, then the
+room's bands and each scene's sprites from end_of_cut, a 62-byte sprite of cutscene_2_6 the tightest). The cutscene art
+is the limit: PRES may grow by **2 bytes** (end_of_pres 0x2F08), the title art alone would allow 444. mkgamedisk checks
+both with PRES PRES_RESERVE (2) bytes longer and prints the figure ("PRES may grow by ..."); one more byte of PRES stops
+the build ("PRES has grown into its reserve"). The duel's Ctrl+D code (pres.asm DUEL_PRES_USED, 34 B) is part of PRES;
+its old 64-byte reserve (DUEL_PRES_BYTES) was checked against the title art only and is gone.
+
 Keys (M7 step 10, 2026-10-31): room made by moving guard.asm's constant tables (88 bytes) to 0x9F90 (game_init copies them) and
 the key handling out of resident code. Resident now: key_scan (block 2, 33 bytes), two stubs (main), the script's key prefix in
 get_controls, one call in kid.asm. Free resident code: main 6, low 53, block 2 61 bytes. New overlay OVL_KEYS (id 7, the last of
