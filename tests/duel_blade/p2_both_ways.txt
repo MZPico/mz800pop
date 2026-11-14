@@ -1,16 +1,17 @@
 # duel
-# player 2 draws (frames 209, 210), strikes (152) and sheathes (237-240) facing left at its start, then runs past
-# player 1 (both sheathed: no bump, D20a), turns to face right and does the same facing right: every image that carries
-# the blade in both facings (D19, the sword by hand: docs/duel-design.md 23). tests/duel_z80.py blade_check, 16.4
+# player 2 (the blue kid, on the left since 2026-11-14) draws (frames 209, 210), strikes (152) and sheathes (237-240)
+# facing right at its start; then player 1 (sheathed) runs left past it, player 2 turns to face it and does the same
+# facing left: every image that carries the blade in both facings (D19, the sword by hand: docs/duel-design.md 23, 25),
+# clear of both edges' pillars and of player 1's body. tests/duel_z80.py blade_check, 16.4
 0 0 0 0 0 1
 0 0 0 0 0 0 *12
 0 0 0 0 0 1
 0 0 0 0 0 0 *14
 0 0 0 0 1 0
 0 0 0 0 0 0 *14
-0 0 0 -1 0 0 *26
+-1 0 0 0 0 0 *28
 0 0 0 0 0 0 *12
-0 0 0 1 0 0
+0 0 0 -1 0 0
 0 0 0 0 0 0 *10
 0 0 0 0 0 1
 0 0 0 0 0 0 *12

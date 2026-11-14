@@ -1,5 +1,5 @@
 # duel
-# expect digest 007e90ae5f334dda
+# expect digest b593300a61a23749
 # seed 0x71
 # expect hurt none
 # expect symmetric 0
@@ -8,19 +8,19 @@
 # check_spiked kills only running, a running jump's start and a jump's landing, and rule C (docs/duel-design.md 21.1,
 # the user's change 2026-11-14) spares careful steps and standing: no hit point lost
 0 0 0  0 0 0 *2
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *15

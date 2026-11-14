@@ -282,7 +282,7 @@ dl_d:           ld      hl, GUARD_REC + OF_CHARID      ; player 2 drawn as the k
                 call    draw_objects
                 ld      hl, GUARD_REC + OF_CHARID
                 ld      (hl), CHARID_SHADOW
-                call    hp_draw         ; player 1's strip (ghp_draw: no shadow's strip off level 12)
+                call    d_hpl           ; player 2's strip at the left (the game's, ghp_draw: no shadow's strip off level 12)
                 call    d_lnk           ; (the logic's room 0 again)
                 jp      d_hud           ; player 2's strip, the bottom text
 ; d_quit: back to PRES's title (the level-start overlay's handoff; without the launcher, the harness: it stops here);
@@ -866,6 +866,14 @@ d18_t1:         ld      a, (de)
                 ret
 d18_0:          xor     a
                 ret
+; d_hpl (d_draw): player 2's hit point strip (the blue kid's) at the left, where the game draws the kid's: hp_draw with
+; the two players' hit points exchanged (dh_x) and the icons blue (d_bswap) around it (its cache HP_SHOWN then follows
+; player 2's)
+d_hpl:          call    dh_x
+                call    d_bswap
+                call    hp_draw
+                call    d_bswap
+                jp      dh_x
 P_ai_end:
                 if P_ai_end > H_AI_END
                 .error the duel's piece P_ai is larger than its hole (the guard AI)
@@ -1191,11 +1199,11 @@ dsd_nc:         exx
                 jp      nz, dsdrow
                 pop     ix              ; (the caller's descriptor pointer)
                 jp      d_blade         ; (the blade white again in the images that carry it)
-; d_ghp: player 2's hit point strip as player 1's, mirrored at the right (hpstrip.asm hp_strip: the kid's icons, full
-; and empty, both in blue: d_bswap around the calls), drawn when the hit points change
-d_ghp:          ld      a, (GUARDHP_CURR)
+; d_ghp: player 1's hit point strip (the white kid's, the game's red icons) mirrored at the right, under its side since
+; the sides swapped (docs/duel-design.md 25; hpstrip.asm hp_strip), drawn when its hit points change
+d_ghp:          ld      a, (HITP_CURR)
                 ld      b, a
-                ld      a, (GUARDHP_MAX)
+                ld      a, (HITP_MAX)
                 ld      c, a
                 ld      hl, (d_ghps)
                 ld      a, l
@@ -1215,12 +1223,10 @@ dg1:            ld      l, b
                 ld      (hp_pf), hl
                 ld      a, 32
                 ld      (hp_base), a
-                call    d_bswap         ; both icons blue for player 2's strip
                 ld      bc, 0x0820      ; bytes 32..39, then 31 (overlay.asm ghp_draw's chunks)
                 call    hp_strip
                 ld      bc, 0x011f
-                call    hp_strip
-                jp      d_bswap         ; (the game's red icons again)
+                jp      hp_strip
 d_ghps:         dw      0xffff          ; player 2's hit points as drawn (current, max; 0xff: draw again)
 ; d20b (kid.asm check_on_floor's floor test, duel_d20b; A = the tile at the character): D20b, no fall beyond the arena's
 ; sides: the tile has no floor and the character's column is outside the room (room 0's: the zeroed links, a wall
@@ -2115,7 +2121,7 @@ ws_n:           inc     hl
                 ld      (SHOWN_ROOM), a
                 dec     a
                 ld      (vs_built), a   ; (the view's tile addresses: rebuilt)
-                ld      (HP_SHOWN), a   ; (player 1's strip: drawn again)
+                ld      (HP_SHOWN), a   ; (the left strip, player 2's since the sides swapped: drawn again)
                 ld      a, (d_room)
                 ld      (DRAWN_ROOM), a
                 ld      (NEXT_ROOM), a
@@ -2462,15 +2468,15 @@ w_mod:          sub     c
                 ret
 ; d_reset: a round's start (duelsim round_reset): both at their start tiles, standing, swords sheathed, full hit
 ; points, fresh blocks
-d_reset:        ld      a, (d_c1)                       ; player 1: column, direction right; charid the kid
-                ld      b, a
-                ld      c, 0
-                ld      e, c
+d_reset:        ld      a, (d_c2)                       ; player 1 (the white kid): the right start tile, facing
+                ld      b, a                            ; left, the kid's charid (the user's choice 2026-11-14:
+                ld      c, 0xff                         ; white right, blue left; docs/duel-design.md 25)
+                ld      e, 0
                 call    dr_char
                 call    savekid
-                ld      a, (d_c2)                       ; player 2: left, the shadow
-                ld      b, a
-                ld      c, 0xff
+                ld      a, (d_c1)                       ; player 2 (the blue kid): the left one, facing right, the
+                ld      b, a                            ; shadow's charid
+                ld      c, 0
                 ld      e, CHARID_SHADOW
                 call    dr_char
                 call    saveshad
@@ -2683,7 +2689,7 @@ huf_e:          ld      (de), a
 ; glyphs (the game's font + d_font) and fits the line's 160 pixels with its widest numbers
 d_strs:         dw      dst_round, dst_score, dst_won, dst_draw, dst_match, dst_prompt, 0
 dst_round:      db      'ROUND ', 1, 0
-dst_score:      db      'ROUND ', 1, '   P1 ', 2, ' : ', 3, ' P2', 0
+dst_score:      db      'ROUND ', 1, '   P2 ', 3, ' : ', 2, ' P1', 0       ; (each score under its kid: blue left)
 dst_won:        db      'P', 1, ' WINS ROUND', 0
 dst_draw:       db      'DRAW', 0
 dst_match:      db      'P', 1, ' WINS THE MATCH', 0

@@ -1,5 +1,5 @@
 # duel
-# expect digest 8e6a0cd4e295e21c
+# expect digest bdf4aeac0f0fc682
 # seed 0x71
 # expect hps 3/3:3/3,2/3:2/3
 # expect d18 26:1,26:2
@@ -8,7 +8,7 @@
 0 0 0  0 0 0
 0 1 0  0 1 0
 0 0 0  0 0 0 *6
-1 0 1  -1 0 1
+-1 0 1  1 0 1
 0 0 0  0 0 0 *14
-1 -1 0  -1 -1 0
+-1 -1 0  1 -1 0
 0 0 0  0 0 0 *55

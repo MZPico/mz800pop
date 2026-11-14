@@ -1,52 +1,53 @@
 # duel
-# expect digest 4b63821ce89c611a
+# expect digest fd8714de46c8334f
 # seed 0x07
-# expect rounds 1,2
+# expect rounds 2,1
 # expect spikes 11:14:0:9
 # the placed spikes (docs/duel-design.md 21): round 0 as p1_wins.txt (its potions in front of both: they turn away and draw with the button, the turn that draws, D19); round 1 (rounds mod 3 == 1) in a room without its own spikes gets the ends pair (c1 - 2, c2 + 2): player 1 sheathes, turns and runs back onto it: spiked, player 2 scores
--1 0 0  1 0 0
+# (since 2026-11-14 player 1, the white kid, starts on the right: the players' inputs and the expectations are exchanged, so the same fight plays in this room, which is not mirror-symmetric; read player 1 and 2 above the other way round)
+1 0 0  -1 0 0
 0 0 0  0 0 0 *5
 0 0 1  0 0 1
 0 0 0  0 0 0 *7
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-0 0 1  0 0 0
+0 0 0  0 0 1
 0 0 0  0 0 0 *12
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-0 0 1  0 0 0
+0 0 0  0 0 1
 0 0 0  0 0 0 *12
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-0 0 1  0 0 0
+0 0 0  0 0 1
 0 0 0  0 0 0 *12
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *22
 0 0 1  0 0 1
 0 0 0  0 0 0 *60
-0 1 0  0 0 0
+0 0 0  0 1 0
 0 0 0  0 0 0 *4
--1 0 0  0 0 0
+0 0 0  -1 0 0
 0 0 0  0 0 0 *6
--1 0 0  0 0 0 *20
+0 0 0  -1 0 0 *20
 0 0 0  0 0 0 *28
 0 0 1  0 0 1
 0 0 0  0 0 0

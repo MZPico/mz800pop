@@ -34,7 +34,8 @@ from popdata import Level, T
 
 # ---- the arena and the rules (design sections 2.3, 6, 9; section 11 for the choices made here)
 ARENA_LEVEL, ARENA_ROOM, ARENA_ROW = 1, 3, 1     # the fixed arena (entry 0): level 1 room 3, the middle row
-START = ((2, RIGHT), (7, LEFT))                  # (column, direction) of player 1 (the kid) and player 2 (the shadow)
+START = ((2, RIGHT), (7, LEFT))                  # (column, direction) of the left and the right start tile (player 2, the
+                                                 # blue kid, starts on the left, player 1 on the right: round_reset)
 ROUND_HP = 3                                     # hit points of both at a round's start (hitp and guardhp, max = curr)
 WINS = 3                                         # rounds to win the match: best of 5 (draws are replayed: no limit)
 ROUND_END_TICKS = 36                             # the round end: ticks from the deciding tick to the reset
@@ -346,8 +347,8 @@ class DuelSim(KidSim):
 
     def round_reset(self):
         """a round's start: both at their start tiles, standing, swords sheathed, full hit points, fresh blocks"""
-        recs = []
-        for p, (col, d) in enumerate(self.start):
+        recs = []                                         # (player 1, the white kid, on the right start tile facing
+        for p, (col, d) in enumerate(self.start[::-1]):   # left, player 2 on the left one: the user's choice 2026-11-14)
             c = Char(); c.room = self.arena; c.curr_col = col; c.curr_row = self.arena_row
             c.x = X_BUMP[col + FIRST_ONSCREEN_COLUMN] + TILE_SIZEX; c.y = Y_LAND[self.arena_row + 1]
             c.direction = d; c.alive = -1; c.charid = CHARID_KID if p == 0 else CHARID_SHADOW

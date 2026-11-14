@@ -114,7 +114,8 @@ def run(card, shots, j):
                 M5.run_to(e, D['dlb_mk'], 1000)
                 check('the silent sound model (SND_MODE 0)', e.mem(G['SND_MODE'], 1)[0] == 0)
                 kid, gd = e.mem(G['KID_REC'], 16), e.mem(G['GUARD_REC'], 16)
-                check('the players at the fixed arena\'s start tiles (room 3, columns 2 and 7)', (kid[9], kid[4], gd[9], gd[4], gd[11]) == (3, 2, 3, 7, 1),
+                check('the players at the fixed arena\'s start tiles (room 3: player 1 on column 7, player 2 on 2; the sides since '
+                      '2026-11-14)', (kid[9], kid[4], gd[9], gd[4], gd[11]) == (3, 7, 3, 2, 1),
                       (kid.hex(), gd.hex()))
                 check('the menu over the arena drawn first (room 3 on the screen, duel.asm d_lobby)',
                       e.mem(G['SHOWN_ROOM'], 1)[0] == 3 and e.mem(D['d_netm'], 1)[0] == 0)
@@ -132,8 +133,10 @@ def run(card, shots, j):
             check('the seed %04X: level %d (%s) loaded, the level number 1 for the logic' % (seed, lv, 'palace' if PD.LEVEL_TYPE[lv] else 'dungeon'),
                   (e.mem(D['d_lvl'], 1)[0], e.mem(G['LEVEL_TYPE'], 1)[0], e.mem(G['level_number'], 1)[0]) == (lv, PD.LEVEL_TYPE[lv], 1))
             kid, gd = e.mem(G['KID_REC'], 16), e.mem(G['GUARD_REC'], 16)
-            check('its arena %d: room %d, the players on row %d, columns %d and %d' % (ai, room, row, c1, c1 + DS.START_GAP),
-                  (e.mem(D['d_aidx'], 1)[0], kid[9], kid[5], kid[4], gd[9], gd[5], gd[4]) == (ai, room, row, c1, room, row, c1 + DS.START_GAP),
+            check('its arena %d: room %d, the players on row %d, player 1 (white) on column %d facing left, player 2 (blue) on %d '
+                  'facing right' % (ai, room, row, c1 + DS.START_GAP, c1),         # (the sides since 2026-11-14: duel-design 25)
+                  (e.mem(D['d_aidx'], 1)[0], kid[9], kid[5], kid[4], kid[3], gd[9], gd[5], gd[4], gd[3]) ==
+                  (ai, room, row, c1 + DS.START_GAP, 0xff, room, row, c1, 0),
                   (kid.hex(), gd.hex()))
             # the swords are drawn by hand (docs/duel-design.md 23, D19): player 1 presses its button (/) alone on the
             # first tick. The arena comes from the seed: with a potion in front (round 0's pair between the players) the
@@ -183,9 +186,9 @@ def run(card, shots, j):
                   e.mem(D['d_p2ic'], 40).hex())
             e.call('mem_write', addr=G['HITP_CURR'], data_hex='01'); e.call('mem_write', addr=G['GUARDHP_CURR'], data_hex='01')
             ticks(e, 2); pl = e.vram_planes()
-            left, right = strip(pl, 0, 21), strip(pl, 299, 320)
-            check('player 2\'s strip: 1 full and 2 empty icons, all light blue 9, player 1\'s pixels',
-                  set(right) == {9} and right[9] == sum(left.values()) and set(left) == {2, 10}, (left, right))
+            left, right = strip(pl, 0, 21), strip(pl, 299, 320)    # (since the sides swapped: player 2, blue, at the
+            check('player 2\'s strip at the left (blue, light blue 9), player 1\'s at the right (red): 1 full and 2 '   # left)
+                  'empty icons each', set(left) == {9} and left[9] == sum(right.values()) and set(right) == {2, 10}, (left, right))
             check('the game\'s icons (hp_full, hp_empty) red again after the drawing', e.mem(G['hp_full'], 40) == icons)
             if shots: e.screenshot(os.path.join(shots, 'duel_boot_hp_%s.png' % tag))
             keys(e, ('ENTER',)); got = ticks(e, 1); keys(e, ('ENTER',), down=False)

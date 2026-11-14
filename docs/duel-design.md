@@ -2261,3 +2261,36 @@ symmetric); the rule C scripts (spike_c_*) and spike_placed_centre keep their mo
 rule C hit where they stepped en garde or carefully; spike_c_shared regenerated (random keys, the policy seed in its
 header) for a tick where both are hit on one tile and player 1 is impaled.
 
+## 25. The sides swapped: white right, blue left (the user's request, 2026-11-14)
+
+Until now player 1 (the white kid, the network's host) started on the left start tile facing right and player 2 (the
+blue kid, the joiner) on the right one facing left, in every arena (the fixed one: columns 2 and 7; the random ones:
+two tiles START_GAP apart centred on the fight run). Now **player 1 starts on the right tile facing left, player 2 on
+the left tile facing right**: duelsim round_reset takes the start tiles the other way round (self.start stays (left,
+right)), duel.asm d_reset gives player 1 d_c2 and the left facing, player 2 d_c1 and the right facing (+1 B in P_w2; W2 has no room for the HUD's part: d_hpl runs every tick, so it is resident).
+The keys are unchanged (player 1: the cursor keys, `/` `?`, joystick 1; player 2: W A S D, Q, joystick 2); over the
+network the host is still player 1, the white kid, now on the right.
+
+Nothing else assumes a side for a player number: the potion pair (c1 - 1, c2 + 1 or c1 + 1, c2 - 1), the placed spikes
+(the ends or the centre) and the room edges (D14 / D15) are mirrored around both start tiles or belong to the room.
+SDLPoP's own asymmetries tied to the facing (a drinker facing right moves 1-2 pixels further: get_item) now fall to
+the blue kid instead of the white one, as they fall to whoever stands on that side.
+
+**The HUD follows the kids** (the user's choice a): the white kid's red strip at the bottom right, the blue kid's blue
+strip at the bottom left, the score "ROUND n   P2 n : n P1". The strips keep their places and routines and exchange
+whose hit points they show: d_draw calls d_hpl (H_AI, 15 B), which runs the game's hp_draw (the left strip, its cache
+HP_SHOWN) with the hit points exchanged (dh_x: current, maximum, delta) and the icons blue (d_bswap) around it; d_ghp
+(the right strip) now draws player 1's hit points with the game's red icons, without d_bswap (-5 B). The text's
+numbers are exchanged in its template (P_txt, 0 B). Everything the strips react to follows: a hit, a life potion (the
+maximum: both strips compare current and maximum), poison, a round's reset and a room's full draw (d_draw sets
+d_ghps to 0xff; the game's HP_SHOWN as before). The port draws no blinking last icon and no hit flash in the strips (a
+hit flashes the screen); nothing else of the game draws on the bottom line in the duel (no clock, no messages: the
+duel's own text in x 80-239 between the strips). Bytes: the holes 39 B free (H_AI 1, H_FREE 11, H_TICK 10, H_KT 5,
+H_TIME 3, H_MAIN 1, H_LR 1).
+
+Scripts: the fixed arena and the mirrored scripts with left and right exchanged in their inputs (the same results);
+in rooms that are not mirror-symmetric (spike_c_pushed_p1 / p2, spike_placed_ends) the two players' inputs and the
+expectations are exchanged instead, the same fight with the numbers swapped; the random-key scripts (climb_dungeon,
+climb_palace, spike_c_shared) regenerated with the fuzz policy (their policy seeds in their headers);
+tests/duel_boot.py checks the start columns and facings. Logic otherwise and the hash unchanged.
+
