@@ -1,0 +1,219 @@
+# Release: build the game disk for a version tag and publish it as a GitHub release (docs/RELEASING.md).
+# Runs only on a pushed tag vX.Y.Z, or by hand (workflow_dispatch). By hand it is a dry run unless dry_run is unticked:
+# the disk is built, checked and uploaded as a workflow artifact, and no release is created.
+# The tag must match the VERSION file (the version the loading screen shows) and be on main. The DOS data is fetched
+# as in the PR checks (tools/ci/fetch_dos_data.py, md5-checked) and is not attached; the release carries the built
+# disk only (pop800-X.Y.Z.dsk) and its SHA-256 checksum.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag to build, vX.Y.Z (an existing tag). Empty: the branch chosen above (dry runs only).'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run: build and upload the disk as a workflow artifact, create no release.'
+        type: boolean
+        default: true
+      smoke:
+        description: 'Run the smoke tier (make check-smoke) before publishing.'
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SDL3_TAG: release-3.4.14
+  SDL3_IMAGE_TAG: release-3.4.4
+  MINIZIP_TAG: 4.2.2
+  MZ800EMU_COMMIT: ca2b709099139abeb9531f2b71f48084bd7160ce   # keep in step with pr-checks.yml
+  SDLPOP_COMMIT: 3c5add5fb7f83d4ceb542823ab66d00146c4271b
+  MZDISK_COMMIT: 0db3add4b9964dc566442371852056b6aac61217
+
+jobs:
+  build:
+    name: build the disk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - name: What to build
+        id: what
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          IN_TAG: ${{ inputs.tag }}
+          IN_DRY: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT" = push ]; then tag=$REF_NAME; publish=true
+          else tag=$IN_TAG; if [ "$IN_DRY" = false ]; then publish=true; else publish=false; fi
+          fi
+          if [ -n "$tag" ]; then
+            echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::'$tag' is not a tag vX.Y.Z"; exit 1; }
+            ref=refs/tags/$tag
+          elif [ "$publish" = true ]; then
+            echo "::error::a release needs a tag (the input 'tag'), or tick dry_run"; exit 1
+          else
+            ref=$GITHUB_REF
+          fi
+          { echo "tag=$tag"; echo "ref=$ref"; echo "publish=$publish"; } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ steps.what.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The version (the tag against VERSION; a release's tag on main)
+        id: version
+        env:
+          TAG: ${{ steps.what.outputs.tag }}
+          PUBLISH: ${{ steps.what.outputs.publish }}
+        run: |
+          if [ -f VERSION ]; then
+            version=$(tr -d ' \t\r\n' < VERSION)
+            echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::VERSION holds '$version', not X.Y.Z"; exit 1; }
+          elif [ "$PUBLISH" = true ]; then
+            echo "::error::no VERSION file at this ref: the loading screen's version comes from it; add it before releasing"; exit 1
+          else
+            version=${TAG#v}; version=${version:-0.0.0-dev}
+            echo "::warning::no VERSION file at this ref (dry run: built as $version)"
+          fi
+          if [ -n "$TAG" ] && [ "${TAG#v}" != "$version" ]; then
+            echo "::error::the tag $TAG does not match VERSION ($version): bump VERSION, merge, then tag v$version"; exit 1
+          fi
+          if [ "$PUBLISH" = true ] && ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::the tag $TAG is not on main: tag a commit of main"; exit 1
+          fi
+          echo "Building version $version (tag '${TAG:-none}', publish $PUBLISH)"
+          { echo "tag=$TAG"; echo "version=$version"; echo "publish=$PUBLISH"; } >> "$GITHUB_OUTPUT"
+
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends pasmo p7zip-full xvfb xauth ninja-build cmake pkg-config \
+            libsdl2-dev libsdl2-image-dev libglib2.0-dev libjson-glib-dev libcurl4-openssl-dev zlib1g-dev libgl-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libasound2-dev libpulse-dev libdbus-1-dev libudev-dev libegl1-mesa-dev libgles2-mesa-dev \
+            libpng-dev libjpeg-dev > /dev/null
+          {
+            echo "DEPS=$HOME/mzdeps"
+            echo "EMU_DIR=$HOME/mz800emu-bin"
+            echo "MZ800EMU_BIN=$HOME/mz800emu-bin/mz800emu"
+            echo "LD_LIBRARY_PATH=$HOME/mzdeps/lib"
+            echo "PKG_CONFIG_PATH=$HOME/mzdeps/lib/pkgconfig"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: '3.12'
+      - run: pip install -q -r requirements.txt
+
+      # the tools: restored from the caches the other workflows saved when this ref can see them (public sources only),
+      # else built; never saved here
+      - name: Restore SDL3 / SDL3_image / minizip-ng
+        uses: actions/cache/restore@v4.2.0
+        with:
+          path: ~/mzdeps
+          key: mzdeps-ubuntu24-${{ env.SDL3_TAG }}-${{ env.SDL3_IMAGE_TAG }}-${{ env.MINIZIP_TAG }}-${{ hashFiles('tools/ci/build_deps.sh') }}
+      - name: Restore mz800emu
+        uses: actions/cache/restore@v4.2.0
+        with:
+          path: ~/mz800emu-bin
+          key: mz800emu-ubuntu24-${{ env.MZ800EMU_COMMIT }}-${{ env.SDL3_TAG }}-${{ hashFiles('tools/ci/build_deps.sh') }}
+      - name: Restore SDLPoP (patched)
+        uses: actions/cache/restore@v4.2.0
+        with:
+          path: external/SDLPoP
+          key: sdlpop-ubuntu24-${{ env.SDLPOP_COMMIT }}-${{ hashFiles('tools/sdlpop-pop800.patch') }}-${{ hashFiles('tools/ci/build_deps.sh') }}
+      - name: Restore mzdisk
+        uses: actions/cache/restore@v4.2.0
+        with:
+          path: external/mzdisk
+          key: mzdisk-ubuntu24-${{ env.MZDISK_COMMIT }}-${{ hashFiles('tools/ci/build_deps.sh') }}
+      - name: Build the tools (each skipped when restored)
+        run: |
+          tools/ci/build_deps.sh mzdisk
+          tools/ci/build_deps.sh sdl3
+          tools/ci/build_deps.sh emu
+          tools/ci/build_deps.sh sdlpop
+
+      - name: Fetch the DOS data (archive.org, md5-checked)
+        run: python3 -I tools/ci/fetch_dos_data.py
+
+      - name: Build
+        run: make ci-build
+
+      - name: Smoke tier
+        if: github.event_name == 'push' || inputs.smoke
+        run: xvfb-run -a -s "-screen 0 1024x768x24" make check-smoke
+
+      - name: The release files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir dist
+          cp build/pop800.dsk "dist/pop800-$VERSION.dsk"
+          (cd dist && sha256sum "pop800-$VERSION.dsk" > "pop800-$VERSION.dsk.sha256" && cat ./*.sha256)
+
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: pop800-${{ steps.version.outputs.version }}
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    name: publish the release
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4.1.8
+        with:
+          name: pop800-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Create the release (or replace its files on a re-run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          cat > notes.md <<EOF
+          Prince of Persia for the Sharp MZ-800, version $VERSION.
+
+          **Download** \`pop800-$VERSION.dsk\`, the game's floppy disk image, and boot it on an MZ-800 with the 32 KB VRAM
+          extension (MZ-1R25) and a chip-based RAM disk card of 512 KB or more (1 MB recommended; emulated or
+          file-backed RAM disks such as the MZPico's are not supported), from a floppy drive or the MZPico's floppy
+          emulation, or in mz800emu. \`pop800-$VERSION.dsk.sha256\` is its SHA-256 checksum
+          (\`sha256sum -c pop800-$VERSION.dsk.sha256\`). How to start and play it:
+          [the README](https://github.com/$GH_REPO/blob/$TAG/README.md).
+
+          This is a non-commercial fan port. Prince of Persia's graphics, levels, sound and music remain the property of
+          their owners.
+          EOF
+          files=("dist/pop800-$VERSION.dsk" "dist/pop800-$VERSION.dsk.sha256")
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "The release $TAG exists: replacing its files"
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" --verify-tag --title "Prince of Persia MZ-800 $VERSION" \
+              --notes-file notes.md --generate-notes
+          fi
