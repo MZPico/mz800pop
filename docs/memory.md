@@ -251,7 +251,7 @@ The ROM IPL loads the loader to 0x1200, moves it to 0xB000 and starts it. While 
 | 0x6000-0x9FFF | INBUF1: a RAM-disk record's compressed payload |
 | 0x8000-0x9FFF | INBUF2: a main-RAM record's payload (8 KB at most; these records decompress in place, last) |
 | 0xA000-0xAFFF | TRKBUF: the sectors of one track (multi-sector reads) |
-| 0xB000-0xB93B | the loader / launcher (2,278 bytes of code, font and messages; the WD2793 code src/boot/fdc.asm; at most LN_MAX = 3 KB) and its variables |
+| 0xB000-0xB965 | the loader / launcher (2,406 bytes of code, font and messages (2026-11-14); the WD2793 code src/boot/fdc.asm; at most LN_MAX = 3 KB) and its variables |
 | 0xBF00-0xBFFF | its stack (SP 0xC000) |
 
 VRAM and the CG ROM are mapped only while it draws (title, progress bar). After the RAM-disk probe it copies its own

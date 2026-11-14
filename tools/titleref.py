@@ -13,6 +13,8 @@ Screens are 200 rows of 320 MZ colours (lists).
                      theme stopped F_MUSIC ticks into f (music_stop_tick: after TITLE_PASSES passes)
   wipe(old, new, n)  transition_ltr after n of PRES's 40 8-px columns (SDLPoP: 160 2-px columns, 4 per PRES column)
   fade_in(new, k)    the EGA fade-in after pass k (rows y mod 5 < k from the new screen; DOSBox, §15)
+  loading()          the screen PRES starts from: black with the launcher's "LOADING..." (src/boot/boot.asm LN_LOADING:
+                     msg_load, the loader's 5x7 font src/boot/font.inc at row 100, x 32, colour 7)
 usage: titleref.py [out_dir]   (PNGs of the steps' screens)"""
 import math, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
@@ -65,6 +67,18 @@ STEPS = list(_AE) + [('f', ['MAIN', 'POP', 'MECHNER'], AF_TICKS - AE_TICKS),
 WIPES = ('g',)
 
 def blank(): return [[0] * 320 for _ in range(200)]
+
+def loading(text='LOADING...', x0=32, y0=100, col=7):
+    import re
+    font = [[int(v, 16) for v in re.findall(r'0x([0-9a-f]{2})', l)]
+            for l in open(os.path.join(HERE, '..', 'src', 'boot', 'font.inc')) if l.strip().startswith('db')]
+    s = blank()
+    for i, ch in enumerate(text):
+        g = font[ord(ch) - 0x20]
+        for r in range(7):
+            for b in range(8):
+                if g[r] >> b & 1: s[y0 + r][x0 + 8 * i + b] = col
+    return s
 
 def draw(scr, name):
     res = NAMES[name]; x0, y0, mode = LAYOUT[res]

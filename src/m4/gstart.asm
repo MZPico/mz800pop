@@ -75,6 +75,8 @@ video_init:     ld      a, 0x02
                 out     (PORT_PAL), a
                 ld      a, 0x33
                 out     (PORT_PAL), a
+                call    launched                ; launched: the screen is black but for the launcher's "LOADING..." (PRES
+                ret     z                       ; cleared it), which stays until the room draw covers it (row 100)
                 ld      a, 0x80
                 out     (PORT_WF), a
                 ld      hl, VRAM

@@ -30,6 +30,7 @@ import m5_boot as M5
 import m7_sound
 import sndsim
 import cutsim
+import titleref
 BUILD = os.path.join(ROOT, 'build')
 G = syms(os.path.join(BUILD, 'm4game.sym')); BS = syms(os.path.join(BUILD, 'boot.sym')); PS = syms(os.path.join(BUILD, 'pres.sym'))
 HO = BS['HO_MAIN']; EV = 0x0280
@@ -130,7 +131,8 @@ def write_wav(tr, name, f0=None, f1=None):
 def scene_run(e, cs, tr, F0=None, T0=0, stop=('tc_end', ), last=None, at_start=None):
     """run the scene to a stop label against cutsim's scene cs; F0, T0: the clock's start frame and the scene's first
     tick on it (None: the scene's own OP_SYNC). Checks at every frame the C line, the frame's clock, VRAM after a drawn
-    frame, the fade-in's and fade-out's passes; last: the screen the fade-out clears when nothing was drawn"""
+    frame, the fade-in's and fade-out's passes (the rows not passed yet keep the screen of the first frame's start: black,
+    or "LOADING..." when PRES starts with the scene); last: the screen the fade-out clears when nothing was drawn"""
     screens = list(cutsim.Render(cs).screens())
     want = [l for l in cs.lines if l.startswith('C')]
     c0 = cyc(e)
@@ -141,6 +143,8 @@ def scene_run(e, cs, tr, F0=None, T0=0, stop=('tc_end', ), last=None, at_start=N
     tr.bps()                            # (tracepoints, or breakpoints without tracing: tests/m7_sound.py Tracker)
     m = dict(bad_c=[], bad_v=[], bad_t=[], bad_p=[], bad_o=[], skipped=0, drawn=0, costs=[], lags=[], music=[], load=None, flashes=[], unpz=0, skips=[])
     n = 0; c_start = None; shown = None; addr = {PS[a]: a for a in mine}
+    pre = None          # (the screen under the fade-in's first passes: black, or PRES's start screen with the launcher's
+    ok_pre = ([bytes(8000)] * 4, [bytes(p) for p in planes(titleref.loading())])     # "LOADING..." (LN_LOADING))
     tr.hooks['start'] = lambda f: m['music'].append((tr.pending, n, f - (F0 if F0 is not None else 0)))
     while True:
         r = e.run(1000)
@@ -155,16 +159,20 @@ def scene_run(e, cs, tr, F0=None, T0=0, stop=('tc_end', ), last=None, at_start=N
             if g['palette'][:4] != [0, 5, 6, 7] or g['regPALGRP'] != 1: m.setdefault('bad_pal', []).append((n, g['palette'][:4], g['regPALGRP']))
             if at_start: at_start(e, n)
         elif a == 'ts_sync':
-            F0 = frames(e); m['load'] = (cyc(e) - c0) / FRAME_T
+            F0 = word(e, PS['t_target']); m['load'] = (cyc(e) - c0) / FRAME_T
         elif a == 'tc_unpz': m['unpz'] += 1
         elif a == 'tcf_pass':
             k = e.mem(PS['t_col'], 1)[0]
             f = cs.frames[n - 1]
-            ref = [bytes(bytearray(fp[i] if (i // 40) % 5 <= k else 0 for i in range(8000))) for fp in planes(screens[n - 1])]
+            if pre is None:             # (the rows the first pass has not drawn yet: which of the two screens)
+                cur = e.vram_planes()
+                pre = next((c for c in ok_pre if all(cp[i] == pp[i] for cp, pp in zip(cur, c) for i in range(8000) if (i // 40) % 5 > k)), None)
+                if pre is None: m['bad_p'].append(('the screen under the fade-in: neither black nor LOADING...', k)); pre = ok_pre[0]
+            ref = [bytes(bytearray(fp[i] if (i // 40) % 5 <= k else pp[i] for i in range(8000))) for fp, pp in zip(planes(screens[n - 1]), pre)]
             d = diff_px(e.vram_planes(), ref)
             tgt = word(e, PS['t_target']) - F0; wt = (T0 + f['tick'] + 4 * k) * 5 // 6
             if d[0] or tgt != wt: m['bad_p'].append((k, d, tgt, wt))
-            if k == 4: shown = screens[n - 1]
+            if k == 4: shown = screens[n - 1]; pre = None
         elif a == 'tfo_pass':
             k = e.mem(PS['t_col'], 1)[0]
             f = cs.frames[n - 1]

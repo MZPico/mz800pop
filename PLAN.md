@@ -1318,3 +1318,13 @@ piece used AND/XOR semantics.
    are uneven (L2 R6, L1 R24, L2 R20, L8 R4: options for the user). Resident +67 B (2,732, 159 free in the holes),
    PR3 19 blocks (+1). Twelve new scripts (spike_c_*), four D18 scripts gone; duel_z80 0 differing lines at 512 KB / 1 MB
    (4 MB in CI), duel_net, duel_boot.
+98. "LOADING..." in the waits between the programs (2026-11-14, docs/m7-design.md section 10.1): the launcher's new
+   entry LN_LOADING (0xB009) prints the loading screen's "LOADING..." (row 100, x 32) on the black screen before the GAME
+   image is restored, and PRES calls it after its video_init; the launched game's video_init no longer clears the
+   screen (it is black but for the text), so the text stays until the first room draw covers it. Measured before (the
+   emulator, no floppy rotation): title -> game 2.4 / 3.9 / 7.6 s black at 512 KB / 1 MB / 4 MB, the cutscene's loads
+   3.4 s, the swap after a cutscene 2.4 s, the title's art after the boot or a game over 4.1 s: all now show the text.
+   Still black: the cutscene's music tail (5.4 s after level 1's scene, as SDLPoP waits for the music with the screen
+   cleared). In-game level changes keep the old room as before. Launcher +9 B, PRES +3 B (2 B left before the cutscene
+   art stops fitting: tools/cutart.py, a 62-byte sprite; mkgamedisk's DUEL_PRES_BYTES check covers only the title art),
+   level-start overlay +4 B, resident 0 (m4game.bin unchanged). VRAM 13 ticks after each level start identical to before.

@@ -177,6 +177,7 @@ pr_opt:         ld      a, (ho + HO_OPTIONS)
                 ld      (spo_4), hl             ; (the fade's writes)
                 ld      (spo_5), hl
 pr_snd:         call    video_init
+                call    LN_LOADING      ; "LOADING..." until the first picture (the title's or the scene's fade-in covers it)
                 ld      a, (ho + HO_ACTION)
                 cp      ACT_TITLE
                 jp      z, title
