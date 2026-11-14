@@ -157,7 +157,10 @@ rs_m1:          call    rs_area
                 ld      a, 255
 rs_h2:          ld      (rd_spd), a
                 call    rs_show
+                if      defined DIAG                    ; (the floppy diagnostic build: no network line, room for dg_show)
+                else
                 call    net_line                ; (bootscr.asm: the network line under it)
+                endif
                 ld      hl, (rs_gav)            ; the stop
                 ld      de, (rd_max)
                 ex      de, hl

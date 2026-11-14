@@ -166,6 +166,8 @@ jobs:
         run: |
           mkdir dist
           cp build/pop800.dsk "dist/pop800-$VERSION.dsk"
+          # every sector's EDSK length 128 << N (mzdisk writes 0: a floppy written by Greaseweazle then has no data)
+          python3 tools/edsk.py check "dist/pop800-$VERSION.dsk"
           (cd dist && sha256sum "pop800-$VERSION.dsk" > "pop800-$VERSION.dsk.sha256" && cat ./*.sha256)
 
       - uses: actions/upload-artifact@v4.6.0

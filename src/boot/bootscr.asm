@@ -86,6 +86,8 @@ NP_DATA         equ     0x51
 NB              equ     TRKBUF + 0x380          ; the status / output bytes (TRKBUF: free until the directory)
 net_res         equ     TRKBUF + 0x37f
 
+                if      defined DIAG
+                else
 net_line:       call    net_det
                 ld      a, 1
                 jr      nz, nl_0
@@ -169,3 +171,4 @@ s_net:          db      "NETWORK: ", 0
 s_mzp:          db      "MZPICO NET", 0
 s_none:         db      "NONE", 0
 s_duel:         db      " (DUEL: CTRL+D)", 0
+                endif

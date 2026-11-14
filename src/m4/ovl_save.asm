@@ -14,6 +14,7 @@ sv_mute_s:      call    snd_halt
 sv_mute_l:      call    snd_halt
                 jp      load_saved
 
+SV_PRES         equ     0               ; (save.asm sv_off: the motor off after the save)
                 include "../m4/save.asm"
 ovl_end:
                 if ovl_end > SV_SEC

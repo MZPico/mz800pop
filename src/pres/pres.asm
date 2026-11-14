@@ -197,7 +197,7 @@ p_kind:         ld      (cut_kind), a
                 ld      sp, P_STACK
                 ld      a, PRS_SOUND    ; (bank A: the cutscene piece, the hourglass piece, the title theme)
                 call    load_bank
-                ld      a, PRS_CROOM
+                ld      a, PRS_CROOM + PRS_KEEP ; (the scene's sprites follow: cut_setup)
                 call    LN_PRS_LOAD
                 jp      cut_main
 ; p_cutplay: after the cutscene: the level (ho as it came: the time and the hit points unchanged)
@@ -269,7 +269,8 @@ tl_1:           ld      a, (hl)
                 pop     hl
                 inc     hl
                 jr      tl_1
-tl_ents:        db      PRS_T_MAIN, PRS_T_PG, PRS_T_LOGO, PRS_T_FRAME, PRS_T_ABS, 0xff
+tl_ents:        db      PRS_T_MAIN + PRS_KEEP, PRS_T_PG + PRS_KEEP, PRS_T_LOGO + PRS_KEEP, PRS_T_FRAME + PRS_KEEP, PRS_T_ABS, 0xff ; (PRS_KEEP: the next load
+                                                                ; follows at once: the motor runs on)
 tl_2:           call    irq_init        ; (EI; the player stopped)
                 ld      a, 1            ; (psg.asm: snd_playing asks the player; PRES's waits do not ask it)
                 ld      (SND_MODE), a
@@ -422,7 +423,7 @@ op_cret:        call    pal_off
 ; op_cscene: h: the loads (the music pauses meanwhile), then pv_scene's script (its first wait: the music of g ends)
 op_cscene:      ld      hl, (t_pc)
                 ld      (t_ret), hl
-                ld      a, PRS_CROOM
+                ld      a, PRS_CROOM + PRS_KEEP ; (pv_scene's sprites follow: cut_setup)
                 call    do_load
                 jp      cut_pv
 ; pal_off: the palette as the title has it (cut.asm pal_on: the cutscenes' own)
@@ -507,13 +508,14 @@ tfo_pass:       ld      de, 4           ; (tests/m7_title.py: pass t_col is on t
                 ret
 
 ; load_bank: A = a sound bank's POP800.PRS entry: to the torch cache (SBANK_MAX bytes through SBANK_TMP) unless it is
-; the one there (bank_cur). With the interrupts off (the title's and p_cutscene's loads); op_loadb while the music
+; the one there (bank_cur); the motor kept running (its two callers load again at once). With the interrupts off (the title's and p_cutscene's loads); op_loadb while the music
 ; runs: the stream pauses for the floppy (do_load) and goes on after: a piece at the same bank address in both banks
 ; (tools/presbank.py SHARED: the hourglass piece of g in A and B) plays on across the reload at h.
 load_bank:      ld      hl, bank_cur
                 cp      (hl)
                 ret     z
                 ld      (hl), a
+                or      PRS_KEEP        ; (the title's art or the cutscene's room follows at once: the motor runs on)
                 call    LN_PRS_LOAD
 lb_copy:        ld      a, PSG_BANK_PAGE
                 ld      de, PSG_BANK_ADDR
@@ -1123,6 +1125,7 @@ isr:            push    af
                 include "../m1/far.asm"
                 include "../m4/psg.asm"
                 include "../boot/unpz.asm"
+SV_PRES         equ     1               ; (save.asm sv_off: the motor off through the launcher, LN_MOTOR_OFF)
                 include "../m4/save.asm"        ; load_saved (Ctrl+L); its save_game is not used here
 
 ; ---------------------------------------------------------------- the title's steps (docs/m7-design.md §1.2; SDLPoP ticks)
@@ -1171,14 +1174,14 @@ title_steps:    db      OP_DRAW, SLOT_MAIN, TGT_P1      ; (load_title_images: th
                 db      OP_FADEOUT, OP_MSTOP            ;   silence at fade_out_2's last pass (the text gone)
                 db      OP_STEP, 'h', OP_LOADB, PRS_SND_B, OP_CSCENE    ; h: bank B, pv_scene (cut.asm s_pv: waits for
                                                                 ; music 55's DOS end first, as load_intro; silent until its cue 50)
-                db      OP_LOAD, PRS_T_FRAME, OP_LOAD, PRS_T_MARRY, OP_DRAW, SLOT_FRAME, TGT_P1, OP_DRAW, SLOT_MARRY, TGT_P1
+                db      OP_LOAD, PRS_T_FRAME + PRS_KEEP, OP_LOAD, PRS_T_MARRY, OP_DRAW, SLOT_FRAME, TGT_P1, OP_DRAW, SLOT_MARRY, TGT_P1
                 db      OP_WAIT
                 dw      TITLE_I_LOAD                    ; (their decoding: the screen stays black, silent)
                 db      OP_FADEIN, 52                   ; fade_in_2, the Grand Vizier again (DOS 52's screen; pv_scene's
                                                         ;   faded out at its end)
                 db      OP_STEP, 'i', OP_MFADEM, OP_WAITM       ; i: frame + "Marry Jaffar", until music 52's DOS end, the
                 db      OP_MSTOP, OP_LOADB, PRS_SND_C   ;   piece faded out over its last 54 ticks (the DOS is silent from here: bank C)
-                db      OP_LOAD, PRS_T_MAIN, OP_LOAD, PRS_T_LOGO, OP_LOAD, PRS_T_CRED
+                db      OP_LOAD, PRS_T_MAIN + PRS_KEEP, OP_LOAD, PRS_T_LOGO + PRS_KEEP, OP_LOAD, PRS_T_CRED
                 db      OP_DRAW, SLOT_MAIN, TGT_P1, OP_DRAW, SLOT_POP, TGT_P1, OP_DRAW, SLOT_MECHNER, TGT_P1, OP_WAIT
                 dw      TITLE_J_LOAD                    ; (SDLPoP draws j's screen during i's wait: the floppy would stop 52)
                 db      OP_STEP, 'j', OP_MUSIC, MUSIC_TITLE, OP_WIPE, OP_MFEND  ; j: main + logo + copyright (the wipe), the
@@ -1194,7 +1197,7 @@ TITLE_I_LOAD    equ     110                             ; ticks for the decoding
 TITLE_J_LOAD    equ     130                             ; ticks for MAIN + logo + copyright
 
 ; the ending after the embrace (end_sequence, SDLPoP seg001.c; no Hall of Fame: D7): cut.asm's s_end returns here
-ending_steps:   db      OP_LOAD, PRS_T_FRED, OP_LOAD, PRS_T_HAIL, OP_LOAD, PRS_T_MAIN
+ending_steps:   db      OP_LOAD, PRS_T_FRED + PRS_KEEP, OP_LOAD, PRS_T_HAIL + PRS_KEEP, OP_LOAD, PRS_T_MAIN
                 db      OP_DRAW, SLOT_FRAMER, TGT_P1, OP_DRAW, SLOT_HAIL, TGT_P1
                 db      OP_STEP, 'p', OP_MUSE
                 dw      CUT_L56                         ; (the title theme started with the embrace loops on: no new music;

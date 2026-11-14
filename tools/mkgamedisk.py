@@ -34,6 +34,8 @@ The file outgrew one FSMZ file (0xFF00 bytes): its tail is the file POP800.PR2, 
 may lie in either file or across both, and the launcher needs no change.
 usage: mkgamedisk.py <out.dsk> <boot.mzf> [--mzdisk DIR]"""
 import hashlib, json, multiprocessing, os, re, struct, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import edsk
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import pzpack, cutart, sndconv
@@ -131,7 +133,9 @@ def reserved():
     """[(page, address, length, what)]: the RAM-disk areas the boot / launcher / game write besides the stream's
     setup() data: the launcher's copy, the handoff block, the GAME image's pieces (as used)"""
     L = launcher_syms()
-    out = [(L['LN_RD_PAGE'], L['LN_RD_ADDR'], L['LN_MAX'], 'launcher'), (L['HO_RD_PAGE'], L['HO_RD_ADDR'], L['HO_SIZE'], 'handoff')]
+    out = [(L['LN_RD_PAGE'], L['LN_RD_ADDR'], L['PRS_TAB_OFF'], 'launcher'),
+           (L['LN_RD_PAGE'], L['PRS_TAB_RD_ADDR'], L['PRS_TAB_MAX'], 'POP800.PRS table'),
+           (L['HO_RD_PAGE'], L['HO_RD_ADDR'], L['HO_SIZE'], 'handoff')]
     for page, addr, data in game_image_writes():
         out.append((page, addr, len(data), 'game image'))
     return out
@@ -182,7 +186,7 @@ def ramdisk_image(game=True):
         assert not any(mask[a:a + len(data)]), ('RAM-disk writes overlap', page, hex(addr))
         img[a:a + len(data)] = data; mask[a:a + len(data)] = b'\1' * len(data)
     L = launcher_syms()
-    for page, addr, n, what in reserved()[:2]:
+    for page, addr, n, what in reserved()[:3]:
         a = page * 65536 + addr; assert not any(mask[a:a + n]), (what, 'overlaps the data')
     return img, mask
 
@@ -211,13 +215,16 @@ def pack_cached(data):
     kind, payload = pzpack.pack_block(data)
     if kind:
         r, used = pzpack.decompress(payload); assert r == data and used == len(payload), 'PZ round trip failed'
-    with open(path + '.tmp', 'wb') as f: f.write(bytes([kind]) + payload)
-    os.replace(path + '.tmp', path)
+    os.makedirs(CACHE, exist_ok=True)               # (a clean build: prs_file packs before build_stream)
+    tmp = '%s.%d.tmp' % (path, os.getpid())         # (the pool's workers may pack the same block at once)
+    with open(tmp, 'wb') as f: f.write(bytes([kind]) + payload)
+    os.replace(tmp, path)
     return kind, payload
 
-def build_stream():
+def build_stream(extra=()):
+    """the D files; extra: [(page, address, raw)] RAM-disk records after the data (the POP800.PRS table)"""
     os.makedirs(CACHE, exist_ok=True)
-    blks = blocks()
+    blks = blocks() + list(extra)
     total_raw = sum(len(b[2]) for b in blks); done = [0]
     def bar(i):
         done[0] += len(blks[i][2]); return done[0] * BAR // total_raw
@@ -390,14 +397,46 @@ def main():
         raise
     os.replace(out, target)
 
+# The files the boot and the game look up by name in the FSMZ directory: the boot's dir_read and save.asm's sv_find read
+# only its first block (16: 8 entries), so these must be in it (2026-11-14: the directory track is dense flux)
+FSMZ_FIRST = 48             # the file area's first block (the bootstrap is put there first)
+
+def prs_table(prs, prs_block, L):
+    """the launcher's POP800.PRS table (launch.inc PRS_TAB_*): per entry its absolute first block and block count,
+    from the file's index block; zeros after the last entry (0 blocks: no such entry)"""
+    n = struct.unpack_from('<H', prs, 0)[0]
+    assert 4 * n <= L['PRS_TAB_MAX'] and n <= 64, 'POP800.PRS has more entries than its table holds'
+    tab = b''.join(struct.pack('<HH', prs_block + struct.unpack_from('<H', prs, 2 + 4 * k)[0],
+                               struct.unpack_from('<H', prs, 4 + 4 * k)[0]) for k in range(n))
+    return tab.ljust(L['PRS_TAB_MAX'], b'\0')
+
+def check_lookups(d, names):
+    """every name looked up must be in the directory's first block"""
+    have = edsk.dir_names(d, 16)
+    missing = [n for n in names if n not in have]
+    assert not missing, ('files the boot or the save look up are not in directory block 16 (its only block read): %s '
+                         '(block 16 holds %s)' % (missing, have))
+
 def build_disk(out, boot, mzd):
-    files, st = build_stream()
+    L = launcher_syms()
+    prs, lens, ts = prs_file()
+    # the launcher's POP800.PRS table goes into the boot's stream; where POP800.PRS lands depends on the stream's length,
+    # which depends (a little) on the table: settle it (the files are put one after another from FSMZ_FIRST)
+    boot_blocks = (struct.unpack_from('<H', open(boot, 'rb').read(), 0x12)[0] + 255) // 256
+    prs_block = 0
+    for _ in range(5):
+        tab = prs_table(prs, prs_block, L)
+        files, st = build_stream([(L['LN_RD_PAGE'], L['PRS_TAB_RD_ADDR'], tab)])
+        at = FSMZ_FIRST + boot_blocks + sum(len(f) // 256 for f in files) + 1      # (+ POP800.SAV)
+        if at == prs_block: break
+        prs_block = at
+    else:
+        raise AssertionError('the POP800.PRS table does not settle')
     print('data stream: %d records (%d stored), %d bytes raw -> %d bytes packed (%.1f%%), %d bytes in %d files' % (
         st['records'], st['stored'], st['raw'], st['packed'], 100.0 * st['packed'] / st['raw'], st['stream'], len(files)))
     gw = game_image_writes()
     print('GAME image in the RAM disk: %d bytes (%s)' % (sum(len(d) for _, _, d in gw),
           ', '.join('page %d %04X-%04X' % (p, a, a + len(d) - 1) for p, a, d in gw)))
-    prs, lens, ts = prs_file()
     print('POP800.PRS + PR2 + PR3: %d bytes (index 256, entries: %s); title art: %d bands, %d bytes PZ (title.pack %d raw), %d bytes free for it in PRES' % (
           len(prs), ', '.join('%s %d' % (a, b // 256) for a, b in zip(ts['names'], lens)), ts['bands'], ts['pz'], ts['raw'], ts['free']))
     print('  cutscenes: %s' % ', '.join('%s %s' % kv for kv in ts['cut'].items()))
@@ -429,6 +468,7 @@ def build_disk(out, boot, mzd):
     if PR2_NAME in fb:                  # the launcher reads POP800.PRS's entries as blocks counted from its first one
         assert fb[PR2_NAME]['block'] == fb[PRS_NAME]['block'] + fb[PRS_NAME]['block_count'], 'POP800.PR2 must follow POP800.PRS'
     assert fb[PR3_NAME]['block'] == fb[PR2_NAME]['block'] + fb[PR2_NAME]['block_count'], 'POP800.PR3 must follow POP800.PR2'
+    assert fb[PRS_NAME]['block'] == prs_block, ('POP800.PRS is at block %d, its table says %d' % (fb[PRS_NAME]['block'], prs_block))
     print(run('mzdsk-fsmz', out, 'boot').split('Reading bootstrap header ...')[-1].strip().replace('\n\n', '\n'))
     for f in d['files']:
         print('  %-10s block %4d, %4d blocks (%d bytes)' % (f['name'], f['block'], f['block_count'], f['size']))
@@ -440,6 +480,12 @@ def build_disk(out, boot, mzd):
     assert duel <= DUEL_BLOCKS and DISK_BLOCKS - before >= DUEL_BLOCKS, \
         'the floppy: %d blocks free before the duel\'s, the duel keeps %d and uses %d (docs/duel-design.md 1.5)' % (
         DISK_BLOCKS - before, DUEL_BLOCKS, duel)
+    # mzdisk leaves every sector's "actual data length" 0: a real floppy written from it (Greaseweazle) has sectors
+    # without data and does not boot (tools/edsk.py)
+    n = edsk.fix(out)
+    assert not edsk.check(out), edsk.check(out)[:3]
+    check_lookups(open(out, 'rb').read(), [n for n in names if n.startswith('POP800.D')] + [SAVE_NAME])
+    print('  sector lengths: %d set to 128 << N (tools/edsk.py)' % n)
 
 if __name__ == '__main__':
     main()

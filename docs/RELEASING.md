@@ -7,6 +7,9 @@ https://github.com/MZPico/mz800pop/releases (the README points there).
 ## What a release holds
 
 - `pop800-X.Y.Z.dsk`: the game disk, as `make ci-build` builds `build/pop800.dsk` (the release build: no cheats).
+  Every sector's Extended DSK length field is 128 << N (tools/mkgamedisk.py sets them, tools/edsk.py; mzdisk
+  writes 0, and a floppy written from such an image by Greaseweazle does not boot); the workflow checks it
+  (`python3 tools/edsk.py check`) before it publishes the file.
 - `pop800-X.Y.Z.dsk.sha256`: its SHA-256 checksum (`sha256sum -c pop800-X.Y.Z.dsk.sha256`).
 - The notes: a short user-facing paragraph (what the file is, what the machine needs, a link to the README at that
   tag, the rights note), followed by GitHub's generated list of the changes since the previous release.

@@ -29,7 +29,19 @@ fr_byte:        in      a, (FD_CMD)     ; bit 0 = not busy, bit 1 = no DRQ (inve
                 jr      nz, fr_sec
                 ld      a, 0xd8         ; force interrupt (ROM E658h)
                 call    fd_cmd
-fr_ended:       in      a, (FD_CMD)
+fr_ended:
+                if      defined FD_DIAG
+                in      a, (FD_TRK)     ; (boot.asm DIAG: the WD's track and sector registers, its status)
+                cpl
+                ld      (dg_wtrk), a
+                in      a, (FD_SEC)
+                cpl
+                ld      (dg_wsec), a
+                in      a, (FD_CMD)
+                cpl
+                ld      (dg_st), a
+                endif
+                in      a, (FD_CMD)
                 cpl
                 or      d               ; error if it stopped before the last sector
                 ret
@@ -70,7 +82,13 @@ fd_pos:         ld      c, a
                 cpl
                 out     (FD_DATA), a
                 ld      a, 0x1b         ; seek, head load, 30 ms steps (the ROM's command)
+                if      defined FD_DIAG
+                ld      (dg_cmd), a
                 call    fd_type1
+                ld      (dg_st), a
+                else
+                call    fd_type1
+                endif
                 and     0x99            ; (fd_type1 waited ~60 ms after it, as the ROM does)
                 ret     nz
 fp_1:           ld      a, c
@@ -83,19 +101,25 @@ fp_1:           ld      a, c
                 ret
 
 fd_rcmd:        db      0x94
-; fd_go: A = a type II command (true bits): out, wait for BUSY. Z = busy, NZ = timeout.
-fd_go:          cpl
+; fd_go: A = a type II command (true bits): out, wait for BUSY (it sets within microseconds; 256 polls = ~2 ms after
+; the ~110 us delay). Z = busy, NZ = the command did not start.
+fd_go:
+                if      defined FD_DIAG
+                ld      (dg_cmd), a
+                endif
+                cpl
                 out     (FD_CMD), a
                 call    delay_short
-                ld      bc, 0
+                ld      b, 0
 fg_1:           in      a, (FD_CMD)
                 rrca
                 jr      nc, fg_ok
-                dec     bc
-                ld      a, b
-                or      c
-                jr      nz, fg_1
-                inc     a               ; NZ: timeout
+                djnz    fg_1
+                if      defined FD_DIAG
+                ld      a, 0xee         ; (the command did not start)
+                ld      (dg_st), a
+                endif
+                inc     b               ; NZ
                 ret
 fg_ok:          xor     a
                 ret
@@ -106,7 +130,9 @@ fd_type1:       call    fd_cmd
                 call    delay_long
                 pop     af
                 ret
-; fd_cmd: A = command (true bits): out, wait until not busy. Out: A = status (true bits).
+; fd_cmd: A = command (true bits): out, wait until not busy (at most ~9 s: 65536 polls ~130 us apart; the ROM waits
+; ~6 s, E568h. A seek or restore steps 30 ms a cylinder: 39 cylinders take 1.2 s, more than the 0.9 s this loop
+; waited until 2026-11-14, which left the FDC busy and the next command ignored). Out: A = status (true bits).
 fd_cmd:         cpl
                 out     (FD_CMD), a
                 call    delay_short
@@ -115,6 +141,7 @@ fd_cmd:         cpl
 fc_1:           in      a, (FD_CMD)
                 rrca
                 jr      c, fc_2
+                call    delay_short
                 dec     hl
                 ld      a, h
                 or      l

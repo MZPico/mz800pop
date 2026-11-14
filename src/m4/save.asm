@@ -170,9 +170,15 @@ ss_1:           ld      a, c
                 inc     hl
                 djnz    ss_1
                 ret
-; sv_off: the motor off (as the ROM does after a load), interrupts on
-sv_off:         xor     a
+; sv_off: the motor off (as the ROM does after a load), interrupts on. In PRES (SV_PRES 1) through the resident
+; launcher (LN_MOTOR_OFF), which records it (boot.asm fd_on): its next load then waits for the spin-up.
+sv_off:
+                if      SV_PRES = 0
+                xor     a
                 out     (FD_MOTOR), a
+                else
+                call    LN_MOTOR_OFF
+                endif
                 ei
                 ret
 ; sv_ts: sv_blk -> A = logical track (block / 16), E = sector (block mod 16 + 1), D = 1 (keeps nothing else)
@@ -182,20 +188,21 @@ sv_ts:          ld      hl, (sv_blk)
                 inc     a
                 ld      e, a
                 ld      d, 1
-                ld      a, l
-                srl     h
-                rra
-                srl     h
-                rra
-                srl     h
-                rra
-                srl     h
-                rra
+                add     hl, hl          ; (blocks < 4096: H = block / 16)
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                ld      a, h
                 ret
 
-; sv_find: drive 0 on (wait for READY), the directory read, sv_blk = POP800.SAV's start block. Z = found.
+; sv_find: drive 0 on, the spin-up wait, READY, the directory read, sv_blk = POP800.SAV's start block. Z = found.
+; The motor is off here in the game (the launcher stops it before it starts the game) and may be either in PRES:
+; always the full spin-up (~1 s, 16 x 60 ms as the ROM, E517h; a PC drive reports READY at once, or has no READY).
 sv_find:        ld      a, 0x84                 ; drive 0, motor on (the loader's fd_init)
                 out     (FD_MOTOR), a
+                ld      b, 16
+sf_spin:        call    delay_long
+                djnz    sf_spin
                 ld      hl, 0
 sf_rdy:         in      a, (FD_CMD)             ; READY: status bit 7 low (inverted bus)
                 cpl
@@ -212,12 +219,12 @@ sf_go:          ld      a, 0xff                 ; the head's cylinder is not kno
                 xor     a
                 ld      (sv_wr), a
                 ld      a, 1
-                ld      de, 0x0801              ; 8 sectors from sector 1
-                ld      hl, SV_DIR
+                ld      de, 0x0101              ; the directory's first block (POP800.SAV's entry is in it: mkgamedisk
+                ld      hl, SV_DIR              ; checks; the track is dense flux, src/boot/boot.asm dir_read)
                 call    sv_io
                 ret     nz
                 ld      hl, SV_DIR
-                ld      b, 64
+                ld      b, 8                    ; (one block of entries)
 sf_ent:         push    bc
                 push    hl
                 ld      a, (hl)                 ; (type 0: a free entry)
@@ -252,13 +259,13 @@ sf_next:        pop     hl
                 ret
 
 ; sv_io: A = logical track, E = first sector, D = sectors, HL = buffer, sv_wr = 1: write (one sector), 0: read.
-; Up to 4 tries, a restore before each retry (the loader's fd_read_retry). Z = ok.
-sv_io:          ld      b, 4
-sio_1:          push    bc
+; Up to 6 tries; after a failed one a restore, ~0.3 s (a slow drive settles) and a seek again (the loader's
+; fd_read_retry). Z = ok (A = 0). Keeps D, E, HL.
+sv_io:          ld      b, 6
+sio_1:          ld      c, a
+                push    bc
                 push    de
                 push    hl
-                push    af
-                ld      c, a
                 ld      a, (sv_wr)
                 or      a
                 ld      a, c
@@ -267,23 +274,21 @@ sio_1:          push    bc
                 jr      sio_2
 sio_r:          call    fd_read
 sio_2:          jr      z, sio_ok
-                ld      a, 0x0b                 ; restore, then seek again
+                ld      a, 0x0b                 ; restore (and its ~60 ms), ~240 ms more, then seek again
                 call    fd_type1
+                ld      b, 4
+sio_w:          call    delay_long
+                djnz    sio_w
                 ld      a, 0xff
                 ld      (fd_cyl), a
-                pop     af
-                pop     hl
+                or      a                       ; NZ
+sio_ok:         pop     hl
                 pop     de
                 pop     bc
+                ret     z
+                ld      a, c
                 djnz    sio_1
-                or      1
-                ret
-sio_ok:         pop     af
-                pop     hl
-                pop     de
-                pop     bc
-                xor     a
-                ret
+                ret                             ; NZ: every try failed
 
                 include "../boot/fdc.asm"
 sv_magic:       db      "POP8", 1

@@ -22,6 +22,9 @@
 ; VRAM (0x8000-0x9FFF) and the CG ROM (0x1000-0x1FFF) are mapped only while drawing (draw_on / draw_off).
 
                 include "launch.inc"
+                if      defined DIAG
+FD_DIAG         equ     1               ; (fdc.asm: the diagnostic hooks; dg_show)
+                endif
 LOAD            equ     LN_LOAD
 STACK           equ     0xc000
 TRKBUF          equ     0xa000          ; 4 KB: one track (16 x 256)
@@ -59,6 +62,7 @@ prs_load:       jp      prs_load_main   ; LN_PRS_LOAD
 ; launched game does not clear the screen (src/m4/gstart.asm video_init): the text stays until the room draw covers it.
 loading:        ld      hl, msg_load
                 jp      print_at
+mot_off:        jp      motor_off       ; LN_MOTOR_OFF
                 if launch - LN_LAUNCH
                 .error the launcher's entries moved
                 endif
@@ -66,6 +70,9 @@ loading:        ld      hl, msg_load
                 .error the launcher's entries moved
                 endif
                 if loading - LN_LOADING
+                .error the launcher's entries moved
+                endif
+                if mot_off - LN_MOTOR_OFF
                 .error the launcher's entries moved
                 endif
 boot_main:      di
@@ -87,8 +94,12 @@ rd_measured:                            ; (harness breakpoint: rd_speed done)
                 call    rd_out
                 ld      hl, msg_load
                 call    print_at
-                ld      a, 1
-                ld      (bar_on), a
+                if      defined DIAG
+                ld      a, 0xff         ; (dg_who: the boot's own load)
+                ld      (dg_who), a
+                endif
+                ld      hl, 0x0101      ; bar_on, and fd_on: the ROM's IPL load left the motor running (E5F6h)
+                ld      (bar_on), hl
                 call    bar_init
                 call    fd_init
                 call    dir_read
@@ -116,9 +127,7 @@ rd_measured:                            ; (harness breakpoint: rd_speed done)
                 call    bar_fill
                 ld      hl, ho_fill
 bt_ho:          push    hl
-                ld      a, HO_RD_PAGE
-                ld      de, HO_RD_ADDR
-                call    rd_seek
+                call    ho_seek
                 pop     hl
                 ld      de, HO_SIZE
                 call    rd_out
@@ -131,11 +140,9 @@ launch_main:    di
                 out     (0xe1), a
                 call    psg_off         ; (M7: the PSG muted before the floppy reads with interrupts off)
                 call    draw_off
-                xor     a
-                ld      (bar_on), a
-                ld      a, HO_RD_PAGE
-                ld      de, HO_RD_ADDR
-                call    rd_seek
+                call    motor_off       ; (A = 0) stopped while a program runs: the game never needs it (its save
+                ld      (bar_on), a     ; overlay runs it itself), PRES's first load waits for the spin-up
+                call    ho_seek
                 ld      hl, ho_buf
                 ld      de, HO_SIZE
                 call    rd_in
@@ -157,8 +164,8 @@ launch_main:    di
                 bit     ACT_PRES_BIT, a
                 jr      nz, ln_pres
 ln_duel1:       bit     ACT_DUEL_BIT, a ; the duel (src/duel/duel.asm): its staged pieces into the RAM disk's scratch
-                ld      a, PRS_DUEL1    ; first (a RAM-disk record: through the buffers the game's image overwrites)
-                call    nz, prs_load_main
+                ld      a, PRS_DUEL1 + PRS_KEEP ; first (a RAM-disk record: through the buffers the game's image
+                call    nz, prs_load_main       ; overwrites; the motor kept on for PRS_DUEL below)
 ln_duel1_end:   call    loading         ; "LOADING..." while the game is restored and starts (the screen is black)
                 ld      a, 1            ; the game: its compressed image from the RAM disk
                 ld      (s_src), a
@@ -175,15 +182,20 @@ ln_duel2:       ld      a, (ho_buf + HO_ACTION) ; the duel: its piece over the g
                 ld      a, PRS_DUEL
                 call    nz, prs_load_main
 ln_duel2_end:   jp      GAME_START
-ln_pres:        xor     a               ; PRES: entry 0 of POP800.PRS
+ln_pres:        ld      a, PRS_KEEP     ; PRES: entry 0 of POP800.PRS (the motor kept on: PRES loads next)
                 call    prs_load_main
                 jp      PRES_START
 
-; prs_load_main (LN_PRS_LOAD): A = entry of POP800.PRS: its record stream (main-RAM records only) into main RAM.
+; prs_load_main (LN_PRS_LOAD): A = entry of POP800.PRS: its record stream (main-RAM records only) into main RAM; bit 7
+; of A (PRS_KEEP): the motor keeps running after it (another load follows at once), else it stops (fd_on 0).
 ; POP800.PRS (tools/mkgamedisk.py): block 0 = the index: entry count (word), then per entry the first block (word,
-; from the start of the file) and the block count (word); entry 0 is PRES, the others the scenes. Interrupts off,
-; the motor off at the end. Uses TRKBUF, INBUF2 and the launcher's own memory (0xA000-0xBFFF, 0x8000-0x9FFF).
+; from the start of the file) and the block count (word); entry 0 is PRES, the others the scenes. The launcher reads the
+; same as absolute blocks from the RAM disk's POP800.PRS table (launch.inc PRS_TAB_RD_ADDR, the boot's stream wrote it). Interrupts off,
+; the motor off at the end (unless PRS_KEEP). Uses TRKBUF, INBUF2 and the launcher's own memory (0xA000-0xBFFF, 0x8000-0x9FFF).
 prs_load_main:  di
+                if      defined DIAG
+                ld      (dg_who), a     ; (the entry, PRS_KEEP included)
+                endif
                 push    af
                 call    psg_off         ; (M7: the PSG muted before the floppy reads with interrupts off)
                 xor     a
@@ -192,53 +204,31 @@ prs_load_main:  di
                 ld      (f_cnt), a      ; (no next file: a 0xFE record is a data error)
                 ld      (f_idx), a
                 call    fd_init
-                call    dir_read
-                ld      de, prs_name
-                call    dir_find
-                jp      nz, data_err
-                ld      (s_blk), hl
-                ld      a, l            ; the index: the file's first block
-                and     15
-                inc     a
-                ld      e, a
-                ld      a, l
-                srl     h
-                rra
-                srl     h
-                rra
-                srl     h
-                rra
-                srl     h
-                rra
-                ld      d, 1
-                ld      hl, TRKBUF
-                call    fd_read_retry
-                pop     af
-                ld      hl, TRKBUF
-                cp      (hl)
-                jp      nc, data_err
+                pop     af              ; its blocks: the POP800.PRS table in the RAM disk (no directory, no index read:
+                push    af              ; the head goes straight to the entry's data)
+                and     0x7f            ; (PRS_KEEP)
                 add     a, a
                 add     a, a
                 ld      e, a
-                ld      d, 0
-                ld      hl, TRKBUF + 2
-                add     hl, de
-                ld      e, (hl)
-                inc     hl
-                ld      d, (hl)
-                inc     hl
-                ld      c, (hl)
-                inc     hl
-                ld      b, (hl)
-                ld      hl, (s_blk)
-                add     hl, de
-                ld      (s_blk), hl
-                ld      (s_left), bc
+                ld      d, PRS_TAB_RD_ADDR >> 8
+                ld      a, LN_RD_PAGE
+                call    rd_seek
+                ld      hl, s_blk       ; s_blk, s_left: the first block, the block count
+                ld      de, 4
+                call    rd_in
+                ld      hl, (s_left)
+                ld      a, h
+                or      l
+                jp      z, data_err     ; (no such entry)
                 ld      hl, 0
                 ld      (t_left), hl
                 call    load_stream
-                xor     a               ; motor off
+                pop     af
+                rlca                    ; PRS_KEEP: the motor stays on
+                ret     c
+motor_off:      xor     a               ; the motor off; fd_on 0: the next fd_init waits for the spin-up. A = 0
                 out     (FD_MOTOR), a
+                ld      (fd_on), a
                 ret
 
 ; psg_off: attenuation 15 (off) on the four PSG channels (port F2h): a tone the game or PRES left playing would
@@ -323,8 +313,10 @@ rec_bar:        ld      a, (r_bar)
                 call    bar_to
                 jp      rec_loop
 
-; rd_seek: A = RAM-disk page, DE = address. rd_out: HL = source, DE = count: to the RAM disk. rd_in: HL = destination,
+; ho_seek: the RAM disk at the handoff block. rd_seek: A = RAM-disk page, DE = address. rd_out: HL = source, DE = count: to the RAM disk. rd_in: HL = destination,
 ; DE = count: from the RAM disk.
+ho_seek:        ld      a, HO_RD_PAGE
+                ld      de, HO_RD_ADDR
 rd_seek:        out     (RD_PAGE), a
                 ld      b, d
                 ld      c, RD_ADDR
@@ -373,7 +365,11 @@ rd_refuse:      ld      hl, msg_rd1
                 ld      hl, msg_rd2
                 call    print_at
 rd_stop:        jr      rd_stop         ; (harness breakpoint: the RAM disk is too small)
-fd_fail:        ld      hl, msg_disk
+fd_fail:
+                if      defined DIAG
+                call    dg_show
+                endif
+                ld      hl, msg_disk
 fatal:          call    print_at
                 xor     a
                 out     (FD_MOTOR), a
@@ -475,15 +471,11 @@ s_fill:         ld      hl, (s_left)
                 jr      nc, sf_1
                 ld      d, l            ; fewer blocks left in the file
 sf_1:           ld      hl, (s_blk)     ; logical track = block / 16 (blocks 0-1279)
-                ld      a, l
-                srl     h
-                rra
-                srl     h
-                rra
-                srl     h
-                rra
-                srl     h
-                rra
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                add     hl, hl
+                ld      a, h
                 ld      hl, TRKBUF
                 call    fd_read_rot
                 ld      a, d            ; t_left = sectors * 256, the block counters
@@ -506,15 +498,17 @@ data_err:       ld      hl, msg_data
                 jp      fatal
 
 ; ---------------------------------------------------------------- FSMZ directory
-; dir_read: the directory (blocks 16-23 = logical track 1, sectors 1-8) into TRKBUF
+; dir_read: the directory's first block (block 16 = logical track 1, sector 1: its 8 entries hold every file the boot
+; looks up, tools/mkgamedisk.py checks it) into TRKBUF. One sector: the track is almost all FFh (empty entries), the
+; densest flux, which the MZPico floppy firmware's capture window does not fully cover (docs/research/mz800-hardware.md)
 dir_read:       ld      a, 1
-                ld      de, 0x0801      ; 8 sectors from sector 1
+                ld      de, 0x0101      ; 1 sector from sector 1
                 ld      hl, TRKBUF
                 jp      fd_read_retry
 ; dir_find: DE = file name (CR-terminated) -> Z = found: HL = start block, BC = block count. 32-byte entries: +0 type,
 ; +1 name (CR-terminated), +0x14 size, +0x1E start block
 dir_find:       ld      hl, TRKBUF
-                ld      b, 64
+                ld      b, 8            ; (one block of entries)
 df_ent:         push    bc
                 push    hl
                 push    de
@@ -526,30 +520,26 @@ df_cmp:         ld      a, (de)
                 inc     de
                 cp      0x0d
                 jr      nz, df_cmp
-                pop     de              ; found
+                pop     de              ; found (DE is not kept)
                 pop     hl
                 pop     bc
-                push    hl
-                ld      bc, 0x14        ; blocks = (size + 255) / 256
-                add     hl, bc
+                ld      de, 0x14        ; blocks = (size + 255) / 256
+                add     hl, de
                 ld      a, (hl)
                 inc     hl
                 add     a, 0xff
                 ld      a, (hl)
                 adc     a, 0
                 ld      c, a
-                ld      a, 0
-                adc     a, 0
+                sbc     a, a
+                neg
                 ld      b, a
-                pop     hl
-                push    bc
-                ld      bc, 0x1e
-                add     hl, bc
+                ld      e, 0x1e - 0x15  ; the start block
+                add     hl, de
                 ld      a, (hl)
                 inc     hl
                 ld      h, (hl)
                 ld      l, a
-                pop     bc
                 xor     a
                 ret
 df_next:        pop     de
@@ -592,7 +582,15 @@ ds_end:         ld      a, (f_cnt)      ; no more files
 ; ---------------------------------------------------------------- WD2793 (sequences as in the ROM IPL, E4DCh-E660h)
 fd_init:        ld      a, 0x84         ; drive 0 (the IPL's), motor on
                 out     (FD_MOTOR), a
-                ld      hl, 0
+                ld      hl, fd_on       ; 0: it was stopped
+                xor     a
+                or      (hl)
+                ld      (hl), h         ; (nonzero: it runs from now on)
+                jr      nz, fi_0
+                ld      b, 16           ; the spin-up: 16 x ~60 ms = ~0.97 s, as the ROM (E517h). Whatever READY says:
+fi_sp:          call    delay_long      ; a PC drive reports it at once or has none (its pin 34 may be DISKCHG), and
+                djnz    fi_sp           ; reads fail while the disk is still speeding up
+fi_0:           ld      hl, 0
 fi_1:           dec     hl              ; wait for READY (status bit 7 low)
                 ld      a, h
                 or      l
@@ -605,30 +603,52 @@ fi_1:           dec     hl              ; wait for READY (status bit 7 low)
                 ld      (fd_cyl), a
                 ret
 
-; fd_read_retry: A = logical track (block / 16), E = first sector (1-16), D = sectors, HL = buffer;
-; up to 4 tries (a restore before each retry), then "DISK ERROR". Keeps D.
-fd_read_retry:  ld      b, 4
-frr_1:          push    bc
+; fd_read_retry: A = logical track (block / 16), E = first sector (1-16), D = sectors, HL = buffer; up to 6 tries,
+; after a failed one a restore (fd_cmd waits for it however far the head steps), ~0.3 s for a slow drive to settle,
+; then the seek again; then "DISK ERROR". A bad track: about 6 x (1.3 s + 2 x its cylinder x 30 ms) at most. Keeps D, E,
+; HL.
+fd_read_retry:
+                if      defined DIAG
+                ld      (dg_trk), a     ; (the call: track, first sector, sectors; the tries' statuses from dg_sts)
+                ld      (dg_sec), de
+                push    hl
+                ld      hl, dg_sts
+                ld      (dg_p), hl
+                pop     hl
+                endif
+                ld      b, 6
+frr_1:          ld      c, a
+                push    bc
                 push    de
                 push    hl
-                push    af
                 call    fd_read
-                jr      z, frr_ok
-                ld      a, 0x0b         ; restore, then seek again
+                if      defined DIAG
+                push    af
+                ld      a, d            ; (the sectors not read)
+                ld      (dg_rem), a
+                ld      hl, (dg_p)
+                ld      a, (dg_st)
+                ld      (hl), a
+                inc     hl
+                ld      (dg_p), hl
+                pop     af
+                endif
+frr_rd:         jr      z, frr_ok       ; (tests/m5_floppy.py: a read's result, a spinning-up drive's failures)
+                ld      a, 0x0b         ; restore (and its ~60 ms), ~240 ms more, then seek again
                 call    fd_type1
+                ld      b, 4
+frr_w:          call    delay_long
+                djnz    frr_w
                 ld      a, 0xff
                 ld      (fd_cyl), a
-                pop     af
-                pop     hl
+                or      a               ; NZ
+frr_ok:         pop     hl
                 pop     de
                 pop     bc
+                ret     z
+                ld      a, c
                 djnz    frr_1
                 jp      fd_fail
-frr_ok:         pop     af
-                pop     hl
-                pop     de
-                pop     bc
-                ret
 
 ; fd_read_rot: as fd_read_retry (A = logical track, E = first sector, D = sectors, HL = the buffer for sector E; keeps
 ; D), but starting with the sector under the head: READ ADDRESS gives the ID field passing now (sector s); when s + 1
@@ -919,6 +939,70 @@ msg_rd1:        dw      112 * 40 + 4
                 db      10, "SORRY, THIS GAME NEEDS A 512 KB", 0
 msg_rd2:        dw      124 * 40 + 4
                 db      10, "RAM DISK (MZ-1R18 OR COMPATIBLE).", 0
+                if      defined DIAG
+; dg_show (the diagnostic build): under DISK ERROR three lines of hex, each byte after its letter:
+;   T track (logical: cylinder x 2 + side) S first sector N sectors C command R sectors not read W who (FF the boot,
+;   else the POP800.PRS entry, 80h = PRS_KEEP), P the RAM disk's last page (07 = 512 KB), V its read speed (clocks
+;   per byte x 5: 69h = 21.0 = 0 WS, + 5 a wait state); K the WD's track register, Q its sector register; I the last READ
+;   ADDRESS's six ID bytes as read (inverted: cylinder = FF - I1, side FF - I2, sector FF - I3); 1-6 the WD status
+;   (true bits) after each try (seek: 80 not ready, 10 seek error, 01 busy; read: 80 not ready, 10 record not found,
+;   08 CRC, 04 lost data; EE the command did not start)
+dg_show:        ld      hl, (rd_top)    ; (rd_top, rd_spd)
+                ld      (dg_top), hl
+                ld      hl, dg_trk
+                ld      ix, dg_l1
+                call    dg_line
+                call    dg_line
+dg_line:        ld      e, (ix + 0)     ; IX: offset (word), count, the letters; HL: the bytes
+                ld      d, (ix + 1)
+                ld      (dg_buf), de
+                ld      a, 10
+                ld      (dg_buf + 2), a
+                ld      b, (ix + 2)
+                inc     ix
+                inc     ix
+                inc     ix
+                ld      de, dg_buf + 3
+dgl_1:          ld      a, (ix + 0)
+                inc     ix
+                ld      (de), a
+                inc     de
+                ld      a, (hl)
+                inc     hl
+                push    af
+                rrca
+                rrca
+                rrca
+                rrca
+                call    dg_nib
+                pop     af
+                call    dg_nib
+                ld      a, ' '
+                ld      (de), a
+                inc     de
+                djnz    dgl_1
+                xor     a
+                ld      (de), a
+                push    hl
+                ld      hl, dg_buf
+                call    print_at
+                pop     hl
+                ret
+dg_nib:         and     15
+                add     a, 0x90
+                daa
+                adc     a, 0x40
+                daa
+                ld      (de), a
+                inc     de
+                ret
+dg_l1:          dw      150 * 40 + 4
+                db      8, "TSNCRWPV"
+                dw      160 * 40 + 4
+                db      8, "KQIIIIII"
+                dw      170 * 40 + 4
+                db      6, "123456"
+                endif
 msg_disk:       dw      84 * 40 + 4
                 db      10, "DISK ERROR", 0
 msg_data:       dw      84 * 40 + 4
@@ -928,7 +1012,6 @@ msg_data:       dw      84 * 40 + 4
 
 F_MAX           equ     8
 f_name:         db      "POP800.D1", 0x0d
-prs_name:       db      "POP800.PRS", 0x0d
 f_idx:          db      0
 f_cnt:          db      0
 ho_title:       dw      HO_MAGIC        ; the boot's handoff block: the title
@@ -942,11 +1025,11 @@ msg_prep:       dw      MSG_LOAD_AT     ; (msg_load's place)
 rd_top:         db      0               ; the RAM disk's last page (rd_probe; in the image: the launcher's copy keeps it)
 rd_spd:         db      0               ; its read speed: GAME clocks/byte x 5 (rd_speed, rdspeed.asm; as rd_top)
 end_of_image:
-                if end_of_image - LOAD > LN_MAX
-                .error the launcher's image is larger than its RAM-disk area
+                if end_of_image - LOAD > PRS_TAB_OFF
+                .error the launcher's image is larger than its RAM-disk area (up to the POP800.PRS table)
                 endif
 LN_DUEL_USED    equ     ln_duel1_end - ln_duel1 + ln_duel2_end - ln_duel2      ; (ACT_DUEL's code: within the reserve)
-                if end_of_image - LOAD - LN_DUEL_USED > LN_MAX - LN_DUEL_RESERVE
+                if end_of_image - LOAD - LN_DUEL_USED > PRS_TAB_OFF - LN_DUEL_RESERVE
                 .error the launcher's image leaves less than LN_DUEL_RESERVE bytes for the duel (docs/duel-design.md 1.5)
                 endif
 ; variables (not in the image)
@@ -958,7 +1041,25 @@ t_left:         ds      2
 s_tmp:          ds      1
 fd_cyl:         ds      1
 rot_trk:        ds      1
+                if      defined DIAG    ; (dg_show prints dg_trk .. dg_sts in this order)
+dg_trk:         ds      1
+dg_sec:         ds      1
+dg_cnt:         ds      1
+dg_cmd:         ds      1
+dg_rem:         ds      1
+dg_who:         ds      1
+dg_top:         ds      1               ; (rd_top: 07 = 512 KB, 0F = 1 MB)
+dg_spd:         ds      1               ; (rd_spd: clocks/byte x 5; 105 = 0 WS, + 5 a wait state)
+dg_wtrk:        ds      1
+dg_wsec:        ds      1
+                endif
 rot_id:         ds      6
+                if      defined DIAG
+dg_sts:         ds      6
+dg_st:          ds      1
+dg_p:           ds      2
+dg_buf:         ds      40
+                endif
 r_kind:         ds      1
 r_addr:         ds      2
 r_raw:          ds      2
@@ -968,6 +1069,7 @@ up_neg:         ds      2
 bar_cur:        ds      1
 s_src:          ds      1               ; the stream: 0 the floppy, 1 the RAM disk
 bar_on:         ds      1               ; the progress bar is drawn (the boot)
+fd_on:          ds      1               ; (bar_on's next byte) the motor runs (fd_init: 0 = it waits for the spin-up)
 ho_buf:         ds      HO_SIZE         ; the handoff block as read by the launcher
 end_of_vars:
                 if end_of_vars > STACK - 0x100
