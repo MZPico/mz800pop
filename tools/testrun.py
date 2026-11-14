@@ -76,7 +76,12 @@ class Test:
         self.expect0 = info.get('expect', 60)
         self.make, self.tags = [], set()    # (the build steps it needs beyond make ci-build; the tiers and parts it is in)
 
-    def safe(self): return re.sub(r'[^A-Za-z0-9_.-]+', '_', self.id)
+    def safe(self):
+        """the id as a file name (work directory, log); a long one (e.g. a suite of many scripts) is cut and given
+        a hash of the full id, so it stays unique and under the file systems' 255-byte name limit"""
+        s = re.sub(r'[^A-Za-z0-9_.-]+', '_', self.id)
+        if len(s) > 160: s = s[:140] + '_' + hashlib.sha1(self.id.encode()).hexdigest()[:12]
+        return s
 
 
 def short(sp):
