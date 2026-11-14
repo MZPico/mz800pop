@@ -1368,3 +1368,9 @@ piece used AND/XOR semantics.
    duel_boot's D19 potion check sampled the drinking case at the drink's sound (tick 11, frame 198) instead of the
    first tick: the test was wrong, the game right (duel_z80 in seed 27BE's arena: 0 differing lines). README: the WS
    lines, the sword by hand, the spikes, the release checksum line; the loading screenshot retaken.
+103. Duel: the sides swapped (2026-11-14, docs/duel-design.md section 25, the user's request): player 1, the white kid
+   (the network's host), starts on the right start tile facing left, player 2, the blue kid, on the left one facing
+   right, in every arena; the keys as before. d_reset's columns and facings exchanged (+1 B in P_w2; holes 39 B free,
+   resident game bytes 0). Potions, placed spikes and the edges stay mirrored; the HUD follows the kids (the user's
+   choice a: the white kid's red strip right, the blue kid's left, "P2 n : n P1"; d_hpl 15 B, holes 39 B free). Scripts flipped or their players exchanged, the random-key ones regenerated.
+

@@ -1,5 +1,5 @@
 # duel
-# expect digest 45cd1db1fe839603
+# expect digest 7212efa292a149d8
 # seed 0x71
 # expect rounds 3
 # expect score 0:0
@@ -9,5 +9,5 @@
 0 0 0  0 0 0
 0 1 0  0 1 0
 0 0 0  0 0 0 *2
-1 0 0  -1 0 0 *20
+-1 0 0  1 0 0 *20
 0 0 0  0 0 0 *33

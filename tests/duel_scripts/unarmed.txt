@@ -1,26 +1,26 @@
 # duel
-# expect digest 2ad97e6f2d56df77
+# expect digest 90d72ac3eb9e208e
 # expect rounds 1
 # expect score 1:0
 # a strike on a player with the sword sheathed kills at once (SDLPoP hurt_by_sword: "hurt when not in fighting pose",
 # D19 makes it reachable): player 1 draws, steps in and strikes; player 2 never draws
 0 0 1 0 0 0
 0 0 0 0 0 0 *11
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
 0 0 1 0 0 0
 0 0 0 0 0 0 *50

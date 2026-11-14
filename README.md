@@ -96,7 +96,8 @@ You have 60 minutes to rescue the princess, as in the original; the clock runs o
 ## The duel: a two-player easter egg
 
 Press **Ctrl+D on the title** for a sword duel: the prince against a second prince in a blue suit (the screenshot at
-the top, with the round and the score on the bottom line).
+the top, with the round and the score on the bottom line). Every round the prince starts on the right and the blue
+prince on the left, facing each other.
 
 - **Without an MZPico** the local duel starts at once, both players on one MZ-800.
 - **With an MZPico** you choose: `1 LOCAL`, `2 HOST` or `3 JOIN` (BREAK goes back to the title).

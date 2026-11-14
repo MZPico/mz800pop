@@ -1,5 +1,5 @@
 # duel
-# expect digest 8175f69b48d858b6
+# expect digest b3460039257f6bf8
 # expect hurt none
 # expect score 0:0
 # expect mirror clash.txt
@@ -7,23 +7,23 @@
 # nobody is hurt, both react as parried (attack_was_parried); the players and inputs are each other's mirror
 0 0 1 0 0 1
 0 0 0 0 0 0 *7
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
-1 0 0 -1 0 0
-0 0 0 0 0 0 *3
-0 0 1 0 0 1
-0 0 0 0 0 0 *12
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
 0 0 1 0 0 1
 0 0 0 0 0 0 *12
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
-1 0 0 -1 0 0
+0 0 1 0 0 1
+0 0 0 0 0 0 *12
+-1 0 0 1 0 0
+0 0 0 0 0 0 *3
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
 0 0 1 0 0 1
 0 0 0 0 0 0 *52

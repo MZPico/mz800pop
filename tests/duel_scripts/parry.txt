@@ -1,17 +1,17 @@
 # duel
-# expect digest f98612f10ec1154b
+# expect digest 0e2d097f90b06f5e
 # expect score 0:0
 # a parry exchange: the kid strikes, the shadow parries (up) and strikes back, the kid parries and strikes
 # back: the kid's riposte hits (strike_after_parry); the kid's parry rule for both (SDLPoP seg005 parry)
 0 0 1 0 0 1
 0 0 0 0 0 0 *7
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *3
-1 0 0 0 0 0
+-1 0 0 0 0 0
 0 0 0 0 0 0 *3
 0 0 1 0 0 0
 0 0 0 0 -1 0

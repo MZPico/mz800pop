@@ -1,45 +1,46 @@
 # duel
-# expect digest 5b6bd2b08efd02d9
+# expect digest bac05ff6bb2db5ee
 # seed 0x07
-# expect rounds 1
-# expect hps 3/3:3/3,3/3:2/3,3/3:1/3,3/3:0/3,3/3:3/3,2/3:3/3
+# expect rounds 2
+# expect hps 3/3:3/3,2/3:3/3,1/3:3/3,0/3:3/3,3/3:3/3,3/3:2/3
 # (the user's change 2026-11-14: raised spikes no longer hurt en garde, standing or in careful steps: the expectations show what is left of this script's hits, none where it fences or steps carefully)
 # rule C (docs/duel-design.md 21.1): round 0 as p1_wins.txt (its potions in front of both: they turn away and draw with the button, the turn that draws, D19); round 1 (level 11 room 14) has the placed spikes at the ends (columns 0 and 9): player 1 retreats three steps, player 2 follows and strikes it: the hit knocks player 1 back onto the spikes behind it (column 0), they rise under it: a hit point (3 -> 2 by the sword, -> 1 by the spikes)
--1 0 0  1 0 0
+# (since 2026-11-14 player 1, the white kid, starts on the right: the players' inputs and the expectations are exchanged, so the same fight plays in this room, which is not mirror-symmetric; read player 1 and 2 above the other way round)
+1 0 0  -1 0 0
 0 0 0  0 0 0 *5
 0 0 1  0 0 1
 0 0 0  0 0 0 *7
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-0 0 1  0 0 0
+0 0 0  0 0 1
 0 0 0  0 0 0 *12
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-0 0 1  0 0 0
+0 0 0  0 0 1
 0 0 0  0 0 0 *12
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-0 0 1  0 0 0
+0 0 0  0 0 1
 0 0 0  0 0 0 *12
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *3
-1 0 0  0 0 0
+0 0 0  1 0 0
 0 0 0  0 0 0 *22
 0 0 1  0 0 1
 0 0 0  0 0 0 *6
@@ -49,17 +50,17 @@
 0 0 0  0 0 0 *3
 -1 0 0  -1 0 0
 0 0 0  0 0 0 *3
-0 0 0  -1 0 0
+-1 0 0  0 0 0
 0 0 0  0 0 0 *3
-0 0 0  -1 0 0
+-1 0 0  0 0 0
 0 0 0  0 0 0 *3
-0 0 0  -1 0 0
+-1 0 0  0 0 0
 0 0 0  0 0 0 *3
-0 0 0  -1 0 0
+-1 0 0  0 0 0
 0 0 0  0 0 0 *3
-0 0 0  -1 0 0
+-1 0 0  0 0 0
 0 0 0  0 0 0 *3
-0 0 0  -1 0 0
+-1 0 0  0 0 0
 0 0 0  0 0 0 *3
-0 0 0  0 0 1
+0 0 1  0 0 0
 0 0 0  0 0 0 *25

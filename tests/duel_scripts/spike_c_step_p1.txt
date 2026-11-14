@@ -1,18 +1,18 @@
 # duel
-# expect digest 8a85e26dba3358e3
+# expect digest 567701a0b175305d
 # seed 0x71
 # expect hps 3/3:3/3
 # (the user's change 2026-11-14: raised spikes no longer hurt en garde, standing or in careful steps: the expectations show what is left of this script's hits, none where it fences or steps carefully)
 # rule C (docs/duel-design.md 21.1): player 1 steps en garde onto the spikes (level 8 room 6, columns 4 and 5): its body has raised them a step earlier, its feet tile (13 pixels behind x en garde) reaches column 4 with them out: a hit point; it stands on them: no more
 0x10 0x10
 0x00 0x00 *7
-0x02 0x00
+0x01 0x00
 0x00 0x00 *3
-0x02 0x00
+0x01 0x00
 0x00 0x00 *3
-0x02 0x00
+0x01 0x00
 0x00 0x00 *3
-0x02 0x00
+0x01 0x00
 0x00 0x00 *3
-0x02 0x00
+0x01 0x00
 0x00 0x00 *23

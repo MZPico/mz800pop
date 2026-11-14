@@ -1,5 +1,5 @@
 # duel
-# expect digest 07afd7ab7ff69e13
+# expect digest 8fbb7e5deb57d298
 # expect score 0:0
 # the arena's edges: both draw (the button, D19) and sheathe (down), turn, run into the room's walls (room 0: the
 # zeroed links), turn back, a standing jump, a jump into the ceiling (row 0 is wall), crouch, run back, draw again
@@ -8,17 +8,17 @@
 0 0 0 0 0 0 *7
 0 1 0 0 1 0
 0 0 0 0 0 0 *10
--1 0 0 1 0 0
+1 0 0 -1 0 0
 0 0 0 0 0 0 *2
--1 0 0 1 0 0 *20
+1 0 0 -1 0 0 *20
 0 0 0 0 0 0 *10
-1 -1 0 -1 -1 0
+-1 -1 0 1 -1 0
 0 0 0 0 0 0 *20
 0 -1 0 0 -1 0
 0 0 0 0 0 0 *15
 0 1 0 0 1 0 *4
 0 0 0 0 0 0 *8
-1 0 0 -1 0 0 *6
+-1 0 0 1 0 0 *6
 0 0 0 0 0 0 *20
 0 0 1 0 0 1
 0 0 0 0 0 0 *12

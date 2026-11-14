@@ -1,5 +1,5 @@
 # duel
-# expect digest 37e58accfdd1ab37
+# expect digest 6049f250a990e2b9
 # expect hurt none
 # expect score 0:0
 # expect sheathe 0,0
@@ -11,13 +11,13 @@
 # stand en garde, each the mirror of the other
 0 0 1 0 0 1
 0 0 0 0 0 0 *11
--1 0 0 1 0 0
+1 0 0 -1 0 0
 0 0 0 0 0 0 *5
--1 0 0 1 0 0
+1 0 0 -1 0 0
 0 0 0 0 0 0 *5
--1 0 0 1 0 0
+1 0 0 -1 0 0
 0 0 0 0 0 0 *30
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *5
-1 0 0 -1 0 0
+-1 0 0 1 0 0
 0 0 0 0 0 0 *30
