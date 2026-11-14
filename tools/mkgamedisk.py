@@ -43,10 +43,15 @@ RD_BLOCK = 16384            # RAM-disk records: output buffer 0x2000-0x5FFF, inp
 MAIN_BLOCK = 8192           # main-RAM records: input buffer 0x8000-0x9FFF
 # The duel easter egg (docs/duel-design.md 1.5, phase 0): its patch and one-shot overlay will go into a third file
 # POP800.PR3 after POP800.PR2; keep this many 256-byte blocks free behind the last file (40 tracks x 2 sides x 16
-# sectors = 1280 blocks), and this many bytes of PRES's main RAM free for its key and handoff.
+# sectors = 1280 blocks).
 DISK_BLOCKS = 1280
 DUEL_BLOCKS = 40
-DUEL_PRES_BYTES = 64
+# PRES's reserve: the bytes PRES's code may still grow by. Two things share PRES's free main RAM with it and move when
+# it grows: the title art's bands (title_entries, from end_of_pres) and the cutscene art (tools/cutart.py, from
+# end_of_cut: the room's bands and the scenes' sprites, a 62-byte one the tightest). The build checks that both still
+# fit with PRES this much longer and prints what is really free. The duel's PRES code (Ctrl+D, pres.asm DUEL_PRES_USED)
+# is built in: the 64 bytes reserved for it until 2026-11-14 (DUEL_PRES_BYTES) were checked against the title art only.
+PRES_RESERVE = 2
 FILE_MAX = 0xFF00           # MZF size field is 16 bits; files are padded to whole 256-byte blocks
 BAR = 32                    # progress bar width in bytes
 NPAGES = 8
@@ -278,12 +283,10 @@ def title_entries(P):
             addr[t[0], t[1]] = place[0]; place[0] += len(t[3])
         return addr, free
     addr, free = place_all(P['end_of_pres'])
-    assert addr is not None, 'the title art does not fit in PRES'
-    # the duel's PRES code (DUEL_PRES_BYTES, docs/duel-design.md 1.5; pres.asm DUEL_PRES_USED of them today, Ctrl+D): the
-    # same first fit must still place every band with end_of_pres moved by the rest of the reserve
-    assert P['DUEL_PRES_USED'] <= DUEL_PRES_BYTES, 'the duel\'s PRES code is larger than DUEL_PRES_BYTES'
-    assert place_all(P['end_of_pres'] - P['DUEL_PRES_USED'] + DUEL_PRES_BYTES)[0] is not None, \
-        'the title art leaves PRES less than DUEL_PRES_BYTES for the duel (docs/duel-design.md 1.5)'
+    assert addr is not None, 'the title art does not fit in PRES (end_of_pres 0x%04X): PRES is too large' % P['end_of_pres']
+    # PRES's room to grow as the title art sees it (prs_file adds the cutscene art's and checks PRES_RESERVE)
+    tgrow = 0
+    while place_all(P['end_of_pres'] + tgrow + 1)[0] is not None: tgrow += 1
     out = {}
     for ent, slots in TITLE_ENTRIES:
         recs = []
@@ -296,7 +299,7 @@ def title_entries(P):
             recs.append((P['art_idx'] + P[name] * P['ART_ENT'], bytes(ents[name])))
         out[ent] = recs
     stats = {'bands': len(bands), 'pz': sum(len(t[3]) for t in bands), 'raw': len(pack),
-             'free': sum(f[1] - f[0] for f in free)}            # (left after the bands)
+             'free': sum(f[1] - f[0] for f in free), 'tgrow': tgrow}            # (left after the bands)
     return out, stats
 
 def stored_records(recs):
@@ -321,6 +324,17 @@ def prs_file():
         named[ent] = b''.join(records(main_blocks([(P['SBANK_TMP'], sbank)])))
     for name, recs in title.items(): named[name] = stored_records(recs)
     # the cutscenes (tools/cutart.py): the room entry (the engine, the room, the common sprites), the scenes
+    def cut_fits(k):                                # (the cutscene art with PRES k bytes longer)
+        Q = dict(P); Q['end_of_pres'] += k; Q['end_of_cut'] += k
+        try: cutart.prs_entries(Q, pres_bin + bytes(k), pack_cached); return True
+        except AssertionError: return False
+    assert cut_fits(0), 'the cutscene art (tools/cutart.py) does not fit beside PRES (end_of_pres 0x%04X): PRES is too large' % P['end_of_pres']
+    cgrow = 0
+    while cgrow < 64 and cut_fits(cgrow + 1): cgrow += 1     # (64: enough to print)
+    grow = min(tstats['tgrow'], cgrow)
+    assert grow >= PRES_RESERVE, ('PRES has grown into its reserve: it may grow by %d more bytes (the title art %d, the cutscene '
+        'art %d), PRES_RESERVE is %d (tools/mkgamedisk.py; docs/memory.md "PRES\'s free main RAM")' % (grow, tstats['tgrow'], cgrow, PRES_RESERVE))
+    tstats['grow'] = grow; tstats['cgrow'] = cgrow
     cut, cstats = cutart.prs_entries(P, pres_bin, pack_cached)
     for name, recs in cut:
         st = b''
@@ -387,6 +401,7 @@ def build_disk(out, boot, mzd):
     print('POP800.PRS + PR2 + PR3: %d bytes (index 256, entries: %s); title art: %d bands, %d bytes PZ (title.pack %d raw), %d bytes free for it in PRES' % (
           len(prs), ', '.join('%s %d' % (a, b // 256) for a, b in zip(ts['names'], lens)), ts['bands'], ts['pz'], ts['raw'], ts['free']))
     print('  cutscenes: %s' % ', '.join('%s %s' % kv for kv in ts['cut'].items()))
+    print('  PRES may grow by %d bytes (PRES_RESERVE %d): the title art leaves %d, the cutscene art %d' % (ts['grow'], PRES_RESERVE, ts['tgrow'], ts['cgrow']))
     if os.path.exists(out): os.remove(out)
     run = lambda *a: subprocess.run([os.path.join(mzd, a[0])] + list(a[1:]), check=True, capture_output=True, text=True).stdout
     run('mzdsk-create', out, '--format-basic', '40', '--sides', '2')

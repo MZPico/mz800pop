@@ -123,7 +123,8 @@ strings through the game's font: ~120-150 B, counted in the rounds line of the t
 | Rule 3: the logic stays drawing-independent | no logic reading the drawing's state, the frame counter or the live PSG | true today (kidsim has no drawing; PACE_MODE 1 skips drawings) | lockstep (section 5) |
 
 Phase 0 (2026-11-11, PLAN status 80) makes the reservation stick: `tools/mkgamedisk.py` asserts that `DUEL_BLOCKS =
-40` blocks stay free behind the last file (it prints the figure) and that PRES keeps `DUEL_PRES_BYTES = 64` bytes free;
+40` blocks stay free behind the last file (it prints the figure) and that PRES keeps `DUEL_PRES_BYTES = 64` bytes free
+(replaced on 2026-11-14 by `PRES_RESERVE`, see below);
 launch.inc names `ACT_DUEL equ 0x20` and `LN_DUEL_RESERVE equ 100`, which boot.asm asserts against LN_MAX. The loose-floor speed work is unaffected:
 loose floors are among the dropped features, so whatever it adds there only enlarges a hole; nothing here touches its
 files or its overlay space.
@@ -2073,6 +2074,12 @@ held on the host fires player 1, on the joiner player 2, in the agreed bytes on 
 **PRES's reserve is smaller than its 41 bytes:** the first version of p_duel (+18 B, R mixed in PRES) broke the build:
 tools/cutart.py could no longer place a 62-byte cutscene sprite in PRES's free ranges (0x7FC4-0x7FFF, 0xDF0F-0xDF3F).
 DUEL_PRES_BYTES is checked against the title art only; the cutscene sprites had 16 bytes of it, 5 are left now.
+
+**PRES's reserve since 2026-11-14 (PLAN item 99):** DUEL_PRES_BYTES is gone. After #76 ("LOADING...", PRES +3) PRES may
+grow by 2 bytes; tools/mkgamedisk.py's `PRES_RESERVE = 2` checks the title art and the cutscene art with PRES that much
+longer, so any further PRES growth stops the build with "PRES has grown into its reserve" (docs/memory.md "PRES's free
+main RAM"). The duel's PRES code (34 B, DUEL_PRES_USED) is built in; new PRES code needs room made first (e.g. the
+cutscene art's placement, tools/cutart.py).
 
 Speed: d_lnk is ~300 T a tick (two exchanges of 4 bytes, twice); the full room draw draws the neighbours' edge pieces
 as the game does (a few pieces more or less per room).
