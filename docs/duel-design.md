@@ -1854,6 +1854,11 @@ tests/duel_scripts/spike_c_*.txt and spike_placed_*.txt. The game's own code is 
 | The same tile raised at the last tick too: standing on raised spikes, fencing in place (strikes and parries do not move x) | safe |
 | Running or jumping onto spikes: check_spiked / is_spike_harmful in the player's frame (section 20) | death, unchanged |
 
+**Changed by the user 2026-11-14 (section 24):** neither event hurts a player **with the sword drawn** (any frame: en
+garde, stepping, advancing, retreating, a push or a knock-back while fighting), **standing** (frame 15) or **in a careful
+step** (frames 121-132). The state is still recorded on those frames, so a player that walks carefully onto spikes and
+then turns or runs on is judged from the tile it stood on.
+
 - At most one hit point a player a tick (both events at once: still one); its own hit points (HITP_CURR for player 1,
   GUARDHP_CURR for player 2), the hurt sound 13.
 - Its last hit point impales it: the game's spiked (frame 177, that spike harmless to the other, the sound 48), so that it
@@ -2192,8 +2197,7 @@ round. Nothing measurable a tick.
   drawn, out of range and back: never sheathed, mirrored), **edges.txt** (the draws by the button). Regenerated with
   random keys (duelarenas' fuzz policy, random.Random(n)) for the same purpose: climb_dungeon (78, 1,100 ticks: both
   change rows in level 8 room 14, then rooms 4 and 23 as before), climb_palace (15: both change rows in level 11 room 24,
-  then rooms 14 and 19 as before), spike_c_shared (4018: rule C's shared spike at tick 1736 in level 8 room 4,
-  column 5, player 1 impaled, player 2 hit; under 2,048 ticks: the harness's script page holds 4 KB). New: **draw_p1.txt / draw_p2.txt** (the button with a direction is the careful step, alone it
+  then rooms 14 and 19 as before), spike_c_shared (4018: rule C's shared spike at tick 1736 in level 8 room 4, column 5, then player 1 impaled at 1741; see section 24). New: **draw_p1.txt / draw_p2.txt** (the button with a direction is the careful step, alone it
   draws; each the other's mirror), **sheathe_down.txt** (down sheathes: the ticks checked), **potion_draw.txt** (the
   potion in front drunk by the button, then the draw; the other turns away and draws, its potion left), **unarmed.txt**
   (a strike on a sheathed player kills it at once).
@@ -2203,7 +2207,9 @@ round. Nothing measurable a tick.
   player 2 by the automatic swords); 10 pairs required, not 14: frames 237 and 239 (the slow put_sword_away, seq 92) are
   the automatic sheathe's and no longer shown (16.4).
 - tests/duel_boot.py: player 1's `/` draws (sound 19), player 2 does not draw by itself; the arena comes from the
-  title's seed, so when round 0's potions stand in front the press drinks instead (duelsim decides which the check expects).
+  title's seed, so when round 0's potions stand in front the press drinks instead (duelsim decides which the check expects; the drinking case is checked at the first
+  tick's end, as the draw's at its sound: the drink's own sound comes ten ticks later, and checking there gave frame 198 for
+  duelsim's first-tick 107, the failure seen on main for seeds 27BE and 4DE3).
 - tests/duel_net.py: all scenarios.
 
 ### 23.6 Decisions for the user (defaults chosen)
@@ -2215,3 +2221,43 @@ round. Nothing measurable a tick.
 4. **The winner stays en garde** after a round (default: nothing sheathes by itself), or the old put_sword_away after a
    kill.
 5. **D20a**: no bump into an armed opponent (default); SDLPoP's bump would need another edge fix to be safe.
+
+## 24. Spikes spare careful steps and the sword (the user's change, 2026-11-14)
+
+The user: raised spikes must not hurt a kid who walks over them slowly (careful steps), or one with the sword drawn
+(en garde, stepping, advancing and retreating while fighting); running, jumping or falling onto raised spikes still
+hurts as before. Rule C (21.1) keeps its two events (stepping onto a raised spike tile, the spike finishing rising
+under the player), but neither counts for a player:
+
+| Exempt | Why |
+|---|---|
+| with the sword drawn (the record's sword byte, any frame) | the fight: en garde steps, advances, retreats, knock-backs |
+| standing, frame 15 | a careful walker stands between its steps; a spike that rises under someone standing still is harmless |
+| in a careful step, frames 121-132 (safe_step's sequences, every length) | the careful step itself |
+
+On those frames the feet tile is still recorded (duelsim d18_v, duel.asm d18_v: bit 0 "raised", no hit), so a later
+move is judged from it, not from a tile before the careful walk.
+
+**What still hurts, case by case** (the sword sheathed):
+
+| Move onto raised spikes | Effect |
+|---|---|
+| running onto them (frames 1-14, the run's stop 49-56) | death by SDLPoP's check_spiked (section 20); rule C's hit point may come a tick first |
+| a running jump or a standing jump that lands on them | death by check_spiked / is_spike_harmful (the landing), as before |
+| a fall onto them (off an edge, letting go of a ledge, a 1-row drop) | death on landing (SDLPoP), as before; rule C's hit point on the landing frames if the original rule spares it |
+| a turn on the spot (frames 45-52) or a bump (50-52) that moves the feet tile onto a raised spike | **-1 hit point** (rule C) |
+| a crouch-hop, getting up from a crouch onto them, climbing down onto them | **-1 hit point** (rule C) |
+| a spike finishing rising under a player in one of these moves | **-1 hit point** (rule C) |
+| careful steps over them, standing on them, anything with the sword drawn | safe |
+
+The last hit point still impales (spiked), and both players are decided before either is hit (21.1).
+
+Bytes: the exemption is 21 B in d18_q2 (H_TIME); to make room, nb_out (the network commands' 20-byte output buffer) now
+lies over d_boot's dead code with player 2's block and nb_st (d_boot runs once, before any network command). The holes:
+48 B free (H_AI 16, H_FREE 11, H_TICK 11, H_KT 5, H_TIME 3, H_MAIN 1, H_LR 1). Resident game bytes 0.
+
+Scripts: spike_careful.txt rewritten (careful steps over both spike tiles and past each other: no hit point lost,
+symmetric); the rule C scripts (spike_c_*) and spike_placed_centre keep their moves, their expectations now show no
+rule C hit where they stepped en garde or carefully; spike_c_shared regenerated (random keys, the policy seed in its
+header) for a tick where both are hit on one tile and player 1 is impaled.
+

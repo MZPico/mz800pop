@@ -107,19 +107,22 @@ loader takes 719 frames instead of 708 (+0.22 s with the table's drawing; 5 KB r
 **Screen** (the loading screen; "LOADING..." and the bar moved up 12 lines to make room, the floppy errors to line 84;
 since 2026-11-13 one line under the bar, the size in M when it is a whole number of MB, else in K, and the GAME mean):
 
-    RAM DISK 1M, 21.0 T/BYTE
+    RAM DISK 1M, 0 WS
     NETWORK: MZPICO NET (DUEL: CTRL+D)      (or NETWORK: NONE (DUEL: CTRL+D); src/boot/bootscr.asm net_line, the
                                              duel's NET detection: docs/duel-design.md 14.3)
 
-How to read it: the number is the GAME mean over the areas ("T/BYTE" = clocks/byte; 21.0 = no wait states, the excess
-the wait clocks a byte), the number to compare between machines. The per-area table (MIN / MAX / ALIGN / MISAL / GAME
+How to read it: the number is the GAME mean over the areas in **wait states** (since 2026-11-14, the user's choice; it
+was "21.0 T/BYTE", clocks/byte, before): WS = clocks/byte - 21, rounded to the nearest whole wait state, halves up,
+never below 0 (21.0-21.4 shows 0, 21.5-22.4 shows 1; rdspeed.asm put_ws). 0 WS = a card without waits; the number to
+compare between machines. The per-area table (MIN / MAX / ALIGN / MISAL / GAME
 for P0, P7, the middle and the last page) is no longer drawn (2026-11-13); its values stay in rs_res for tests/m5_boot.py (MAX
 far above MIN, or MISAL above ALIGN, would mean non-uniform waits: window misses). The loader's font got the glyphs it
 lacked (3 4 6 7 9 J Q V X + /).
 
 **The stop.** The GAME mean above `RD_SPEED_MAX` = 36.0 clocks/byte (x 10 = 360, the one constant in rdspeed.asm;
-user, 2026-11-03) stops the boot with "RAM DISK TOO SLOW: 37.5 CLOCKS/BYTE" / "GAME PATTERN, MAX 36.0, WORST P7 37.5"
-(the worst area's GAME): no launch, nothing more loaded (rs_stop, the motor off). Why 36.0: where RAM-disk waits slow
+user, 2026-11-03) stops the boot with "RAM DISK TOO SLOW: 17 WS" / "GAME PATTERN, MAX 15, WORST P7 17" (the worst area's GAME, all in
+wait states; 36.0 is **15 WS**: the boot goes on up to 36.0 and stops above it, so 36.1-36.4 show "15" in the message;
+the timer fault, a mean below the minimum, keeps clocks/byte without a unit: "RAM DISK TIMER FAULT: 18.5"): no launch, nothing more loaded (rs_stop, the motor off). Why 36.0: where RAM-disk waits slow
 the kid's walk by about 10 %. Measured with the frame store (#19, tools/rdreads.py and mz800emu's mr1r18_wait): the game
 makes ~2,700 RAM-disk port accesses a tick walking (~2,400 data reads, the seeks, the page selects, the writes), and 1 T
 of wait on each costs +0.035 frames a tick, so 10 % of a ~5.2-frame tick is ~15 waits; the GAME pattern reads

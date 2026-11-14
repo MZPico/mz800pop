@@ -1,9 +1,9 @@
 # duel
-# expect digest 6f355adad535311e
+# expect digest 2093a23c5713dce6
 # seed 0x01
 # expect rounds 1
 # expect spikes 11:19:4:5
-# expect d18 198:1
+# (the user's change 2026-11-14: raised spikes no longer hurt en garde, standing or in careful steps: the expectations show what is left of this script's hits, none where it fences or steps carefully)
 # the placed spikes: round 0 as p1_wins.txt; round 1 gets the centre pair (c1 + 2, c2 - 2): player 1 steps en garde onto it (five steps: its body raises the spike at column 4, its feet tile reaches it with the spike out): rule C, a hit point
 0 0 1  0 0 1
 0 0 0  0 0 0 *7

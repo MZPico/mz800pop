@@ -1357,3 +1357,14 @@ piece used AND/XOR semantics.
    kept by explicit presses, apart/edges rewritten, climb_* and spike_c_shared regenerated, new draw_p1/p2,
    sheathe_down, potion_draw, unarmed, duel_blade/p2_both_ways. duel_test 39/39, duel_z80 --cdl 0 differing lines at
    512 KB / 1 MB (4 MB in CI), duel_boot, duel_net.
+102. Boot and duel after the playtest (2026-11-14). The loading screen's RAM-disk speed in wait states:
+   "RAM DISK 1M, 0 WS" (WS = clocks/byte - 21, rounded, halves up, never below 0; docs/ramdisk-tiers.md), the
+   too-slow stop "RAM DISK TOO SLOW: 17 WS" / "GAME PATTERN, MAX 15, WORST Pn 17" (the limit 36.0 = 15 WS, unchanged;
+   the timer fault keeps clocks/byte); the boot-only code 18 B under its stack reserve. The 1 MB fill's screen showed
+   "LOADING...SPRITES" (the launcher's "LOADING..." over "PREPARING SPRITES"): the boot now points the launcher's text
+   at "PREPARING SPRITES" for that launch (-3 B), m5_boot checks the text. Duel spikes (docs/duel-design.md 24, the
+   user's change): rule C spares a player with the sword drawn, standing or in a careful step; running, jumping and
+   falling onto raised spikes as before; +21 B in H_TIME, nb_out moved over d_boot's dead code (holes 48 B free).
+   duel_boot's D19 potion check sampled the drinking case at the drink's sound (tick 11, frame 198) instead of the
+   first tick: the test was wrong, the game right (duel_z80 in seed 27BE's arena: 0 differing lines). README: the WS
+   lines, the sword by hand, the spikes, the release checksum line; the loading screenshot retaken.

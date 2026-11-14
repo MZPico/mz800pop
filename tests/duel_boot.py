@@ -139,10 +139,13 @@ def run(card, shots, j):
             # first tick. The arena comes from the seed: with a potion in front (round 0's pair between the players) the
             # button drinks it first (check_get_item), so duelsim says which one the tick does
             ref = DS.DuelSim(seed=seed); ref.step(0x10, 0)
-            keys(e, ('/',)); M5.run_to(e, D['ds_go'], 400); e.run(2)
-            if ref.Kid.sword:
+            keys(e, ('/',))
+            if ref.Kid.sword:                   # (the draw's sound starts in that first tick)
+                M5.run_to(e, D['ds_go'], 400); e.run(2)
                 check('the sound: player 1\'s sword drawn with / (19) plays on the PSG (duel.asm d_snd)',
                       e.mem(D['d_acur'], 1)[0] == 19 and e.mem(G['SP_WAIT'], 1)[0] != 0, (e.mem(D['d_acur'], 1), e.mem(G['SP_WAIT'], 1)))
+            else:                               # (no sound in it: the drink's comes ten ticks later; the first tick's end)
+                ticks(e, 1)
             keys(e, ('/',), down=False)
             kid, gd = e.mem(G['KID_REC'], 16), e.mem(G['GUARD_REC'], 16)
             check('player 1 %s with /, player 2 does not draw by itself (D19)' % ('draws' if ref.Kid.sword else

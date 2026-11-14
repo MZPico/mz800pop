@@ -48,6 +48,7 @@ BAR_COL         equ     4
 COL_TEXT        equ     15
 COL_BAR_BG      equ     1
 COL_BAR         equ     14
+MSG_LOAD_AT     equ     100 * 40 + 4    ; "LOADING..." and "PREPARING SPRITES" (VRAM offset)
 
                 org     LOAD
 boot:           jp      boot_main       ; the ROM IPL's entry
@@ -106,10 +107,9 @@ rd_measured:                            ; (harness breakpoint: rd_speed done)
                 ld      hl, ho_title + HO_BAR   ; (five zero bytes)
                 ld      de, 5
                 call    rd_out
-                ld      hl, (msg_load)  ; "PREPARING SPRITES" in the place of "LOADING...", the bar empty again
-                ld      (msg_prep), hl
-                ld      hl, msg_prep
-                call    print_at
+                ld      hl, msg_prep    ; "PREPARING SPRITES" in the place of "LOADING...", the bar empty again; the
+                ld      (loading + 1), hl       ; launcher below (fall through) prints its "LOADING..." with it: this
+                call    print_at        ; one (the RAM disk's copy of the launcher, saved above, keeps msg_load)
                 ld      a, BAR_COL
                 ld      b, 32
                 ld      c, COL_BAR_BG
@@ -913,7 +913,7 @@ bf_row:         ld      (hl), 0xff
                 djnz    bf_col
                 jp      draw_off
 
-msg_load:       dw      100 * 40 + 4
+msg_load:       dw      MSG_LOAD_AT
                 db      7, "LOADING...", 0
 msg_rd1:        dw      112 * 40 + 4
                 db      10, "SORRY, THIS GAME NEEDS A 512 KB", 0
@@ -937,7 +937,7 @@ ho_fill:        dw      HO_MAGIC        ; on 1 MB and more: the frame store's fi
                 db      ACT_FILL, 0
                 dw      VRAM + BAR_ROW * 40 + BAR_COL
                 db      32, COL_BAR, 0, 0, 0, 0, 0, 0, 0, 0
-msg_prep:       dw      0               ; (msg_load's place)
+msg_prep:       dw      MSG_LOAD_AT     ; (msg_load's place)
                 db      7, "PREPARING SPRITES", 0
 rd_top:         db      0               ; the RAM disk's last page (rd_probe; in the image: the launcher's copy keeps it)
 rd_spd:         db      0               ; its read speed: GAME clocks/byte x 5 (rd_speed, rdspeed.asm; as rd_top)

@@ -1,18 +1,26 @@
 # duel
-# expect digest 1af9b103118b9ffa
+# expect digest 007e90ae5f334dda
 # seed 0x71
-# expect hps 3/3:3/3,2/3:2/3,1/3:1/3
-# expect d18 26:1,26:2,32:1,32:2
-# spikes: both step carefully (the button and a direction) onto them and past: SDLPoP check_spiked kills only running, a running jump's start and a jump's landing; rule C (section 21.1): the first spike rises under each (a hit point), then each moves on onto the second, raised (another): across two spike tiles, 3 -> 1
-0 0 1  0 0 1
-0 0 0  0 0 0
-0 1 0  0 1 0
-0 0 0  0 0 0 *6
+# expect hurt none
+# expect symmetric 0
+# spikes: both walk over them in careful steps (the button and a direction, one step at a time: frames 121-132), from
+# their start tiles across the two spike tiles (level 8 room 6, columns 4 and 5) and past each other: SDLPoP's
+# check_spiked kills only running, a running jump's start and a jump's landing, and rule C (docs/duel-design.md 21.1,
+# the user's change 2026-11-14) spares careful steps and standing: no hit point lost
+0 0 0  0 0 0 *2
 1 0 1  -1 0 1
-0 0 0  0 0 0 *10
+0 0 0  0 0 0 *15
 1 0 1  -1 0 1
-0 0 0  0 0 0 *10
+0 0 0  0 0 0 *15
 1 0 1  -1 0 1
-0 0 0  0 0 0 *10
+0 0 0  0 0 0 *15
 1 0 1  -1 0 1
-0 0 0  0 0 0 *47
+0 0 0  0 0 0 *15
+1 0 1  -1 0 1
+0 0 0  0 0 0 *15
+1 0 1  -1 0 1
+0 0 0  0 0 0 *15
+1 0 1  -1 0 1
+0 0 0  0 0 0 *15
+1 0 1  -1 0 1
+0 0 0  0 0 0 *15

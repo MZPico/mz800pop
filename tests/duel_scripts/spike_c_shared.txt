@@ -1,10 +1,10 @@
 # duel
-# expect digest 090853dc3aa4eca8
+# expect digest 28d72ac757cc0e63
 # seed 0x011d
-# expect d18 1551:1,1705:1,1736:1,1736:2
+# expect d18 1705:1,1736:1,1736:2,1741:1
 # expect rounds 1,1,1,2,2,2,2
-# expect impaled 1736:1:5
-# rule C on one spike tile shared by both players (docs/duel-design.md 21.1): random keys (tools/duelarenas.py fuzz's policy for both players, random.Random(4018); regenerated for D19, the sword by hand, docs/duel-design.md 23) until, at tick 1736 (level 8 room 4), both have moved onto the same raised spike tile with player 1 at 1 hit point and player 2 at 3: player 1 is impaled (the spike 0xff) and player 2 is still hit (both decided before either is applied)
+# expect impaled 1741:1:5
+# rule C on one spike tile shared by both players (docs/duel-design.md 21.1, 24): random keys (tools/duelarenas.py fuzz's policy, random.Random(4018)), level 8 room 4: at tick 1736 both are hit on the same raised spike (column 5) in one tick (2 -> 1 and 3 -> 2: both decided before either is applied), at 1741 player 1 moves on and is impaled by its last hit point. (Since the user's change 2026-11-14 the hits come only from moves off careful steps and without the sword; 2,400 more policy seeds gave no tick where one is impaled and the other hit at once)
 0x02 0x02 *9
 0x04 0x02 *2
 0x01 0x02 *3

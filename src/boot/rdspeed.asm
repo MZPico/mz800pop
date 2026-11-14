@@ -186,9 +186,10 @@ rs_err:         ld      (rs_mode), a
                 pop     hl
                 call    put_str
                 ld      hl, (rs_gav)
-                call    put_t10
-                ld      hl, s_cpb
-                call    put_str
+                call    rs_v10
+                ld      a, (rs_mode)
+                or      a
+                call    nz, pw_u                ; (too slow: " WS"; the timer fault: clocks/byte, no unit)
                 call    rs_print
                 ld      hl, 90 * 40 + 0
                 call    rs_line
@@ -203,7 +204,7 @@ rs_err:         ld      (rs_mode), a
                 ld      hl, s_max
 re_0:           call    put_str
                 pop     hl
-                call    put_t10
+                call    rs_v10
                 ld      hl, s_worst
                 call    put_str
                 push    de
@@ -250,7 +251,7 @@ re_4:           inc     hl
                 ld      (de), a
                 inc     de
                 ld      hl, (rs_wv)
-                call    put_t10
+                call    rs_v10
                 call    rs_print
                 xor     a                       ; the motor off, halt
                 out     (FD_MOTOR), a
@@ -483,7 +484,8 @@ rs_add:         dec     hl
 
 ; rs_show: the loading screen's report, one line under the bar (row 126, colour 7): the size (in M when it is a whole
 ; number of MB, else in K) and the GAME mean over the areas (clocks/byte, "T" a byte: 21.0 = no wait states):
-;   RAM DISK 1M, 21.0 T/BYTE
+;   RAM DISK 1M, 0 WS
+; in wait states (put_ws: clocks/byte - 21, rounded to the nearest, halves up, never below 0: 21.0-21.4 = 0, 21.5 = 1)
 ; (the areas' MIN / MAX / ALIGN / MISAL / GAME stay in rs_res for the tests, docs/ramdisk-tiers.md section 1)
 rs_show:        ld      hl, 126 * 40 + 4
                 call    rs_line
@@ -515,9 +517,7 @@ sh_p:           push    bc
                 ld      hl, s_unit
                 call    put_str
                 ld      hl, (rs_gav)
-                call    put_t10
-                ld      hl, s_tpb
-                call    put_str
+                call    put_ws
 ; rs_print: print rs_txt (DE = its end)
 rs_print:       xor     a
                 ld      (de), a
@@ -579,6 +579,23 @@ put_t10:        ld      c, 10
                 ld      (de), a
                 inc     de
                 ret
+; rs_v10: HL = clocks/byte x 10 in the stop's unit to DE: too slow (rs_mode 1) wait states (pw_n), the timer fault
+; clocks/byte as "18.5" (it is about the timer: below 21.0, 0 wait states would say nothing)
+rs_v10:         ld      a, (rs_mode)
+                or      a
+                jp      z, put_t10
+                jr      pw_n
+; put_ws: HL = clocks/byte x 10 as wait states "0 WS" to DE: (HL - 205) / 10, 0 below 21.5
+put_ws:         call    pw_n
+pw_u:           ld      hl, s_ws
+                jp      put_str
+pw_n:           ld      bc, -205
+                add     hl, bc
+                jr      c, pw_1
+                ld      hl, 0
+pw_1:           ld      c, 10
+                call    div8
+                jp      put_dec
 ; div8: HL = HL / C, A = the remainder (C < 128)
 div8:           xor     a
                 ld      b, 16
@@ -595,10 +612,9 @@ rd_max:         dw      RD_SPEED_MAX    ; (tests/m5_boot.py patches these)
 rd_min:         dw      RD_SPEED_MIN
 s_rd:           db      "RAM DISK ", 0
 s_unit:         db      ", ", 0
-s_tpb:          db      " T/BYTE", 0
+s_ws:           db      " WS", 0
 s_slow:         db      "RAM DISK TOO SLOW: ", 0
 s_fault:        db      "RAM DISK TIMER FAULT: ", 0
-s_cpb:          db      " CLOCKS/BYTE", 0
 s_limit:        db      "GAME PATTERN, ", 0
 s_max:          db      "MAX ", 0
 s_min:          db      "MIN ", 0

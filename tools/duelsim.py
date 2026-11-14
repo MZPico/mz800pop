@@ -427,7 +427,8 @@ class DuelSim(KidSim):
             if not self.frames[c.frame][4] & K.FRAME_NEEDS_FLOOR: continue     # (off the floor: neither hit nor kept)
             col = self.d18_col(c); tile = (c.room & 0xFF, col & 0xFF, c.curr_row & 0xFF); up = self.d18_raised(c, col)
             last = self.d18_v[p]; self.d18_v[p] = (tile, up)
-            if up and c.alive < 0 and last != (tile, True): hits.append((p, col))
+            exempt = c.sword != 0 or c.frame == 15 or 121 <= c.frame <= 132     # (the user's change 2026-11-14)
+            if up and c.alive < 0 and not exempt and last != (tile, True): hits.append((p, col))
         for p, col in hits:
                 if p == 0: self.hitp_curr = hp = max(0, self.hitp_curr - 1)
                 else: self.guardhp_curr = hp = max(0, self.guardhp_curr - 1)
