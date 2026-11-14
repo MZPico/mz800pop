@@ -613,6 +613,29 @@ tools/mkgamedisk.py (the GAME image stream, POP800.PRS), tests/m7_launch.py, tes
   that wants RAM-disk scratch (shadow room page 1, torch cache page 6) decompresses to main RAM first; the boot is
   10 blocks now (the IPL loads it fine).
 
+### 10.1 "LOADING..." between the programs (2026-11-14, PLAN item 98)
+
+The swaps left the screen black for seconds: PRES clears it (video_init, and `cls` before a new game, as SDLPoP), the
+launcher restores the GAME image (65 frames), the game cleared it again in its video_init and then started (tables,
+pr_build, the guard set's fill on 1 MB and more: 75 / 260 frames), before the room appeared tile by tile. Measured
+(emulator frames, the floppy without rotation):
+
+| Wait | 512 KB | 1 MB | 4 MB |
+|---|---:|---:|---:|
+| title (key) -> game, black | 120 | 196 | 381 |
+| Ctrl+L -> game (level 5), black | 119 | 185 | 380 |
+| PRES's loads before a level cutscene | 168 | 168 | 168 |
+| after the cutscene: the music tail (SDLPoP: `while (check_sound_playing())`, screen cleared) + the swap | 271 + 120 | 271 + 121 | 271 + 121 |
+| boot or game over -> title (the art from the floppy, its decoding) | 203 | 204 | 203 |
+
+Now the launcher's entry LN_LOADING (launch.inc; 0xB009: `msg_load`, the loading screen's "LOADING..." at row 100,
+x 32, through print_at) runs before the GAME image is restored and from PRES right after its video_init, and the
+launched game's video_init (src/m4/gstart.asm) sets the mode and the palette but leaves the screen: it is black but
+for the text (PRES cleared it, or a cutscene's fade-out did), and the first room draw covers row 100. The harness
+(no handoff magic) still clears. Only the music tail after a cutscene stays black (the original's). Launcher +9 B,
+PRES +3 B, the level-start overlay +4 B, no resident byte; nothing in the logic changes (VRAM 13 ticks after the level
+start is the same as before on every path measured).
+
 ## 11. As built: step 2, the sound model in the logic (2026-10-30)
 
 Code: tools/kidsim.py (play_sound / play_next_sound / stop_sounds / sound_playing, the call sites), src/m4/sound.asm

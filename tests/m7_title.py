@@ -92,7 +92,7 @@ def title_run(dsk):
     rows = []; bad_scr = []; bad_t = []; n_scr = 0
     with Emu() as e:
         times = boot(e, dsk)
-        F0 = frames(e)
+        F0 = word(e, PS['t_target'])  # (the clock's origin as op_sync read it: FRAMES may have ticked since)
         tr = m7_sound.Tracker(e, PS, 'silent', bank)
         tr.addr = {PS['spi_done']: 'act', PS['snh_di']: 'halt', PS['snd_arm']: 'arm', PS['snd_start']: 'start', PS['sf_x']: 'fill', PS['mf_go']: 'fade'}
         mine = {PS['ts_step']: 'step', PS['tf_pass']: 'pass', PS['tw_col']: 'col', PS['tfo_pass']: 'opass'}
@@ -127,7 +127,7 @@ def title_run(dsk):
                 continue
             k = e.mem(PS['t_col'], 1)[0]
             if kind == 'pass':
-                key = ('pass', loop, k); ref = T.fade_in(black, T.screen(['MAIN']), k + 1)
+                key = ('pass', loop, k); ref = T.fade_in(T.loading(), T.screen(['MAIN']), k + 1)     # (PRES starts from LN_LOADING's text)
             elif kind == 'opass':
                 key = ('opass', loop, k); ref = T.fade_in(T.screen(names['g']), black, k + 1)
             else:

@@ -74,7 +74,7 @@ def run_to_sync(e, dsk):
         pc = e.call('get_registers')['PC']
         tr.event(pc)
         if pc == PS['ts_sync']: break
-    return tr, C.frames(e)
+    return tr, word(e, PS['t_target'])  # (the clock's origin as op_sync read it: FRAMES may have ticked since)
 
 def part_title(dsk):
     print('1. the title h-m: pv_scene, i, j, k, the fade-out, the title again (POP800.PR2 read from the disk)')
@@ -295,7 +295,7 @@ def part_late(dsk):
         with Emu() as e:
             C.boot_pres(e, dsk, lv, rm)
             M5.run_to(e, PS['ts_sync'], 2000)
-            F0 = C.frames(e)
+            F0 = word(e, PS['t_target'])  # (the clock's origin as op_sync read it: FRAMES may have ticked since)
             class NoTr:                 # (no PSG tracking here: scene_run's tracker interface as no-ops, m7_cut.scene_run)
                 addr = {}; pending = None
                 def __init__(self): self.hooks = {}

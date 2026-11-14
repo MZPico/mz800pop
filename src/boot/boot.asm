@@ -53,10 +53,18 @@ COL_BAR         equ     14
 boot:           jp      boot_main       ; the ROM IPL's entry
 launch:         jp      launch_main     ; LN_LAUNCH
 prs_load:       jp      prs_load_main   ; LN_PRS_LOAD
+; LN_LOADING: "LOADING..." where the loading screen has it (msg_load), over a black screen: before the GAME image
+; is restored (the launcher itself) and after PRES's video_init (PRES), so no wait between the programs is blank. The
+; launched game does not clear the screen (src/m4/gstart.asm video_init): the text stays until the room draw covers it.
+loading:        ld      hl, msg_load
+                jp      print_at
                 if launch - LN_LAUNCH
                 .error the launcher's entries moved
                 endif
                 if prs_load - LN_PRS_LOAD
+                .error the launcher's entries moved
+                endif
+                if loading - LN_LOADING
                 .error the launcher's entries moved
                 endif
 boot_main:      di
@@ -151,7 +159,8 @@ launch_main:    di
 ln_duel1:       bit     ACT_DUEL_BIT, a ; the duel (src/duel/duel.asm): its staged pieces into the RAM disk's scratch
                 ld      a, PRS_DUEL1    ; first (a RAM-disk record: through the buffers the game's image overwrites)
                 call    nz, prs_load_main
-ln_duel1_end:   ld      a, 1            ; the game: its compressed image from the RAM disk
+ln_duel1_end:   call    loading         ; "LOADING..." while the game is restored and starts (the screen is black)
+                ld      a, 1            ; the game: its compressed image from the RAM disk
                 ld      (s_src), a
                 ld      a, GAME_RD_PAGE
                 ld      de, GAME_RD_ADDR

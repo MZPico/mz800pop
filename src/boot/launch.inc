@@ -32,6 +32,8 @@ LN_LOAD         equ     0xb000          ; the launcher's image runs here (outsid
 LN_LAUNCH       equ     LN_LOAD + 3     ; jp: start the program the handoff block (RAM disk) asks for
 LN_PRS_LOAD     equ     LN_LOAD + 6     ; call (PRES only, the launcher stays at 0xB000 while PRES runs): A = entry
                                         ; of POP800.PRS: its records into main RAM; DI, motor off at the end
+LN_LOADING      equ     LN_LOAD + 9     ; call (PRES; the launcher itself before the GAME image): "LOADING..." on the
+                                        ; screen (the loading screen's place, row 100, x 32); AF, AF', BC, DE, HL destroyed
 LN_MAX          equ     0x0c00          ; the launcher's image in the RAM disk: at most this long (copied whole)
 LN_RD_PAGE      equ     0               ; its copy in the RAM disk (written by the boot)
 LN_RD_ADDR      equ     0xf000
