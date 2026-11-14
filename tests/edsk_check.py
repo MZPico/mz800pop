@@ -43,13 +43,18 @@ def main(args):
     fails += not seen
     for p in paths:                                     # the game disks: the directory's first block
         if os.path.basename(p) != 'pop800.dsk': continue
-        d = open(p, 'rb').read()
-        names = [n for n in edsk.dir_names(d, 16) if n.startswith('POP800.D')] + [mkgamedisk.SAVE_NAME]
-        try: mkgamedisk.check_lookups(d, names); ok = len(names) > 1
+        d = open(p, 'rb').read()                        # (the data files from the whole directory, blocks 16-23)
+        names = sorted({n for b in range(16, 24) for n in edsk.dir_names(d, b) if n.startswith('POP800.D')})
+        names += [mkgamedisk.SAVE_NAME]
+        try: mkgamedisk.check_lookups(d, names); ok = 'POP800.D1' in names
         except AssertionError: ok = False
         print('%s %s: %s in directory block 16' % ('ok  ' if ok else 'FAIL', os.path.relpath(p, ROOT), ', '.join(names)))
         fails += not ok
-    d = bytearray(open(paths[0], 'rb').read())          # the check fails when POP800.SAV is not in block 16
+    game = next((p for p in paths if os.path.basename(p) == 'pop800.dsk'), None)
+    if game is None:                                    # (no game disk given: nothing more to check)
+        print('edsk_check: %s' % ('PASS' if not fails else 'FAIL'))
+        sys.exit(1 if fails else 0)
+    d = bytearray(open(game, 'rb').read())              # the check fails when POP800.SAV is not in block 16
     t = 16 // 16 ^ 1; free = False
     for tt, i, e in edsk.sectors(d):
         if tt == t and d[e + 2] == 1:
