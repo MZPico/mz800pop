@@ -856,3 +856,57 @@ tick at 2M and 4M: 0 differences; duel_boot at 2M and 4M. perfcheck (frames a ti
 
 (2M = 1M within the noise of the baselines' age; 4M = 8M = the old 16M within 0.5 %: the door step's 7.91 against
 7.73 is on every size, not the tier's.)
+
+## 16. The MZPico's RAM-disk image: the RAM disk in flash, writes in a copy-on-write pool (2026-11-16)
+
+**What it is.** A mode of the MZPico card (its firmware, built separately) that needs no chip-based MR1R18 RAM disk:
+the card serves the RAM disk from an image file in its internal flash, and every write goes to a pool of 1 KB SRAM
+blocks (copy-on-write) with write-compare (a write of the byte the image already has allocates nothing). The card
+reports 512 KB. The image is the 512 KB RAM disk exactly as the game's floppy boot leaves it, so the boot's ~450 KB of
+writes are almost all writes of the image's own bytes and only what the game changes in play takes pool blocks.
+
+**How it is made**: `make rdimage` (tools/rdimage.py) boots build/pop800.dsk in mz800emu with a 512 KB RAM disk
+(starting at 0xFF, as the emulator's) and 1 wait state, runs to the boot's end, PRES's first instruction (PRES_START)
+with the launcher's handoff ACT_TITLE (512 KB has no frame-store fill), and writes the 8 pages, page 0 first, as one
+raw 524,288-byte file: `build/pop800-rd512-<VERSION>.img`. Beside it `.img.sha256`, in sha256sum's format, names the
+image and the game disk it came from (`pop800-<VERSION>.dsk`): `sha256sum -c --ignore-missing` next to the release
+disk checks both. v0.1.0: the image's sha256 ec6c30f6...e1ad1b9, from the release disk e7ca733b...9dca277 (build/pop800.dsk
+of main a054f4c is that disk byte for byte).
+
+**The image must match the disk exactly.** The boot writes the disk's files into the RAM disk; with another build's
+image every byte that differs takes a block, a different game image or pack fills the pool within the boot, and the
+card runs out of blocks. Make the image from the very disk the card boots, and a new one with every release.
+
+**Determinism** (`tools/rdimage.py --check`): the same bytes again, after a reset 37 frames later, and without the
+MZPico's NET card (POP800_UNICARD=0: nothing of the network check is kept in the RAM disk). One byte depends on the
+timing: rd_spd (page 0 0xF936, the launcher's copy: the boot's GAME read speed x 5, section 1), 0x69 with no wait
+states, 0x6E with 1, 0x79 with 3. The image is made with 1, the MZPico's minimum; a card that reads at another speed
+changes that byte at every boot: one block. **The size**: a 1 MB boot leaves pages 0-7 the same but for rd_top (page 0
+0xF935, the launcher's copy: 0x0F against 0x07) and the handoff block's HO_RDTOP (page 5 0x3ACF) after the fill, so
+the image is the 512 KB tier's and only for a card that reports 512 KB.
+
+**The check** (`make rdimage-check`, tests/rdimage_check.py; local only): each scenario runs in its own mz800emu with
+the RAM disk loaded from the image, boots the floppy and plays; an emulator patched with a log of every RAM-disk port
+access (tools/rdlog.py: `tools/ci/build_deps.sh emu_rdlog` builds it from the pinned commit; POP800_RDLOG_EMU names
+the binary) gives every write, transient ones included, and tools/rdlog.py Cow replays them into the pool (1 KB blocks,
+write-compare, no block ever freed; besides, the same with a card that frees a block matching the image again). The
+log is checked complete (the image + the harness's pokes + the logged writes = the RAM disk at the end, byte for
+byte). The stock emulator has no such log and the runners do not build the patched one, so this is not a CI test.
+Measured with v0.1.0's disk, blocks of 1 KB (the freeing card in brackets):
+
+| scenario | boot | peak | what |
+|---|---:|---:|---|
+| title | 8 (0) | 50 (44) | the title and story, 4,000 frames, then a game start, 20 ticks |
+| walk | 8 (0) | 52 (46) | level 1 by walk_level1 (room changes, the level door), the cutscene, a fight on level 2 (the kid killed), levels 3-14 by load_level, 40 ticks each |
+| traps | 8 (0) | **63 (57)** | level 10 room 10 by frm_button (a chopper, a closer), level 7 room 19 by frm_spike_btn (a spike, gates) |
+| duel | 8 (0) | 53 (47) | Ctrl+D without the Unicard (local), match.txt (572 ticks), the title, a new game |
+| all together | | 63 (57) | the union: blocks are never freed, so a session that plays it all needs this |
+
+Where the 63 go: the shadow room (page 1 0x0000-0x7FFF, 32: PRES's screen on the title too), PRES's sound bank / the
+torch cache / PR_TAB / the complete-picture pool (page 6 0x0000-0x2BFF, 11), the picture slots (page 4 0xE000-0xFFFF,
+8; page 0 0xE800-0xEFFF, 2), the button pictures (page 1 0xE800-0xF3FF, 3), the handoff block (page 5 0x3800, 1) and
+**6 blocks of the boot's size probe** (offset 0 of pages 0, 2, 3, 4, 5, 7; pages 1 and 6 count with their scratch):
+it writes a marker at offset 0 of every page and puts the original bytes back (section 1), so the boot ends with
+nothing changed but has taken a block of every page. Hence the budget: the test allows 64 blocks (POP800_RD_POOL);
+a ~60 KB pool is too small unless the card frees a block whose content matches the image again (then 57) or treats
+the probe's writes another way.

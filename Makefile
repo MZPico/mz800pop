@@ -117,6 +117,19 @@ diag:
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/diag/build/assets
 	$(MAKE) -C $(BUILD)/diag DIAG=1 build/pop800.dsk
 .PHONY: m7keys cheats pace diag
+# The MZPico's RAM-disk image (docs/ramdisk-tiers.md section 16): the 512 KB RAM disk as the boot leaves it, for the
+# card's mode with the RAM disk in its flash; it belongs to this build/pop800.dsk alone (the .sha256 beside it names
+# both). rdimage-check: the game played from it against the card's copy-on-write pool (local only: it needs mz800emu
+# with the RAM-disk log, tools/ci/build_deps.sh emu_rdlog, POP800_RDLOG_EMU)
+RD_IMAGE = $(BUILD)/pop800-rd512-$(shell $(PY) tools/version.py --print).img
+rdimage: $(RD_IMAGE) $(RD_IMAGE).sha256
+$(RD_IMAGE): $(BUILD)/pop800.dsk tools/rdimage.py tools/rdlog.py
+	$(PY) tools/rdimage.py --out $@
+$(RD_IMAGE).sha256: $(RD_IMAGE)
+	test -f $@ || $(PY) tools/rdimage.py --out $(RD_IMAGE)
+rdimage-check: $(RD_IMAGE) $(RD_IMAGE).sha256
+	$(PY) tests/rdimage_check.py --image $(RD_IMAGE)
+.PHONY: rdimage rdimage-check
 m7sound: $(BUILD)/m4game.mzf
 	$(PY) tests/m7_sound.py
 sound-wav: $(BUILD)/assets/sound.bin

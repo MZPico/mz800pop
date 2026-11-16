@@ -3,11 +3,13 @@
 # is already there (the workflow restores them from the actions cache, keyed by the versions below).
 #   build_deps.sh sdl3     SDL3, SDL3_image, minizip-ng (mz800emu's, not packaged in Ubuntu 24.04) -> $DEPS
 #   build_deps.sh emu      mz800emu at $MZ800EMU_COMMIT -> $EMU_DIR (mz800emu + ui_resources/)
+#   build_deps.sh emu_rdlog  the same with tools/rdlog.py's RAM-disk access log -> $EMU_RDLOG_DIR (for
+#                          tests/rdimage_check.py, a local test: docs/ramdisk-tiers.md section 16)
 #   build_deps.sh sdlpop   SDLPoP at $SDLPOP_COMMIT + tools/sdlpop-pop800.patch -> external/SDLPoP (the oracle: prince)
 #   build_deps.sh mzdisk   mzdisk at $MZDISK_COMMIT -> external/mzdisk/build (mzdsk-create, mzdsk-fsmz)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-: "${DEPS:=$HOME/mzdeps}" "${EMU_DIR:=$HOME/mz800emu-bin}" "${SRC:=$HOME/depsrc}"
+: "${DEPS:=$HOME/mzdeps}" "${EMU_DIR:=$HOME/mz800emu-bin}" "${SRC:=$HOME/depsrc}" "${EMU_RDLOG_DIR:=$HOME/mz800emu-rdlog}"
 : "${SDL3_TAG:=release-3.4.14}" "${SDL3_IMAGE_TAG:=release-3.4.4}" "${MINIZIP_TAG:=4.2.2}"
 : "${MZ800EMU_COMMIT:=ca2b709099139abeb9531f2b71f48084bd7160ce}"
 : "${SDLPOP_COMMIT:=3c5add5fb7f83d4ceb542823ab66d00146c4271b}"
@@ -59,6 +61,19 @@ emu() {
     cp "$SRC/mz800emu/build/build-mz800emu/mz800emu" "$EMU_DIR/"
     cp -r "$SRC/mz800emu/ui_resources" "$EMU_DIR/"
     echo "emu: built mz800emu $MZ800EMU_COMMIT"
+}
+
+emu_rdlog() {
+    if [ -x "$EMU_RDLOG_DIR/mz800emu" ]; then echo "emu_rdlog: cached"; return; fi
+    fetch https://github.com/MZPico/mz800emu.git "$MZ800EMU_COMMIT" "$SRC/mz800emu-rdlog"
+    python3 "$ROOT/tools/rdlog.py" patch "$SRC/mz800emu-rdlog/src/emulator/hw-generic/ramdisk/ramdisk.c"
+    cmake -S "$SRC/mz800emu-rdlog" -B "$SRC/mz800emu-rdlog/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        -DMZ_BUILD_MZ1500=OFF -DMZ_BUILD_MZ700_PAL=OFF -DMZ_BUILD_MZ700_NTSC=OFF
+    log emu_rdlog cmake --build "$SRC/mz800emu-rdlog/build" --target mz800emu -j"$JOBS"
+    mkdir -p "$EMU_RDLOG_DIR"
+    cp "$SRC/mz800emu-rdlog/build/build-mz800emu/mz800emu" "$EMU_RDLOG_DIR/"
+    cp -r "$SRC/mz800emu-rdlog/ui_resources" "$EMU_RDLOG_DIR/"
+    echo "emu_rdlog: built mz800emu $MZ800EMU_COMMIT with the RAM-disk log"
 }
 
 keep_existing() {   # keep_existing <dir>: refuse to replace a checkout that is there but not a complete build (a developer's
