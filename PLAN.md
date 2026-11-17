@@ -1396,3 +1396,12 @@ piece used AND/XOR semantics.
    code 62 B under its stack reserve (was 18), PRES unchanged (may grow by 2 = PRES_RESERVE), save overlay -2, resident
    game 0. `make diag` (DIAG=1): DISK ERROR prints the call, the command, the tries' statuses, the WD's registers, the
    last ID read, the caller and the RAM disk's size and speed. tests/m5_floppy.py models a spinning-up drive.
+105. Boot: the RAM-disk speed test warms the GAME pattern (2026-11-17, docs/ramdisk-tiers.md section 1 "The read
+   speed"; item 50). rd_speed reads the GAME pattern's 32 runs once untimed before the timed pass (rdspeed.asm ra_w).
+   A RAM disk with a cache misses on its first touch of a run, while the game's own reads come back to blocks they read
+   before: the Unicard (mk3b, mk4) keeps the RAM disk in a file on SD behind a 64 KB cache of 512-byte blocks (its
+   firmware of 2026-11-17) and measured 41-43 WS cold (the boot stopped at 15) but 3 WS warm on a Unicard mk3b (this
+   build, "RAM DISK 1M, 3 WS", the boot goes on); in play there 99.95 % of the reads come from the cache and the Z80
+   waits for the SD card ~0.5 % of the time. A RAM disk without a cache (a chip-based card, mz800emu, the MZPico with
+   the image in flash) costs the same in both passes: m5_boot's values unchanged (21.0 everywhere; +1, +14, +16 T as
+   before). +1 KB read an area, +1 frame of boot (1 MB: 738 -> 739); the limits, the chunks and rd_spd unchanged.

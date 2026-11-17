@@ -97,12 +97,20 @@ rd_top / 2 + 1 and of the last page; 3 areas on 512 KB, 4 on more), every routin
   by 64 (base + k * 512 + 320). A RAM disk with a 128-byte window misses once in an aligned chunk and twice in a
   misaligned one. Shown: MIN and MAX chunk, ALIGN and MISAL (the averages), AVG (all 32, in the last line as CHUNK).
 - GAME: 32 runs of the game's pattern, the address OUT and an INIR of 32 bytes, at scattered addresses all over the
-  page (0x0123 + k * 0x0753); the average. This is what the game's speed depends on.
+  page (0x0123 + k * 0x0753); the average. This is what the game's speed depends on. The 32 runs are read once
+  untimed first and then timed (2026-11-17): a RAM disk with a cache misses on its first touch of a run, while the
+  game's own reads come back to blocks they read before, so the cold pass measured the cache's misses and not what
+  the game sees. The Unicard (mk3b, mk4) keeps the RAM disk in a file on SD behind a 64 KB cache of 512-byte blocks
+  (its firmware of 2026-11-17): cold 41-43 WS on a Unicard mk3b (the boot stopped), warm 3 WS; in play there 99.95 %
+  of the reads come from the cache and the Z80 waits for the SD card ~0.5 % of the time (~2 % briefly at a room
+  change). A RAM disk without a cache (a chip-based card, mz800emu, the MZPico with the image in flash) costs the
+  same in both passes: every value below is as before.
 
 Precision: a count is 3.2 clocks, so one 128-byte chunk is good to +-0.03 clocks/byte, one 32-byte run to +-0.1,
 the averages of 16-32 to better than +-0.02; the calibration's 16 runs fix the fixed part to +-0.2 clocks. Reads only
 (into TRKBUF): nothing in the RAM disk or main RAM changes (m5_boot compares both with the harness setup). Time: the
-loader takes 719 frames instead of 708 (+0.22 s with the table's drawing; 5 KB read an area).
+loader takes 719 frames instead of 708 (+0.22 s with the table's drawing; 5 KB read an area); the untimed GAME pass
+(2026-11-17) reads 1 KB more an area: +1 frame (1 MB: 738 -> 739).
 
 **Screen** (the loading screen; "LOADING..." and the bar moved up 12 lines to make room, the floppy errors to line 84;
 since 2026-11-13 one line under the bar, the size in M when it is a whole number of MB, else in K, and the GAME mean):
@@ -147,6 +155,7 @@ these are reported as not tested. (Found on the way: mz800emu#2's first builds r
 
 To check on real hardware: the values on a chip-based card (21.0 expected) and on an MZPico Deluxe (22 or more, the
 spread of MIN / MAX), and that GATE0 through 0xE008 works in the MZ-800 mode on the real machine as in mz800emu.
+Measured on a Unicard mk3b with the warm GAME pass (2026-11-17, 1 MB): "RAM DISK 1M, 3 WS", the boot goes on.
 
 ### How the tests select the size
 
