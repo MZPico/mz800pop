@@ -52,7 +52,8 @@ emu/mz800emu-pop.sh        # emulator B: insert /tmp/b.dsk in FD0, reset
 ```
 
 (`POP800_NET_RELAY=host:port emu/mz800emu-pop.sh` uses another relay; `POP800_RD_SIZE=512K` another RAM disk.) Both
-emulators must boot the same disk build: the room checks a build id.
+emulators must boot the same disk build: the room checks a build id (the pico_rd disk of `make picord` carries the
+MZ-1R18 disk's id, so on real MZPico cards the two disks of one build duel each other).
 
 ## 3. Playing
 

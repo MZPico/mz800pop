@@ -119,12 +119,15 @@ diag:
 # The MZPico pico_rd build (2026-11-16, docs/ramdisk-tiers.md "pico_rd"): the same sources with PICORD=1, the RAM disk
 # through the card's pico_rd (base 45h; the Frugal board too) instead of the MZ-1R18's ports: build/pop800-picord.dsk
 # (the tree in build/picord, the art and data shared: built here first, the tree links build/assets)
-picord: $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin
+# (the duel's network build id is the MZ-1R18 build's, tools/duelpatch.py build_id: the two disks duel each other;
+# the MZ-1R18 disk is built first, so it carries the id the pico_rd disk takes)
+picord: $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin $(BUILD)/pop800.dsk
 	mkdir -p $(BUILD)/picord/build
 	rsync -a --delete src Makefile VERSION $(BUILD)/picord/
 	for d in tools tests external assets emu; do ln -sfn $(CURDIR)/$$d $(BUILD)/picord/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/picord/build/assets
-	$(MAKE) -C $(BUILD)/picord PICORD=1 build/m4game.mzf build/m4test.mzf build/pop800.dsk
+	$(MAKE) -C $(BUILD)/picord PICORD=1 DUEL_ID_FROM=$(CURDIR)/$(BUILD)/duel_patch.json build/m4game.mzf build/m4test.mzf build/pop800.dsk
+	$(PY) -c "import json,sys; a,b=(json.load(open(p))['build_id'] for p in sys.argv[1:]); assert a==b, 'the duel build ids differ'; print('picord: the duel build id %04X, as the MZ-1R18 disk' % a)" $(BUILD)/duel_patch.json $(BUILD)/picord/build/duel_patch.json
 	cp $(BUILD)/picord/build/pop800.dsk $(BUILD)/pop800-picord.dsk
 # The guard that the pico_rd lines leave the MZ-1R18 build alone: the disk built from a copy of src/ with every `if
 # defined PICORD` block reduced to its else branch (tools/picord_strip.py) must equal build/pop800.dsk byte for byte
@@ -298,8 +301,8 @@ $(BUILD)/duel_blades.inc $(BUILD)/duel_blades_tab.inc &: tools/duelblade.py $(BU
 	$(PY) tools/duelblade.py --asm $(BUILD)/duel_blades.inc $(BUILD)/duel_blades_tab.inc
 $(BUILD)/duel.bin: src/duel/duel.asm src/boot/launch.inc $(BUILD)/duel.inc $(BUILD)/duel_text.inc $(BUILD)/duel_level.inc $(BUILD)/duel_arenas.inc $(BUILD)/assets/font_duel.inc $(BUILD)/duel_blades.inc $(BUILD)/duel_blades_tab.inc
 	cd src/m1 && $(PASMO)$(if $(DUEL_LOOK), --equ DUEL_LOOK=$(DUEL_LOOK)) --bin ../duel/duel.asm ../../$(BUILD)/duel.bin ../../$(BUILD)/duel.sym
-$(BUILD)/duel_main.bin $(BUILD)/duel_stage.bin &: $(BUILD)/duel.bin $(BUILD)/m4ovl.bin tools/duelpatch.py tools/z80flow.py
-	$(PY) tools/duelpatch.py build
+$(BUILD)/duel_main.bin $(BUILD)/duel_stage.bin &: $(BUILD)/duel.bin $(BUILD)/m4ovl.bin tools/duelpatch.py tools/z80flow.py $(DUEL_ID_FROM)
+	$(if $(DUEL_ID_FROM),DUEL_ID_FROM=$(DUEL_ID_FROM) )$(PY) tools/duelpatch.py build
 duel: $(BUILD)/duel_main.bin
 .PHONY: duel
 $(BUILD)/m4test.mzf: $(BUILD)/m4test.bin
