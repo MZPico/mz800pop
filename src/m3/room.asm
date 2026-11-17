@@ -593,10 +593,15 @@ ao_noshift:     ld      a, c
                 inc     a
                 jp      z, ao_ram       ; page 0xFF: main RAM (the test programs)
                 dec     a
+                if defined PICORD
+                ex      de, hl
+                call    far_seek        ; (DE and HL are read anew below)
+                else
                 out     (RD_PAGE), a    ; (far_seek)
                 ld      b, h
                 ld      c, RD_ADDR
                 out     (c), l
+                endif
                 dec     c               ; RD_DATA
                 in      a, (c)
                 in      l, (c)

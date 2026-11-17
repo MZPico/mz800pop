@@ -40,12 +40,12 @@ Sources: mz800emu source + docs/agent (local checkout at ~/src/mz800emu), Hučí
 
 ## MZPico pico_rd protocol (from MZPico-firmware src/mz_devices/pico_rd.cpp, base port 45h)
 - base+0 control: any read or write resets the position to 0 (read returns 0).
-- base+1 data: read/write one byte at the current position, position auto-increments.
-- base+2 / +3 / +4: write address byte 2 / 1 / 0 of the 24-bit position (read returns the current byte); writing any of them also resets the "sequential address index".
+- base+1 data: read/write one byte at the current position, position auto-increments over all 24 bits: from offset 0xFFFF it goes on at the next page's 0x0000 (the MZ-1R18 wraps within its page).
+- base+2 / +3 / +4: write address byte 2 / 1 / 0 of the 24-bit position (read returns the current byte); writing any of them also resets the "sequential address index". Before firmware cf6b79f (MZPico-firmware PR #9, 2026-11-17) only base+4 replaced its byte: base+2 ORed into byte 2 (mask 0x00FFFFFF) and base+3 cleared byte 2 and ORed into byte 1 (mask 0xFF00FFFF); the fixed ports replace exactly their byte, which the game's pico_rd build needs (docs/ramdisk-tiers.md "pico_rd").
 - base+5 addrs: sequential address load: successive writes set byte 0, 1, 2 of the position (index cycles 0->1->2->0).
 - base+6 addri: add the written byte to the position (wraps at size).
 - Default size 64 KB (configurable via image). Asserts /EXWAIT. Works on every MZPico board.
-- Driver sketch: seek = OUT base+2/+3/+4 (3 OUTs); read n bytes = `LD C,base+1 : INIR` (21 T/byte, same as MZ-1R18).
+- Driver (the fixed firmware): seek = base+2 page whenever the page may differ from the position's byte 2, which includes after any access at offset 0xFFFF (the carry), base+3 high, base+4 low; the game's pico_rd build writes base+2 where the MZ-1R18 code writes E9h, and its in-page seeks never follow such an access (docs/ramdisk-tiers.md "pico_rd"); read n bytes = `LD C,base+1 : INIR` (21 T/byte, same as MZ-1R18).
 
 ## mz800emu harness findings (2026-10-25)
 - JSONL pipe protocol (`mz800emu --mcp-pipe`): first line = hello {type, version, capabilities, commands[]};

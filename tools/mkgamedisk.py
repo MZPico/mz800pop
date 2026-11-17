@@ -417,7 +417,22 @@ def check_lookups(d, names):
     assert not missing, ('files the boot or the save look up are not in directory block 16 (its only block read): %s '
                          '(block 16 holds %s)' % (missing, have))
 
+def check_page_ends():
+    """the RAM-disk areas read and written by in-page seeks (no page write between the rows: gfx.asm restore_shadow /
+    shadow_write on the shadow room, frmlow.asm lr_r on the chopper and spike pictures' slots, PRES's screen in page 1)
+    must not reach offset 0xFFFF: there the pico_rd build's position (24 bits, src/m1/far.asm) carries into the next
+    page, which the MZ-1R18 does not (docs/ramdisk-tiers.md "pico_rd"). The shadow room and PRES's screen end at 0x7CFF;
+    the slots are frames.asm's fs_bdir / fs_sdir (FRM_BIG / FRM_SMALL bytes each)"""
+    F = syms(os.path.join(B, 'ovl_frm.sym')); img = open(os.path.join(B, 'ovl_frm.bin'), 'rb').read()
+    def slots(at, n, size):
+        o = at - F['ovl_entry']
+        return [(img[o + 3 * i], struct.unpack_from('<H', img, o + 3 * i + 1)[0], size) for i in range(n)]
+    for page, addr, size in (slots(F['fs_bdir'], (F['fs_sdir'] - F['fs_bdir']) // 3, F['FRM_BIG']) +
+                             slots(F['fs_sdir'], F['FRM_NS'], F['FRM_SMALL'])):
+        assert addr + size <= 0xFFFF, 'a frames slot (%d:%04X, %d bytes) reaches offset 0xFFFF of its page' % (page, addr, size)
+
 def build_disk(out, boot, mzd):
+    check_page_ends()
     L = launcher_syms()
     prs, lens, ts = prs_file()
     # the launcher's POP800.PRS table goes into the boot's stream; where POP800.PRS lands depends on the stream's length,

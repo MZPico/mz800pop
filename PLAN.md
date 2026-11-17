@@ -707,6 +707,10 @@ piece used AND/XOR semantics.
       (shadow_write, the restore; pico_rd's add-delta register fits row strides); size from the device (wraps at size);
       add the pico_rd device to mz800emu (we build it; the firmware's pico_rd.cpp is the reference) and run the gate
       suite once in pico_rd mode. Matters: every MZPico board has pico_rd, not every setup a 512 KB RAM disk.
+      As built (2026-11-16): a separate build and disk instead of the boot patch (`make picord`,
+      build/pop800-picord.dsk: the sources with PICORD=1; the MZ-1R18 build byte-identical; no resident bytes);
+      tested against a scratch pico_rd model of mz800emu; needs the MZPico firmware with the fixed pico_rd address
+      ports (MZPico firmware main cf6b79f, its PR #9, or later; docs/ramdisk-tiers.md "pico_rd").
    b. 256 KB RAM disk (M8, ~1 week, after the layout settles): per-level loading per item 33.
    c. 16 KB VRAM (no extension: 320x200 in 4 colours): declined for this port (all art to 4 colours, 2-plane kernel and
       renderer, doubled pixel tests, PRES: 3-5 weeks for a worse-looking game). New code keeps the plane count a

@@ -38,8 +38,13 @@ PORT_PPIC       equ     0xd2            ; 8255 port C (PC0: the CTC0 audio, 0 = 
 PORT_PPICTL     equ     0xd3
 RS_CHUNK        equ     128
 RS_RUN          equ     32
+                if defined PICORD               ; (the address in two OUTs: ld a, d / out (n), a / ld a, e / out (n), a)
+RS_KC           equ     213             ; chunk: 49 clocks x 10 / 128 x 64 (the X scale) - 32 (rounding)
+RS_KG           equ     237             ; game run: 49 x 10 / 32 x 16 - 8
+                else
 RS_KC           equ     178             ; chunk: 42 clocks x 10 / 128 x 64 (the X scale) - 32 (rounding)
 RS_KG           equ     202             ; game run: 42 x 10 / 32 x 16 - 8
+                endif
 RS_AREA         equ     12              ; rs_res an area: MIN, MAX, ALIGN, MISAL, GAME, AVG (words, clocks/byte x 10)
 ; the variables: in TRKBUF (free until the directory is read; the reads use its first 256 bytes), not in the image
 RSV             equ     TRKBUF + 0x200
@@ -459,7 +464,28 @@ tm_op:          xor     a
                 sbc     hl, de                  ; counting down: t0 - t1 (mod 65536)
                 ret
 rs_go:          jp      (ix)
-; the timed routines: DE = address. Nominal cost besides 21 clocks a byte: 42 (10 + 4 + 7 + 12 + 7 + 7 - 5)
+; the timed routines: DE = address. Nominal cost besides 21 clocks a byte: 42 (10 + 4 + 7 + 12 + 7 + 7 - 5); pico_rd:
+; 49 (10 + 4 + 11 + 4 + 11 + 7 + 7 - 5), and a wait clock on each of its two address OUTs adds 2 / n
+                if defined PICORD
+op_chunk:       ld      hl, TRKBUF
+                ld      a, d
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a
+                ld      c, RD_DATA
+                ld      b, RS_CHUNK
+                inir
+rs_cal:         ret
+op_run:         ld      hl, TRKBUF
+                ld      a, d
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a
+                ld      c, RD_DATA
+                ld      b, RS_RUN
+                inir
+                ret
+                else
 op_chunk:       ld      hl, TRKBUF
                 ld      b, d
                 ld      c, RD_ADDR
@@ -476,6 +502,7 @@ op_run:         ld      hl, TRKBUF
                 ld      b, RS_RUN
                 inir
                 ret
+                endif
 ; rs_add: A = page: to (HL) unless it is the last one there
 rs_add:         dec     hl
                 cp      (hl)
@@ -521,6 +548,10 @@ sh_p:           push    bc
                 call    put_str
                 ld      hl, (rs_gav)
                 call    put_ws
+                if defined PICORD
+                ld      hl, s_type              ; "RAM DISK 1M, 0 WS (PICORD)"
+                call    put_str
+                endif
 ; rs_print: print rs_txt (DE = its end)
 rs_print:       xor     a
                 ld      (de), a
@@ -616,6 +647,9 @@ rd_min:         dw      RD_SPEED_MIN
 s_rd:           db      "RAM DISK ", 0
 s_unit:         db      ", ", 0
 s_ws:           db      " WS", 0
+                if defined PICORD
+s_type:         db      " (PICORD)", 0
+                endif
 s_slow:         db      "RAM DISK TOO SLOW: ", 0
 s_fault:        db      "RAM DISK TIMER FAULT: ", 0
 s_limit:        db      "GAME PATTERN, ", 0

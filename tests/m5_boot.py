@@ -54,6 +54,8 @@ import mkgamedisk, version
 BUILD = os.path.join(ROOT, 'build')
 DSK = os.path.join(BUILD, 'pop800.dsk')
 G = syms(os.path.join(BUILD, 'm4game.sym')); BS = syms(os.path.join(BUILD, 'boot.sym')); PS = syms(os.path.join(BUILD, 'pres.sym'))
+PICORD = 'RD_BASE' in BS      # the pico_rd build (`make picord`: the RAM disk on the MZPico's pico_rd, src/m1/far.asm)
+RD_HINT = ' (PICORD)' if PICORD else ''      # (rdspeed.asm rs_show: its loading-screen line names the type)
 PAGES = 8
 PATTERN = bytes((i * 37 + 11) & 255 for i in range(4096))
 KV = 0x0A00
@@ -75,7 +77,7 @@ def emu_rd_wait():
 def game_model(w):
     """the GAME read speed (clocks/byte x 10) with w wait states a port access: 21 + w + w / 32 (the address OUT of a
     32-byte run; as wait_run measures it)"""
-    return round(10 * (21 + w + w / 32.0))
+    return round(10 * (21 + w + (2 if PICORD else 1) * w / 32.0))     # (pico_rd: two address OUTs a run)
 
 def fill_ramdisk(e):
     for p in range(PAGES):
@@ -504,7 +506,7 @@ def main():
         print('%s RAM disk: the probe found pages 0-%d, %s, the bytes it wrote put back: %s%s' % (
             size, top, 'accepted' if zf else 'REFUSED', 'yes' if kept else 'NO', '' if good else '  FAILED'))
         bad += not good
-        want_txt = 'RAM DISK %s, 0 WS' % size      # (wait states: clocks/byte - 21, rounded; 21.0 = 0)
+        want_txt = 'RAM DISK %s, 0 WS%s' % (size, RD_HINT)     # (wait states: clocks/byte - 21, rounded; 21.0 = 0)
         print('%s RAM disk: the loading screen says "%s"%s' % (size, txt, '' if txt == want_txt else '  FAILED (want "%s")' % want_txt))
         bad += txt != want_txt
         want_pages = sorted({0, 7, RD_TOP[size] // 2 + 1, RD_TOP[size]})
@@ -524,10 +526,13 @@ def main():
     else:       # GAME = 21 + w + w / 32 (the address OUT a 32-byte run): +1 22.0, +14 35.4 (goes on), +16 37.5 (the stop)
         # the loading screen in wait states (rdspeed.asm put_ws: rounded, halves up): 22.0 -> 1, 35.4 -> 14, 37.5 -> 17
         # (the stop: "RAM DISK TOO SLOW: 17 WS" over "GAME PATTERN, MAX 15, WORST Pn 17")
-        for w, want_how, lo, hi, want_ws in ((1, 'on', 219, 221, 1), (14, 'on', 353, 355, 14), (16, 'stop', 374, 376, 17)):
+        # pico_rd: two address OUTs a run, GAME = 21 + w + 2 w / 32: +1 22.1, +14 35.9 (15 WS, goes on), +16 38.0 (the stop)
+        for w, want_how, lo, hi, want_ws in (((1, 'on', 220, 222, 1), (14, 'on', 357, 360, 15), (16, 'stop', 379, 381, 17))
+                                             if PICORD else
+                                             ((1, 'on', 219, 221, 1), (14, 'on', 353, 355, 14), (16, 'stop', 374, 376, 17))):
             res, how, gav, line, last = waits[w]
             good = how == want_how and lo <= gav <= hi and all(lo <= vs[4] <= hi for vs in res.values())
-            want_line = 'RAM DISK 1M, %d WS' % want_ws
+            want_line = 'RAM DISK 1M, %d WS%s' % (want_ws, RD_HINT)
             stop_ok = how != 'stop' or (last.startswith('GAME PATTERN, MAX 15, WORST P') and last.endswith(' %d' % want_ws))
             print('RAM disk +%d T a port access: the loading screen says "%s"%s%s' % (w, line,
                   '' if line == want_line else '  FAILED (want "%s")' % want_line,

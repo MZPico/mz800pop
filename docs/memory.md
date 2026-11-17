@@ -196,6 +196,9 @@ PR_TAB went to the RAM disk. What can go there and what it must respect:
 
 ## RAM disk (64 KB pages)
 
+The same layout on the MZPico's pico_rd (`make picord`, build/pop800-picord.dsk): a page is its 24-bit position's byte 2
+(docs/ramdisk-tiers.md "pico_rd"; that build's seeks and their bytes per block are there).
+
 | Page | Content | Free |
 |---|---|---|
 | 0 | dungeon environment pack (41.5 KB), the frames overlay's image (0xA400-0xA7FF, M8a part 15), shadow guard set (0xA800, 16.1 KB), the launcher's area (0xF000-0xFBFF, M7: src/boot/boot.asm's image, 2.3 KB used, up to 0xFAFF; 0xFB00-0xFBFF the POP800.PRS table, launch.inc PRS_TAB_RD_ADDR, 2026-11-14); M8a part 15's picture slots (512 KB, 1 MB; runtime only, tests/m5_boot.py RUNTIME_SCRATCH): 0xE868-0xEFE7 (2 x 960), 0xFC00-0xFFBF (960) | 469 B (0xA22B-0xA3FF) + 24 B + 64 B |

@@ -1,6 +1,6 @@
 # pop-800 build: pasmo assembles raw binaries, tools/mkmzf.py wraps them as MZF,
 # mzdisk (external/mzdisk/build) produces the bootable DSK.
-PASMO ?= pasmo$(if $(CHEATS), --equ CHEATS=1)$(if $(DIAG), --equ DIAG=1)$(if $(PACE), --equ PACE=$(PACE))
+PASMO ?= pasmo$(if $(CHEATS), --equ CHEATS=1)$(if $(DIAG), --equ DIAG=1)$(if $(PACE), --equ PACE=$(PACE))$(if $(PICORD), --equ PICORD=1)
 PY    ?= python3
 MZD   ?= external/mzdisk/build
 BUILD  = build
@@ -116,7 +116,27 @@ diag:
 	for d in tools tests external assets; do ln -sfn $(CURDIR)/$$d $(BUILD)/diag/$$d; done
 	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/diag/build/assets
 	$(MAKE) -C $(BUILD)/diag DIAG=1 build/pop800.dsk
-.PHONY: m7keys cheats pace diag
+# The MZPico pico_rd build (2026-11-16, docs/ramdisk-tiers.md "pico_rd"): the same sources with PICORD=1, the RAM disk
+# through the card's pico_rd (base 45h; the Frugal board too) instead of the MZ-1R18's ports: build/pop800-picord.dsk
+# (the tree in build/picord, the art and data shared: built here first, the tree links build/assets)
+picord: $(GAME_ASSETS) $(ASSET_OUT) $(BUILD)/assets/title.pack $(BUILD)/assets/sound_pres.bin
+	mkdir -p $(BUILD)/picord/build
+	rsync -a --delete src Makefile VERSION $(BUILD)/picord/
+	for d in tools tests external assets emu; do ln -sfn $(CURDIR)/$$d $(BUILD)/picord/$$d; done
+	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/picord/build/assets
+	$(MAKE) -C $(BUILD)/picord PICORD=1 build/m4game.mzf build/m4test.mzf build/pop800.dsk
+	cp $(BUILD)/picord/build/pop800.dsk $(BUILD)/pop800-picord.dsk
+# The guard that the pico_rd lines leave the MZ-1R18 build alone: the disk built from a copy of src/ with every `if
+# defined PICORD` block reduced to its else branch (tools/picord_strip.py) must equal build/pop800.dsk byte for byte
+mz1r18-check: $(BUILD)/pop800.dsk
+	mkdir -p $(BUILD)/mz1r18/build
+	rsync -a --delete src Makefile VERSION $(BUILD)/mz1r18/
+	$(PY) tools/picord_strip.py $(BUILD)/mz1r18/src
+	for d in tools tests external assets emu; do ln -sfn $(CURDIR)/$$d $(BUILD)/mz1r18/$$d; done
+	ln -sfn $(CURDIR)/$(BUILD)/assets $(BUILD)/mz1r18/build/assets
+	$(MAKE) -C $(BUILD)/mz1r18 build/pop800.dsk
+	cmp $(BUILD)/mz1r18/build/pop800.dsk $(BUILD)/pop800.dsk && echo "mz1r18-check: the MZ-1R18 disk is unchanged by the pico_rd lines"
+.PHONY: m7keys cheats pace diag picord mz1r18-check
 m7sound: $(BUILD)/m4game.mzf
 	$(PY) tests/m7_sound.py
 sound-wav: $(BUILD)/assets/sound.bin

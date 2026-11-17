@@ -35,20 +35,29 @@ fsl_id:         rrca
                 ld      h, a
                 add     hl, de                  ; HL = the key's slot
                 ld      a, FS_PAGE
+                if defined PICORD
+                ex      de, hl
+                call    far_seek                ; (DE and HL are read anew below)
+                else
                 out     (RD_PAGE), a
                 ld      b, h
                 ld      c, RD_ADDR
                 out     (c), l
+                endif
                 dec     c                       ; (RD_DATA)
                 in      a, (c)
                 or      a
                 jr      z, fsl_no               ; not stored
                 in      d, (c)
                 in      e, (c)
+                if defined PICORD
+                call    far_seek
+                else
                 out     (RD_PAGE), a
                 ld      b, d
                 inc     c
                 out     (c), e
+                endif
                 dec     c
                 push    iy
                 pop     hl
@@ -67,8 +76,11 @@ fsl_rd:         inir
                 dec     d
                 jr      nz, fsl_rd
                 jp      cf_xb
+                if defined PICORD
+                else
                 if      RD_ADDR - RD_DATA - 1
                 .error  the store's lookup switches the ports with dec c / inc c
+                endif
                 endif
 fsl_no:         ld      a, (iy+SD_FRAME)
                 jp      cf_fetch

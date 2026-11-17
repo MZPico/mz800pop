@@ -1839,9 +1839,16 @@ comp_row:       ld      a, (cr_yy)
                 ld      a, (cr_n)
                 ld      (crg_n + 2), a
                 ld      a, 4
+                if defined PICORD
+crg_pl:         ld      c, RD_A1        ; (A counts the planes: the address through C, RD_A0 = RD_A1 + 1)
+                out     (c), d
+                inc     c
+                out     (c), e
+                else
 crg_pl:         ld      b, d
                 ld      c, RD_ADDR
                 out     (c), e
+                endif
 crg_n:          ld      bc, RD_DATA     ; (B: the columns, patched)
                 inir
                 ld      bc, 40

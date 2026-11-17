@@ -38,10 +38,19 @@ PORT_WF         equ     0xcc
 PORT_DMD        equ     0xce
 PORT_SCRL       equ     0xcf
 PORT_PAL        equ     0xf0
+                if defined PICORD               ; (the MZPico's pico_rd: src/m1/far.asm; `make picord`)
+RD_BASE         equ     0x45
+RD_RESET        equ     RD_BASE         ; control: position 0 (and the sequential address's index)
+RD_DATA         equ     RD_BASE + 1
+RD_PAGE         equ     RD_BASE + 2     ; the position's byte 2 = the page
+RD_A1           equ     RD_BASE + 3
+RD_A0           equ     RD_BASE + 4
+                else
 RD_PAGE         equ     0xe9
 RD_DATA         equ     0xea
 RD_ADDR         equ     0xeb
 RD_RESET        equ     0xf8
+                endif
 ; FD_CMD .. FD_SIDE: fdc.asm
 
 PORT_CTC1       equ     0xd5            ; 8253 counter 1, clocked by HSYNC (rd_speed)
@@ -317,10 +326,18 @@ rec_bar:        ld      a, (r_bar)
 ; DE = count: from the RAM disk.
 ho_seek:        ld      a, HO_RD_PAGE
                 ld      de, HO_RD_ADDR
+                if defined PICORD
+rd_seek:        out     (RD_PAGE), a
+                ld      a, d
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a
+                else
 rd_seek:        out     (RD_PAGE), a
                 ld      b, d
                 ld      c, RD_ADDR
                 out     (c), e
+                endif
                 ret
 rd_out:         ld      c, RD_DATA
 ro_1:           ld      a, d
@@ -803,10 +820,17 @@ rp_6:           ld      a, d
                 cp      7               ; 8 pages or more
                 sbc     a, a
                 ret
+                if defined PICORD
+rd_at0:         out     (RD_PAGE), a
+                xor     a
+                out     (RD_A1), a
+                out     (RD_A0), a
+                else
 rd_at0:         out     (RD_PAGE), a
                 ld      bc, RD_ADDR     ; B = 0: address 0
                 xor     a
                 out     (c), a
+                endif
                 ret
 
 ; ---------------------------------------------------------------- screen
@@ -938,7 +962,11 @@ msg_load:       dw      MSG_LOAD_AT
 msg_rd1:        dw      112 * 40 + 4
                 db      10, "SORRY, THIS GAME NEEDS A 512 KB", 0
 msg_rd2:        dw      124 * 40 + 4
+                if defined PICORD
+                db      10, "RAM DISK (MZPICO PICORD AT 45H).", 0
+                else
                 db      10, "RAM DISK (MZ-1R18 OR COMPATIBLE).", 0
+                endif
                 if      defined DIAG
 ; dg_show (the diagnostic build): under DISK ERROR three lines of hex, each byte after its letter:
 ;   T track (logical: cylinder x 2 + side) S first sector N sectors C command R sectors not read W who (FF the boot,
