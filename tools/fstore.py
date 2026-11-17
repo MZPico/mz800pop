@@ -30,6 +30,8 @@ overlay (src/m4/fstore.asm fs_guard):
   build/assets/fstore_gkeys.txt   every stored guard key: g set id frame mirror shift page address size
 usage: fstore.py [--uses DIR] [--guses DIR]"""
 import json, os, sys, glob, collections, zlib
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from picord_strip import mz1r18_text
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..')
 A = os.path.join(ROOT, 'build', 'assets')
@@ -173,7 +175,7 @@ def build_id(masks, gl):
     for n in ('kid.dir', 'sword.dir', 'kid.pack', 'sword.pack') + tuple(x + y for x in FS_GSETS for y in ('.dir', '.pack')):
         h = zlib.crc32(open(os.path.join(A, n), 'rb').read(), h)
     for n in ('src/m1/kernel_gen.inc', 'src/m1/gfx.asm', 'src/m1/tables.asm', 'src/m4/fstore.asm', 'src/m4/fsgen.asm'):
-        h = zlib.crc32(open(os.path.join(ROOT, n), 'rb').read(), h)
+        h = zlib.crc32(mz1r18_text(open(os.path.join(ROOT, n), 'rb').read()), h)   # (the MZ-1R18 build's text: tools/picord_strip.py)
     return h
 
 def main():

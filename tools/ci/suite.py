@@ -42,6 +42,8 @@ DUEL_Z80 = [PY, 'tests/duel_z80.py', '--cdl']
 DUEL_NET = [PY, 'tests/duel_net.py']
 M4_GAME = ['tests/m4_scripts/walk_level1.txt', 'tests/m6_scripts/fight1.txt', 'tests/m5_scripts/level12_shadow_merge.txt']
 CHEAT_BUILD = ('cheat build', ['make', '-s', 'cheats'])
+PICORD_BUILD = ('picord build', ['make', '-s', 'picord'])
+MZ1R18_CHECK = ('mz1r18 unchanged by PICORD', ['make', '-s', 'mz1r18-check'])
 PARTS = {
     'a': [
         ('perfcheck', [PY, 'tools/perfcheck.py']),
@@ -74,6 +76,11 @@ PARTS = {
         ('m7_title quick', [PY, 'tests/m7_title.py', '--quick']),
         CHEAT_BUILD,
         ('m7_keys', [PY, 'tests/m7_keys.py']),
+        # the MZPico pico_rd disk (build/pop800-picord.dsk, PICORD=1): its build and asserts only (CI's emulator has no
+        # pico_rd; docs/ramdisk-tiers.md "pico_rd")
+        PICORD_BUILD,
+        # ... and the MZ-1R18 disk built without the pico_rd lines equals build/pop800.dsk (tools/picord_strip.py)
+        MZ1R18_CHECK,
     ],
 }
 

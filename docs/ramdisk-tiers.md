@@ -156,14 +156,162 @@ is (1 MB). `POP800_RD_WAIT=<T>` likewise sets mz800emu's `mr1r18_wait` (MZPico/m
 every RAM-disk port access, default 0; the MZPico asserts WAIT for at least 1 T, so INIR takes 22 T a byte instead of
 21. tools/testrun.py includes both variables in its cache key. Proposed CI use: section 4.
 
-### pico_rd (PLAN item 35a, later)
+### pico_rd (PLAN item 35a; as built 2026-11-17: `make picord`)
 
-pico_rd has a 24-bit position and wraps at its size; its "page" is the position's byte 2, so the tiers' page
-arithmetic is the same and `rd_top` = size / 64 KB - 1 (from the same marker probe on base+2, or the device's size if
-the firmware exposes it). The cache code goes through far_seek's page/address interface (and the per-row patched ports
-of 35a), so nothing tier-specific is needed for pico_rd. Rule for all new code: the page is a full byte (never a page
-mask, never 0xFF as a flag: dir_tab's 0xFF = main RAM is only used by the M3 test programs and must stay out of the
-cache's directory).
+The MZPico card's own RAM disk, `[pico_rd]` (MZPico-firmware src/mz_devices/pico_rd.cpp), works on every board,
+the Frugal one included. Its MZ-1R18 emulation `[ramdisk]` is Deluxe-only: the MZ-1R18's address OUT carries the
+address's high byte on the high address lines (B of `out (c), r`), and only the Deluxe board captures them.
+
+**The firmware it needs:** MZPico firmware main cf6b79f (MZPico/MZPico-firmware PR #9) or later. That version fixes
+the address ports (below) and adds pico_rd `mode=cow` (copy-on-write with learn, every board), `size` in bytes or
+with K / M, and a file-backed pico_rd without `size=` taking the file's length. pico_rd's ports, from its base (45h by
+default, the card's `base_port`), as fixed:
+
+| Port | Write | Read |
+|---|---|---|
+| base+0 | position 0 (and the ADDRS index 0) | the same, returns 0 |
+| base+1 | a byte at the position, which advances (wraps at the size) | a byte, the same |
+| base+2 / +3 / +4 | the position's byte 2 / 1 / 0, the other bytes kept | that byte |
+| base+5 (ADDRS) | bytes 0, 1, 2 in turn, low first; every other access but ADDRI restarts it at byte 0 | (none) |
+| base+6 (ADDRI) | adds the byte to the position (wraps at the size) | (none) |
+
+History: before cf6b79f, base+2 ORed into byte 2 (mask 0x00FFFFFF) and base+3 cleared byte 2 and ORed into byte 1
+(mask 0xFF00FFFF); CodeRabbit found it on PR #89. Its second commit worked around them with ADDRS (low, high, page:
+three OUTs a seek, two within a page); with the fixed ports this build uses base+2 / +3 / +4 and no ADDRS. On the
+old firmware this disk does not run (base+3 loses the page).
+
+The position is 24 bits, kept modulo the size (the RAM source; a file-backed image wraps the same way), so an MZ-1R18
+page is the position's byte 2 and a 16-bit address within it bytes 1 and 0: the RAM-disk layout, the tiers and the
+marker probe (rd_top = size / 64 KB - 1, aliasing as on a card that ignores high page bits) are unchanged.
+
+One difference: the position auto-increments over all 24 bits, so an access at offset 0xFFFF carries into the next
+page, where the MZ-1R18 wraps within its page. A seek that writes only base+3 / base+4 after such an access would land
+on the wrong page. The build writes base+2 where the MZ-1R18 code writes E9h, so the invariant is: **no in-page seek
+follows an access at offset 0xFFFF**. The in-page seeks are restore_shadow's and shadow_write's rows (the shadow room,
+page 1 0x0000-0x7CFF), frmlow.asm lr_r's rows (the chopper and spike pictures' slots, frames.asm fs_bdir / fs_sdir:
+the last ends at 0xFFBF) and PRES's wipe_col and cut.asm crg_pl (PRES's screen, page 1 0x0000-0x7CFF); every other
+seek writes the page (far_seek, lcf_p, lpx_plane, the boot's rd_seek). tools/mkgamedisk.py check_page_ends asserts
+that no slot reaches 0xFFFF; the scratch model traced every RAM-disk access over the test runs (boot at every size,
+the m4/m6/m5 scripts at 512 KB, 1 MB and 4 MB, the frame store, PRES's title and cutscenes, the launcher, the save,
+the duel): 50 accesses at offset 0xFFFF (the boot's record that ends at page 2's end, the 4 MB frame store's traffic in
+pages 52-60), each followed by a seek that writes the page, and no in-page seek after one (a planted one is logged).
+
+**Strategy: a separate build and disk** (Makefile `picord`: the sources with `PICORD=1` in build/picord,
+build/pop800-picord.dsk). The study (2026-11-16) counted the address writes (the data ports are only a different
+immediate, `RD_DATA` = base+1): far_seek and its ~50 callers, and 15 inline seeks: gfx.asm lcf_p and lpx_plane (the
+piece laying), restore_shadow's and shadow_write's two row loops (EBh / EAh switched with dec c / inc c), room.asm
+add_op's directory read, fslook.asm (two), frmlow.asm lr_r (the low code), the boot's rd_seek / rd_at0 and its two
+timed reads, PRES's p_go and wipe_col, cut.asm's row copy. The duel's code has none (far_seek and data reads only). A
+single disk that detects the device and patches the sites (PLAN item 35a's first idea) would need a patch table and
+code in the launcher (every GAME restore), in PRES (every load from the floppy: PRES and the cutscene engine) and the
+overlays' images, for sequences of different lengths: far more bytes than the reserves have.
+
+The seeks: the page on base+2 wherever the MZ-1R18 code writes E9h (never more often); an address within the page on
+base+3 and base+4; base+4 alone where the high byte stays (restore_shadow's rows: the high byte only when the row
+address carries). The `if defined PICORD` variants keep the MZ-1R18 build byte-identical: every binary and
+build/pop800.dsk equal origin/main's (sha256 e7ca733b... at a054f4c, the v0.1.0 disk). One trap: tools/fstore.py's
+frame store build id hashes the source text of gfx.asm and the fill (the build/assets both builds share), so it
+hashes them as the MZ-1R18 build sees them (tools/picord_strip.py: each `if defined PICORD` block reduced to its
+else branch). The PR checks' `make mz1r18-check` (part d) builds the disk from a stripped copy of src/ and compares
+it with build/pop800.dsk. The variants cost the pico_rd build no reserve:
+
+| Block | Sites | pico_rd build, net bytes | Free (MZ-1R18 build) |
+|---|---|---:|---|
+| main code | far_seek +2 (11 bytes: `out (base+2), a / ld a, d / out (base+3), a / ld a, e / out (base+4), a / ld c, base+2`: A = E and C = RD_DATA + 1 after it, as the MZ-1R18's, so the callers' `dec c` still works), lcf_p +2, lpx_plane +1, restore_shadow +6 (the plane's first row in full, then base+4 a row and base+3 on a carry), shadow_write +2 (`ld a, d / out (base+3), a / ld a, e / out (base+4), a` a row), room.asm -3 and fslook.asm -6 (through far_seek: `ex de, hl / call far_seek`) | +4 (end_of_code 0x7B1F) | 229 (the duel's H_FREE uses 218: 7 left) |
+| low code (WL) | frmlow.asm lr_r +3 (A counts the rows: `ld c, base+3 / out (c), d / inc c / out (c), e / ld c, base+1`) | +3 (24 free) | 27 |
+| block 2, overlays W1 / W2 / WF, low block 0x1200 | none (far_seek only) | 0 | 13 / ... / 6 |
+| PRES + the cutscene engine | far_seek 0 (9 bytes; FAR_SEEK_ANY_C: no caller in PRES needs C), p_go -3 (far_seek), wipe_col +1, cut.asm crg_pl +2 (A counts the planes: through C) | 0 (PRES may grow by 2) | PRES_RESERVE 2 |
+| the launcher (boot image) | rd_seek +1, rd_at0 0, the refusal's text -1 | -1 (end_of_image 0xB936) | PRS_TAB_OFF - LN_DUEL_RESERVE |
+| the boot only | the probe's reset port (base+0), op_chunk / op_run +1 each, " (PICORD)" on the speed line | +18 (end_of_boot 0xBF93, 45 left) | 62 (to STACK - BOOT_STACK) |
+| the duel | none; its holes follow the game's labels | free 35 (H_FREE 7) | 39 |
+
+shadow_write's rows could take base+4 alone as restore_shadow's do (+5 bytes a loop, two loops: more than H_FREE's 7
+spare bytes); ADDRI (one OUT of 40 - CRW a row) would save the row address and the DE += 40 arithmetic but needs the
+skip patched per rect (+7 bytes in restore_shadow alone): neither done. The 24-bit position removes no page selects.
+
+**The speed** (2026-11-17, the scratch model below with the fixed ports, tools/perfcheck.py and tools/rdreads.py; frames
+per tick of the MZ-1R18 build and the pico_rd build, with 0 and 1 wait clock on every RAM-disk port access, the MZPico
+asserting at least 1; "ADDRS" = PR #89's second commit, the old firmware's workaround):
+
+| 1 MB | MZ-1R18 +0 | MZ-1R18 +1 | pico_rd +0 | pico_rd +1 | ADDRS +0 | ADDRS +1 |
+|---|---:|---:|---:|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 4.28 | 4.28 | 4.28 | 4.28 | 4.28 | 4.29 |
+| walkthrough 190-260 | 5.75 | 5.77 | 5.70 | 5.80 | 5.80 | 5.86 |
+| fight (fight1 60-160) | 5.68 | 5.71 | 5.67 | 5.70 | 5.70 | 5.75 |
+| choppers (frm_button 20-120) | 6.15 | 6.23 | 6.19 | 6.26 | 6.24 | 6.30 |
+| room change (walkthrough 89) | 82.33 | 83.61 | 83.28 | 84.28 | 83.43 | 84.79 |
+
+| 512 KB | MZ-1R18 +0 | MZ-1R18 +1 | pico_rd +0 | pico_rd +1 | ADDRS +0 | ADDRS +1 |
+|---|---:|---:|---:|---:|---:|---:|
+| normal tick (walkthrough 30-60) | 4.51 | 4.51 | 4.51 | 4.51 | 4.52 | 4.52 |
+| walkthrough 190-260 | 5.91 | 5.95 | 5.88 | 5.91 | 5.98 | 6.05 |
+| fight (fight1 60-160) | 6.41 | 6.40 | 6.37 | 6.41 | 6.42 | 6.46 |
+| choppers (frm_button 20-120) | 6.43 | 6.52 | 6.46 | 6.50 | 6.49 | 6.57 |
+| room change (walkthrough 89) | 82.32 | 83.61 | 82.88 | 84.27 | 83.43 | 84.78 |
+
+The game paces its ticks to whole frames, so a tick's figure moves by a few hundredths either way. Walking and fighting
+are within that noise (±1 %), and a room change costs about +0.8 % against the MZ-1R18 at the card's wait clock. The
+RAM-disk port accesses a tick (1 MB, tools/rdreads.py; reads / writes / address OUTs / page OUTs):
+
+| | MZ-1R18 | pico_rd | ADDRS |
+|---|---|---|---|
+| walking (walkthrough 30-60) | 2,415 / 73 / 197 / 38 | 2,415 / 73 / 275 / 38 | 2,415 / 73 / 430 / 1 (+1 reset) |
+| fight (fight1 60-160) | 3,058 / 54 / 261 / 44 | 3,058 / 54 / 354 / 44 | 3,058 / 54 / 564 / 1 |
+| room change (walkthrough 89) | 53,465 / 30,720 / 5,296 / 1,313 | the same / 10,472 / 1,313 | the same / 11,888 / 17 |
+
+A seek is one address OUT on the MZ-1R18 and two on pico_rd (base+4 alone in restore_shadow's rows): +78 OUTs a walking
+tick, +5,176 a room change, 12 T and the wait clock each.
+
+**The boot** of the pico_rd build probes only pico_rd (the same marker probe, rd_at0 through base+2..+4, the reset
+through base+0) and refuses without it ("RAM DISK (MZPICO PICORD AT 45H)."); the MZ-1R18 build is unchanged and does
+not look for pico_rd. The speed line says `RAM DISK 1M, 0 WS (PICORD)`; its timed reads set the address with two
+OUTs (a nominal 49 clocks: RS_KC 213, RS_KG 237), so a wait clock on every port access adds 1 + 2 / 32 to the GAME
+figure instead of 1 + 1 / 32 (tests/m5_boot.py: +14 T shows 15 WS, +16 T stops).
+
+**The card** (mzpico.ini; the keys as firmware cf6b79f reads them: pico_rd.cpp readConfig, cow_disk.cpp):
+
+```ini
+[pico_rd]
+image=flash:/POP800RD.IMG ; let the card create it: delete or rename an existing file first (see learn below)
+mode=cow                  ; copy-on-write: the image in flash, the writes in a RAM pool
+size=524288               ; in bytes (cf6b79f also takes 512K; older firmware read 512K as 512 bytes): 524288 =
+                          ; 512 KB, the minimum; 1048576 = 1 MB (the frame store); 4194304 = 4 MB (the full tier)
+;cow_pool=72              ; the RAM pool in KB (the default)
+;learn                    ; omitted: on only for a learn image (below); learn=true makes any image one
+;base_port=0x45           ; the build's RD_BASE (src/m1/far.asm, src/boot/boot.asm)
+```
+
+**learn** (cf6b79f, cow_image.cpp CowImage::open): omitted, learn is on exactly when the image file carries a valid
+learn trailer for this `size` (512 bytes after the disk's bytes). The card writes the trailer when it creates a
+missing image (`[pico_rd]` or `[ramdisk]` with `mode=cow`: the trailer does not name the device, so a learn image
+of the same size made by `[ramdisk] mode=cow` is one for `[pico_rd]` too, and its learn state, e.g. frozen, carries
+over), or when `learn=true` is set for an image prepared elsewhere. An image without the trailer (copied in raw,
+prepared on a PC, zero-filled) runs with learn off: the writes go only to the RAM pool (`cow_pool`, 72 KB), the boot
+writes far more than that (the art, the overlays, the game's image: ~446 KB), the pool drops the rest and the game
+reads incomplete data. An existing image shorter than `size` without a trailer is refused. So: let the card create
+`POP800RD.IMG` (delete or rename any older file of that name), or set `learn=true` once. A frozen learn image
+(learn_freeze_after, or frozen through the card's REST API) keeps its learned bytes and writes nothing back: a
+session's changes then live in the pool only, which is sized for that (72 KB: the game's ~64 KB of blocks that
+differ from the learned image in a session, cow_disk.cpp COW_DEFAULT_POOL_KB).
+
+A card has one cow disk: if `[ramdisk]` and `[pico_rd]` both say `mode=cow`, the first section in the ini gets it and
+the other is skipped, so `[ramdisk]` must not also be `mode=cow` when this disk runs on pico_rd.
+
+The size must be a whole number of 64 KB pages: the position wraps modulo the size, so with a partial page at the end
+the probe's markers can land mid-page and the pages it reports overlap. The boot measures the card's speed as for the
+MZ-1R18 and stops above 36.0 clocks a byte (`RAM DISK TOO SLOW`).
+
+**Tests.** mz800emu has no pico_rd (MZPico/mz800emu ca2b709: Unicard / MZPico NET only, and the MZ-1R18 at E9-EBh).
+A scratch patch of it (not in this repository) maps the pico_rd ports, as fixed (MZ800EMU_PICORD_OLDMASKS=1: the old
+masks), onto the emulator's MZ-1R18 memory as one 24-bit space when `MZ800EMU_PICORD_BASE` is set and disconnects
+the MZ-1R18's ports, so the tests' RAM-disk regions and the harness's writes see the same bytes; the build/picord
+tree's tests then run as they are (tests/m5_boot.py knows the pico_rd build by its boot symbols). CI cannot run them
+(its emulator has no pico_rd): the PR checks only build the disk (`make picord`, part d), which runs every assembly
+and layout assert of that build.
+
+**One gap:** the duel's network build id (tools/duelpatch.py build_id: a CRC of build/m4game.bin, m4ovl.bin and the
+patch) differs between the two disks, so the relay refuses a match between an MZ-1R18 and a pico_rd machine ("OTHER
+VERSION"), although both run the same game logic. Not fixed here.
 
 ## 2. The fetch today (measured)
 

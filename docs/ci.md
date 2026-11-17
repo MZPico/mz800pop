@@ -70,6 +70,8 @@ pr [--part a] [-j 4]` runs the same commands through the local runner: in parall
 | c | `tests/m7_cut.py --quick` | PRES's level cutscenes 2 and 8 against cutsim: every frame's state, VRAM, the timing, the music | ~4.5 min |
 | d | `tests/m7_title.py --quick` | PRES's title, part 1 (steps a-g): VRAM against tools/titleref.py at every step, fade pass and wipe column, the step timing, the PSG against sndsim (bank A, the looping title theme) | ~8 min |
 | d | `make cheats`, `tests/m7_keys.py` | the keys in the game and the launched game (texts, sound off, pause, Shift+L, Ctrl+R / Ctrl+Q through PRES), the release without cheat code | ~6.5 min |
+| d | `make picord` | the MZPico pico_rd disk (build/pop800-picord.dsk, PICORD=1): its build and every assert of that build (the reserves, the duel's holes); no test runs it, CI's emulator has no pico_rd (docs/ramdisk-tiers.md "pico_rd") | ~1 min |
+| d | `make mz1r18-check` | the MZ-1R18 disk built from a copy of src/ with every `if defined PICORD` block reduced to its else branch (tools/picord_strip.py) equals build/pop800.dsk: the pico_rd lines leave the MZ-1R18 build alone | ~1 min |
 
 ## The full regression (on the runners)
 

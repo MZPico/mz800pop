@@ -148,6 +148,12 @@ report it). In emulators the network duel needs a relay running on your PC: see
   it all the time. Emulated or file-backed RAM disks, such as the MZPico's, are not supported, even though the MZPico
   itself works for the floppy and the network. The boot measures the RAM disk's speed and stops with
   `RAM DISK TOO SLOW: ... WS` (and the measured figures) when it is slower than 15 wait states.
+- Experimental, for developers: `make picord` builds a second disk, `pop800-picord.dsk`, that uses the MZPico's own
+  `pico_rd` RAM disk (every MZPico board, the Frugal one too) instead of an MZ-1R18-style card; its loading screen says
+  `RAM DISK 1M, 0 WS (PICORD)`. It needs MZPico firmware main cf6b79f (its PR #9) or later: the fixed pico_rd
+  address ports and pico_rd copy-on-write. It is tested in an emulator only, and the
+  same speed check applies
+  ([docs/ramdisk-tiers.md](docs/ramdisk-tiers.md), "pico_rd", has the card's settings).
 - A 256 KB RAM disk card is not enough.
 
 ## For developers

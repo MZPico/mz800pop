@@ -29,12 +29,18 @@ def page_read(e, page, addr, n):
         k = min(n, 8192); out += e.region(RAMDISK[page], addr, k); addr += k; n -= k
     return out
 
+RD_BASE = None              # the pico_rd build's RD_BASE (main: from build/m4game.sym), None on the MZ-1R18
 ZR = 0xA000                 # z80_read's code and buffer (the compose buffers: the program is reloaded afterwards)
 def z80_read(e, page, addr, n):
     """n (<= 3584) bytes of a RAM-disk page that the MCP does not list (16 MB: pages 52+), read by the Z80 itself:
     a routine in the compose buffers run from PC to its stop (the game's state is lost: call it last, setup reloads)"""
-    code = bytes((0xF3, 0x3E, page, 0xD3, 0xE9, 0x01, 0xEB, addr >> 8, 0x3E, addr & 255, 0xED, 0x79,
-                  0x21, 0x00, (ZR >> 8) + 1, 0x01, 0xEA, 0x00, 0x16, 14, 0xED, 0xB2, 0x15, 0x20, 0xFB, 0x18, 0xFE))
+    if RD_BASE is None:     # (the MZ-1R18: page E9h, the address on EBh with B, data EAh)
+        seek = (0x3E, page, 0xD3, 0xE9, 0x01, 0xEB, addr >> 8, 0x3E, addr & 255, 0xED, 0x79); data = 0xEA
+    else:                   # (the pico_rd build, src/m1/far.asm: the position's bytes 2, 1, 0 on base+2..+4, data base+1)
+        seek = (0x3E, page, 0xD3, RD_BASE + 2, 0x3E, addr >> 8, 0xD3, RD_BASE + 3, 0x3E, addr & 255, 0xD3, RD_BASE + 4)
+        data = RD_BASE + 1
+    code = bytes((0xF3,) + seek + (0x21, 0x00, (ZR >> 8) + 1, 0x01, data, 0x00, 0x16, 14, 0xED, 0xB2, 0x15, 0x20, 0xFB,
+                                    0x18, 0xFE))
     e.call('mem_write', addr=ZR, data_hex=code.hex())
     e.call('bp_clear'); e.call('bp_add', addr=ZR + len(code) - 2)
     e.call('set_register', reg='PC', value=ZR)
@@ -107,6 +113,8 @@ def guards(e, S, top):
 
 def main():
     S = syms(os.path.join(ROOT, 'build', 'm4game.sym'))
+    global RD_BASE
+    RD_BASE = S.get('RD_BASE')
     fails = 0
     with Emu() as e:
         top = G.rd_top(e)

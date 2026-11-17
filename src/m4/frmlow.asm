@@ -170,10 +170,21 @@ lr_p:           push    af
                 push    de
                 push    hl
 lr_rows:        ld      a, 0                    ; (patched: the rows)
+                if defined PICORD
+                if RD_A0 - RD_A1 - 1
+                .error lr_r steps from RD_A1 to RD_A0 with inc c
+                endif
+lr_r:           ld      c, RD_A1                ; (A counts the rows: the address through C)
+                out     (c), d
+                inc     c                       ; (RD_A0)
+                out     (c), e
+                ld      c, RD_DATA
+                else
 lr_r:           ld      c, RD_ADDR
                 ld      b, d
                 out     (c), e
                 dec     c
+                endif
 lr_n:           ld      b, 0                    ; (patched: the bytes a row)
                 inir
 lr_cw:          ld      bc, 0                   ; (patched: CW - the bytes)

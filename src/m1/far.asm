@@ -1,20 +1,50 @@
 ; ---------------------------------------------------------------- far storage driver
-; Backend: STD / MZ-1R18 paged RAM disk (E9 page, EB address, EA data auto-increment).
-; (pico_rd and memext backends come later through the same entry points.)
+; Backend: STD / MZ-1R18 paged RAM disk (E9 page, EB address, EA data auto-increment), or with PICORD (`make picord`,
+; build/pop800-picord.dsk) the MZPico's pico_rd (MZPico-firmware src/mz_devices/pico_rd.cpp; docs/ramdisk-tiers.md
+; "pico_rd"; the firmware with the fixed address ports: base+2 / +3 / +4 each replace one byte). A pico_rd position =
+; an MZ-1R18 page (byte 2) and address (bytes 1, 0): the same RAM-disk layout. The page goes to base+2 where the
+; MZ-1R18 code writes E9h, the address to base+3 and base+4 (two OUTs where the MZ-1R18 has one with B on the high
+; address lines, which the Frugal board cannot see), and only base+4 where the high byte is known to stay.
+                if defined PICORD
+RD_BASE         equ     0x45            ; (the card's [pico_rd] base_port, its default)
+RD_DATA         equ     RD_BASE + 1
+RD_PAGE         equ     RD_BASE + 2     ; address byte 2: the page (as the MZ-1R18's page register: the rest kept)
+RD_A1           equ     RD_BASE + 3     ; address byte 1: the address's high byte
+RD_A0           equ     RD_BASE + 4     ; address byte 0: its low byte
+                if RD_PAGE - RD_DATA - 1
+                .error far_seek leaves C = RD_DATA + 1 for its callers' dec c
+                endif
+                else
 RD_PAGE         equ     0xe9
 RD_DATA         equ     0xea
 RD_ADDR         equ     0xeb
                 if RD_ADDR - RD_DATA - 1
                 .error shadow_write switches the ports with dec c / inc c
                 endif
+                endif
 
-; far_seek: A = page, DE = address within the page
+; far_seek: A = page, DE = address within the page; after it A = E and C = RD_DATA + 1 (callers: dec c); B = D on the
+; MZ-1R18 only (no caller needs it). FAR_SEEK_ANY_C (PRES: every caller sets C itself): pico_rd's far_seek leaves C as
+; it was (PRES's room: tools/mkgamedisk.py PRES_RESERVE)
+                if defined PICORD
+far_seek:       out     (RD_PAGE), a
+                ld      a, d
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a
+                if defined FAR_SEEK_ANY_C
+                else
+                ld      c, RD_PAGE      ; (RD_DATA + 1, as the MZ-1R18's RD_ADDR)
+                endif
+                ret
+                else
 far_seek:       out     (RD_PAGE), a
                 ld      b, d
                 ld      c, RD_ADDR
                 ld      a, e
                 out     (c), a
                 ret
+                endif
 
 ; far_seek_entry: IX = directory entry, HL = 16-bit offset from the entry's start
 far_seek_entry: ld      e, (ix+2)

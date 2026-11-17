@@ -208,10 +208,15 @@ p_go:           di                      ; the block to the RAM disk, then the la
                 call    snd_halt
                 call    pal_off
                 ld      a, HO_RD_PAGE
+                if defined PICORD
+                ld      de, HO_RD_ADDR
+                call    far_seek
+                else
                 out     (RD_PAGE), a
                 ld      bc, RD_ADDR + (HO_RD_ADDR & 0xff00)
                 ld      a, HO_RD_ADDR & 0xff
                 out     (c), a
+                endif
                 ld      hl, ho
                 ld      bc, HO_SIZE * 256 + RD_DATA
                 otir
@@ -793,9 +798,16 @@ wc_pl:          out     (PORT_WF), a
                 ex      de, hl          ; HL = VRAM, DE = page 1
                 ld      a, 200
 wc_row:         ex      af, af'
+                if defined PICORD
+                ld      a, d
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a
+                else
                 ld      b, d
                 ld      c, RD_ADDR
                 out     (c), e
+                endif
                 in      a, (RD_DATA)
                 ld      (hl), a
                 ld      bc, 40
@@ -1122,6 +1134,7 @@ isr:            push    af
                 ld      (FRAMES), hl
                 jp      snd_isr         ; (psg.asm: the PSG player's frame; it pops HL, AF and returns)
 
+FAR_SEEK_ANY_C  equ     1               ; (far.asm: no caller of far_seek here relies on C after it)
                 include "../m1/far.asm"
                 include "../m4/psg.asm"
                 include "../boot/unpz.asm"

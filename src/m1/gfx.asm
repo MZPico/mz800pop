@@ -626,15 +626,29 @@ lcf_0:          ld      e, (ix+2)
                 add     hl, de
                 ld      a, (ix+0)
                 adc     a, 0            ; A:HL = the plane's first row in the RAM disk
+                if defined PICORD
+lcf_p:          out     (RD_PAGE), a
+                push    af
+                push    hl
+                ld      a, h
+                out     (RD_A1), a
+                ld      a, l
+                out     (RD_A0), a
+                ld      c, RD_DATA
+                else
 lcf_p:          out     (RD_PAGE), a
                 ld      b, h
                 ld      c, RD_ADDR
                 out     (c), l
                 push    af
                 push    hl
+                endif
 lcf_dst:        ld      hl, 0           ; patched: the plane's first compose row
 lcf_n:          ld      d, 0            ; patched: rows
+                if defined PICORD
+                else
                 dec     c               ; RD_DATA
+                endif
 lcf_call:       call    lr_ent          ; patched: lr_ent, or lre_ent (a right edge)
 lcf_pe:         ld      hl, lcf_dst+2
                 inc     (hl)
@@ -774,10 +788,18 @@ lpx_set:        ld      hl, (V_DST)
                 ld      a, (ix+0)
                 adc     a, 0
 lpx_plane:      out     (RD_PAGE), a
+                if defined PICORD
+                push    af
+                ld      a, h
+                out     (RD_A1), a
+                ld      a, l
+                out     (RD_A0), a
+                else
                 ld      b, h
                 ld      c, RD_ADDR
                 out     (c), l
                 push    af
+                endif
                 push    hl
 lpx_dst:        ld      hl, 0           ; patched: the plane's first compose row
 lpx_msk:        ld      de, 0           ; patched: its mask
@@ -1362,14 +1384,26 @@ rs_w8:          ld      (rs_st), hl
                 exx
 rsplane:        push    de
                 ld      hl, (V_ROWOFF)
+                if defined PICORD
+                ld      c, RD_DATA              ; (pico_rd: the plane's first row here, then the low byte a row, the
+                ld      a, d                    ; high byte when it carries: rs_iend)
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a
+                else
                 ld      c, RD_ADDR              ; C: RD_ADDR, RD_DATA = RD_ADDR - 1
+                endif
 rs_rows:        ld      a, 0                    ; patched: CRH
                 exx
                 ld      b, a                    ; B' = rows left
                 exx
+                if defined PICORD
+rsrow:
+                else
 rsrow:          ld      b, d
                 out     (c), e
                 dec     c
+                endif
 rs_jp:          jp      0                       ; patched: rs_iend - 2 * CRW
 rs_ini:         ini
                 ini
@@ -1379,12 +1413,23 @@ rs_ini:         ini
                 ini
                 ini
                 ini
+                if defined PICORD
+rs_iend:
+                else
 rs_iend:        inc     c
+                endif
                 ld      a, e                    ; next shadow row
                 add     a, 40
                 ld      e, a
+                if defined PICORD
+                out     (RD_A0), a              ; (its low byte; flags kept)
+                endif
                 jr      nc, rs_1
                 inc     d
+                if defined PICORD
+                ld      a, d                    ; (its high byte only when it changes)
+                out     (RD_A1), a
+                endif
 rs_1:
 rs_st:          ld      a, l                    ; patched: (CRW = CW) jr rs_2
                 add     a, 0                    ; patched: CW - CRW
@@ -1440,17 +1485,29 @@ sw_body:        ld      a, (CRW)                ; the OUTI chain entry for CRW b
 swplane:        ld      a, (V_PLANE)
                 call    shadow_addr     ; DE = shadow address of the first row
                 ld      hl, (V_ROWOFF)
+                if defined PICORD
+                ld      c, RD_DATA      ; (the row address through RD_A1 / RD_A0: C stays RD_DATA)
+                else
                 ld      c, RD_ADDR      ; C: RD_ADDR, RD_DATA = RD_ADDR - 1
+                endif
                 ld      a, (CRW)
                 cp      CW
                 ld      a, (CRH)
                 jr      z, sw8row
 sw_rows:        ex      af, af'         ; A' = rows left
+                if defined PICORD
+swrow:          ld      a, d
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a      ; row address
+sw_n:           call    0               ; patched: OUTI x CRW (HL advances by CRW)
+                else
 swrow:          ld      b, d
                 out     (c), e          ; row address
                 dec     c
 sw_n:           call    0               ; patched: OUTI x CRW (HL advances by CRW)
                 inc     c
+                endif
                 ld      a, e            ; DE += 40
                 add     a, 40
                 ld      e, a
@@ -1468,9 +1525,16 @@ sw_hl:          ex      af, af'
                 ex      af, af'
                 jp      swrow
 sw8row:         ex      af, af'         ; full rows: the compose rows are contiguous
+                if defined PICORD
+sw8r:           ld      a, d
+                out     (RD_A1), a
+                ld      a, e
+                out     (RD_A0), a
+                else
 sw8r:           ld      b, d
                 out     (c), e
                 dec     c
+                endif
                 outi
                 outi
                 outi
@@ -1479,7 +1543,10 @@ sw8r:           ld      b, d
                 outi
                 outi
                 outi
+                if defined PICORD
+                else
                 inc     c
+                endif
                 ld      a, e
                 add     a, 40
                 ld      e, a

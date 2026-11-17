@@ -38,6 +38,7 @@ make check        # the regression tests a change can affect (since the merge ba
 make check-smoke  # the smoke tier: build, boot, a few scripts, a scene, the title, a cutscene, perf (~2 min cold)
 make check-full   # every regression test, no cache; normally run on GitHub's runners (full-regression workflow, docs/ci.md)
 make diag         # build/diag/build/pop800.dsk: DISK ERROR shows the failed floppy call in hex (src/boot/boot.asm dg_show)
+make picord       # build/pop800-picord.dsk: the RAM disk on the MZPico's pico_rd (port 45h, every board) instead of the MZ-1R18 (docs/ramdisk-tiers.md "pico_rd")
 make check-pr     # the PR tier (PART=a..d), as the PR jobs run it; the test lists: tools/ci/suite.py
 python3 tools/oracle.py 1 tests/m4_scripts/walk_level1.txt /tmp/t.txt   # check kidsim against SDLPoP on a script
 python3 tools/walkfind.py 1 out.txt   # search a control script that finishes a level (kidsim)
