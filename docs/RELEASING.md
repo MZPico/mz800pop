@@ -1,6 +1,6 @@
 # Releasing
 
-A release is a GitHub release with the game's floppy disk image, built by the workflow
+A release is a GitHub release with the game's two floppy disk images, built by the workflow
 `.github/workflows/release.yml` from a version tag. Users download it from
 https://github.com/MZPico/mz800pop/releases (the README points there).
 
@@ -11,6 +11,12 @@ https://github.com/MZPico/mz800pop/releases (the README points there).
   writes 0, and a floppy written from such an image by Greaseweazle does not boot); the workflow checks it
   (`python3 tools/edsk.py check`) before it publishes the file.
 - `pop800-X.Y.Z.dsk.sha256`: its SHA-256 checksum (`sha256sum -c pop800-X.Y.Z.dsk.sha256`).
+- `pop800-picord-X.Y.Z.dsk` and its `.sha256` (since 0.2.0): the disk for the MZPico's own pico_rd RAM disk, as
+  `make picord` builds `build/pop800-picord.dsk` (the same sources with PICORD=1; the same EDSK check). The workflow
+  also runs `make mz1r18-check` (the pico_rd lines leave the MZ-1R18 disk byte for byte as it is). The emulator has
+  no pico_rd, so this disk is tested on a card: before tagging, boot it on an MZPico (firmware v0.5.0 or later,
+  `[pico_rd] mode=cow`) and check the loading screen's speed line and a level or two, and the pool (peak at most 72
+  KB, no drops) for both disks.
 - The notes: a short user-facing paragraph (what the file is, what the machine needs, a link to the README at that
   tag, the rights note), followed by GitHub's generated list of the changes since the previous release.
 

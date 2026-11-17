@@ -3,7 +3,8 @@
 # the disk is built, checked and uploaded as a workflow artifact, and no release is created.
 # The tag must match the VERSION file (the version the loading screen shows) and be on main. The DOS data is fetched
 # as in the PR checks (tools/ci/fetch_dos_data.py, md5-checked) and is not attached; the release carries the built
-# disk only (pop800-X.Y.Z.dsk) and its SHA-256 checksum.
+# disks only (pop800-X.Y.Z.dsk for an MZ-1R18-style RAM disk, pop800-picord-X.Y.Z.dsk for the MZPico's pico_rd) and
+# their SHA-256 checksums.
 name: Release
 
 on:
@@ -155,6 +156,8 @@ jobs:
 
       - name: Build
         run: make ci-build
+      - name: The pico_rd disk, and the check that its lines leave the MZ-1R18 disk alone
+        run: make picord mz1r18-check
 
       - name: Smoke tier
         if: github.event_name == 'push' || inputs.smoke
@@ -166,9 +169,13 @@ jobs:
         run: |
           mkdir dist
           cp build/pop800.dsk "dist/pop800-$VERSION.dsk"
-          # every sector's EDSK length 128 << N (mzdisk writes 0: a floppy written by Greaseweazle then has no data)
-          python3 tools/edsk.py check "dist/pop800-$VERSION.dsk"
-          (cd dist && sha256sum "pop800-$VERSION.dsk" > "pop800-$VERSION.dsk.sha256" && cat ./*.sha256)
+          cp build/pop800-picord.dsk "dist/pop800-picord-$VERSION.dsk"
+          for d in "pop800-$VERSION.dsk" "pop800-picord-$VERSION.dsk"; do
+            # every sector's EDSK length 128 << N (mzdisk writes 0: a floppy written by Greaseweazle then has no data)
+            python3 tools/edsk.py check "dist/$d"
+            (cd dist && sha256sum "$d" > "$d.sha256")
+          done
+          cat dist/*.sha256
 
       - uses: actions/upload-artifact@v4.6.0
         with:
@@ -201,17 +208,22 @@ jobs:
           cat > notes.md <<EOF
           Prince of Persia for the Sharp MZ-800, version $VERSION.
 
-          **Download** \`pop800-$VERSION.dsk\`, the game's floppy disk image, and boot it on an MZ-800 with the 32 KB VRAM
-          extension (MZ-1R25) and a chip-based RAM disk card of 512 KB or more (1 MB recommended; emulated or
-          file-backed RAM disks such as the MZPico's are not supported), from a floppy drive or the MZPico's floppy
-          emulation, or in mz800emu. \`pop800-$VERSION.dsk.sha256\` is its SHA-256 checksum
-          (\`sha256sum -c pop800-$VERSION.dsk.sha256\`). How to start and play it:
-          [the README](https://github.com/$GH_REPO/blob/$TAG/README.md).
+          **Download** the game's floppy disk image and boot it on an MZ-800 with the 32 KB VRAM extension (MZ-1R25) and a
+          RAM disk of 512 KB or more (1 MB recommended), from a floppy drive or the MZPico's floppy emulation:
+
+          - \`pop800-$VERSION.dsk\` for an MZ-1R18-style RAM disk: a chip-based card, the MZPico Deluxe's \`[ramdisk]\`, or
+            mz800emu;
+          - \`pop800-picord-$VERSION.dsk\` for the MZPico's own \`[pico_rd]\` RAM disk (every MZPico board).
+
+          An MZPico RAM disk needs MZPico firmware v0.5.0 or later in copy-on-write mode: see "Running on an MZPico" in
+          [the README](https://github.com/$GH_REPO/blob/$TAG/README.md), which also tells how to start and play. The
+          \`.sha256\` files are the SHA-256 checksums (\`sha256sum -c pop800-$VERSION.dsk.sha256\`).
 
           This is a non-commercial fan port. Prince of Persia's graphics, levels, sound and music remain the property of
           their owners.
           EOF
-          files=("dist/pop800-$VERSION.dsk" "dist/pop800-$VERSION.dsk.sha256")
+          files=("dist/pop800-$VERSION.dsk" "dist/pop800-$VERSION.dsk.sha256"
+                 "dist/pop800-picord-$VERSION.dsk" "dist/pop800-picord-$VERSION.dsk.sha256")
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "The release $TAG exists: replacing its files"
             gh release upload "$TAG" "${files[@]}" --clobber

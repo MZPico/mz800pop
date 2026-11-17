@@ -16,12 +16,14 @@ affiliated with or endorsed by the owners of Prince of Persia.
 
 - **A Sharp MZ-800 with the 32 KB VRAM extension (MZ-1R25).** The game uses the 320x200 16-colour mode, which needs
   the extension; without it the loading screen says so and stops.
-- **A chip-based RAM disk card of 512 KB or more**: real RAM chips, such as an MZ-1R18-style card, with close to zero
-  wait states. **An emulated or file-backed RAM disk, such as the MZPico's, is not supported** (see
-  [Known limitations](#known-limitations)). The game keeps its graphics there; a bigger card only makes it faster, the
-  game is the same:
+- **A RAM disk of 512 KB or more**, either
+  - a chip-based RAM disk card: real RAM chips, such as an MZ-1R18-style card, with close to zero wait states, or
+  - an **MZPico card** with firmware v0.5.0 or later, set up as in [Running on an MZPico](#running-on-an-mzpico)
+    (its copy-on-write RAM disk; a plain file-backed one is too slow).
 
-  | RAM disk card | What you get |
+  The game keeps its graphics there; a bigger RAM disk only makes it faster, the game is the same:
+
+  | RAM disk | What you get |
   |---|---|
   | 512 KB | the minimum: the whole game, the slowest |
   | 1 MB (or 2 MB) | **recommended**: the prince's and the level's guards' animation frames are prepared in the RAM disk while the game loads (about 7 s), so walking and fighting are smoother |
@@ -31,16 +33,20 @@ affiliated with or endorsed by the owners of Prince of Persia.
   15 WS stops the start with `RAM DISK TOO SLOW: ... WS`.
 - **A floppy drive or the MZPico's floppy emulation** for the disk image (one 320 KB disk). The game also saves your
   progress to it.
-- **Optional: an MZPico card**, for the duel over the network (and, if you like, as the floppy drive). It does not
-  replace the RAM disk card.
+- **Optional: an MZPico card**, for the duel over the network, as the floppy drive and as the RAM disk.
 - A joystick is optional: the keyboard plays everything.
 
 ## Getting the game
 
-Download the disk image `pop800-X.Y.Z.dsk` from the
-**[Releases page](https://github.com/MZPico/mz800pop/releases)**. The first release, 0.1.0, is coming soon; until
-then the disk can only be built from the source (see [For developers](#for-developers)). Each release comes with the
-disk's checksum file `pop800-X.Y.Z.dsk.sha256`; `sha256sum -c pop800-X.Y.Z.dsk.sha256` checks your download.
+Download a disk image from the **[Releases page](https://github.com/MZPico/mz800pop/releases)**:
+
+- `pop800-X.Y.Z.dsk` for an MZ-1R18-style RAM disk: a chip-based card, the MZPico Deluxe's `[ramdisk]`, or an
+  emulator;
+- `pop800-picord-X.Y.Z.dsk` for the MZPico's own `[pico_rd]` RAM disk (every MZPico board, the Frugal one too; real
+  cards only, the emulators have no pico_rd).
+
+The game is the same on both, and the two duel each other over the network. Each disk comes with its checksum file
+(`.sha256`); `sha256sum -c pop800-X.Y.Z.dsk.sha256` checks your download.
 
 <!-- TODO: link the title's page on mzpico.com (play in the browser) once it is public there; today it is on staging only. -->
 
@@ -50,7 +56,7 @@ disk's checksum file `pop800-X.Y.Z.dsk.sha256`; `sha256sum -c pop800-X.Y.Z.dsk.s
    emulation.
 2. Switch on (or reset) the MZ-800 and let it boot from the floppy. Keep the disk writable if you want to save games.
 3. The **loading screen** shows:
-   - the game's version under the title (`V0.1.0`);
+   - the game's version under the title (`V0.2.0`);
    - a progress bar while the game loads (`LOADING...`) and, with 1 MB or more, while it prepares the animation
      frames (`PREPARING SPRITES`);
    - the RAM disk it found and its speed in wait states (`RAM DISK 1M, 0 WS`; 0 WS is a card without waits);
@@ -60,6 +66,33 @@ disk's checksum file `pop800-X.Y.Z.dsk.sha256`; `sha256sum -c pop800-X.Y.Z.dsk.s
    saved game.
 
 ![The loading screen](docs/screenshots/loading.png)
+
+## Running on an MZPico
+
+An MZPico card can be the game's RAM disk, no RAM disk card needed, with **firmware v0.5.0 or later**
+([MZPico/MZPico-firmware releases](https://github.com/MZPico/MZPico-firmware/releases)). The RAM disk runs in
+copy-on-write mode: an image in the card's flash, the changes in a RAM pool. Add one of these to `mzpico.ini`:
+
+- **Deluxe board**, with `pop800-X.Y.Z.dsk`:
+  ```ini
+  [ramdisk]
+  image=flash:/POP800RD.IMG
+  mode=cow
+  size=512K
+  ```
+- **Any board** (Frugal too), with `pop800-picord-X.Y.Z.dsk`:
+  ```ini
+  [pico_rd]
+  image=flash:/POP800RD.IMG
+  mode=cow
+  size=512K
+  ```
+
+Let the card create the image (do not copy one in): on the first boots it learns which parts of the RAM disk to keep
+in flash, so the first one or two starts pause for a few seconds while loading; after that the card runs at about
+3 to 4 wait states (`RAM DISK 512K, 3 WS`), close to a chip card. A card has one copy-on-write RAM disk: use one of the
+two sections, not both. On a 2 MB board 512K is the size that fits the flash; the Frugal 16 MB board takes
+`size=4M` (the fastest tier). The firmware's README has every option.
 
 ## Playing in an emulator
 
@@ -144,16 +177,9 @@ report it). In emulators the network duel needs a relay running on your PC: see
   gates moving) run slower than the rest of the game.
 - The game runs slower than the PC original in general, and a smaller RAM disk is slower again (see above).
 - Not in this port: the original's attract-mode demo and the hall of fame.
-- **The RAM disk must be a fast, chip-based card**, with close to zero wait states: the game reads its graphics from
-  it all the time. Emulated or file-backed RAM disks, such as the MZPico's, are not supported, even though the MZPico
-  itself works for the floppy and the network. The boot measures the RAM disk's speed and stops with
-  `RAM DISK TOO SLOW: ... WS` (and the measured figures) when it is slower than 15 wait states.
-- Experimental, for developers: `make picord` builds a second disk, `pop800-picord.dsk`, that uses the MZPico's own
-  `pico_rd` RAM disk (every MZPico board, the Frugal one too) instead of an MZ-1R18-style card; its loading screen says
-  `RAM DISK 1M, 0 WS (PICORD)`. It needs MZPico firmware main cf6b79f (its PR #9) or later: the fixed pico_rd
-  address ports and pico_rd copy-on-write. It is tested in an emulator only, and the
-  same speed check applies
-  ([docs/ramdisk-tiers.md](docs/ramdisk-tiers.md), "pico_rd", has the card's settings).
+- **The RAM disk must be fast**, with few wait states: the game reads its graphics from it all the time. A
+  file-backed RAM disk (an image on the SD card without copy-on-write) is too slow. The boot measures the RAM disk's
+  speed and stops with `RAM DISK TOO SLOW: ... WS` (and the measured figures) when it is slower than 15 wait states.
 - A 256 KB RAM disk card is not enough.
 
 ## For developers
