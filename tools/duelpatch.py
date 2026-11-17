@@ -324,11 +324,18 @@ def crc16(b, crc=0xFFFF):
 def build_id(D, pieces, data):
     """the network's build id (duel.asm d_build, NETCREATE / NETJOIN: the relay refuses a joiner with another): a CRC-16
     of the game (build/m4game.bin), its overlays (build/m4ovl.bin) and every piece of the patch (d_build 0), laid into
-    its piece; -> the id"""
-    crc = crc16(open(os.path.join(B, 'm4game.bin'), 'rb').read())
-    crc = crc16(open(os.path.join(B, 'm4ovl.bin'), 'rb').read(), crc)
-    for a, e, k in pieces: crc = crc16(data[k], crc)
-    crc = crc or 1
+    its piece; -> the id. The pico_rd build (make picord: DUEL_ID_FROM names the MZ-1R18 build's duel_patch.json, built
+    from the same sources) takes the MZ-1R18 build's id instead: the two disks differ only in the RAM disk's ports, the
+    duel's logic and its hashed state are the same, so a player of either disk can join the other's room (a divergence
+    would still show as DESYNC: the relay compares the state hashes every tick)"""
+    src = os.environ.get('DUEL_ID_FROM')
+    if src:
+        crc = json.load(open(src))['build_id']
+    else:
+        crc = crc16(open(os.path.join(B, 'm4game.bin'), 'rb').read())
+        crc = crc16(open(os.path.join(B, 'm4ovl.bin'), 'rb').read(), crc)
+        for a, e, k in pieces: crc = crc16(data[k], crc)
+        crc = crc or 1
     a, e, k = [p for p in pieces if p[0] <= D['d_build'] < p[1]][0]
     b = bytearray(data[k]); b[D['d_build'] - a:D['d_build'] - a + 2] = struct.pack('<H', crc); data[k] = bytes(b)
     return crc

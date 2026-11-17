@@ -133,7 +133,7 @@ The rules in short:
 **Over the network** (MZPico, through the MZPico NET service; each MZ-800 still needs its own RAM disk card): one player picks `2 HOST` and gets a four-letter
 `ROOM CODE`; the other picks `3 JOIN`, types the code (DEL deletes) and presses ENTER. The match starts when both are
 in. Each machine plays its own fighter with either set of keys (SHIFT fires too); the host is the prince. Both
-machines must boot the same release of the disk (`OTHER VERSION` otherwise). Other messages: `NO SUCH ROOM` (a wrong
+machines must boot the same release (either of its disks: the MZ-1R18 one and the MZPico pico_rd one duel each other; `OTHER VERSION` otherwise). Other messages: `NO SUCH ROOM` (a wrong
 code), `NO LINK` (no connection to the service), `OTHER PLAYER LEFT`, `CONNECTION LOST`, and `DESYNC` (a bug: please
 report it). In emulators the network duel needs a relay running on your PC: see
 [docs/duel-net-howto.md](docs/duel-net-howto.md).

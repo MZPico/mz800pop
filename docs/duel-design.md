@@ -1034,7 +1034,7 @@ OTHER PLAYER LEFT (found by tests/duel_net.py).
 | Field | Value |
 |---|---|
 | game id | 0x5050 ("PP") |
-| build | a CRC-16 (CCITT) of build/m4game.bin, build/m4ovl.bin and every piece of the patch (d_build 0 while computed), laid into d_build by tools/duelpatch.py (`the network's build id` in the build's output): two different disks are refused at JOIN (OTHER VERSION) |
+| build | a CRC-16 (CCITT) of build/m4game.bin, build/m4ovl.bin and every piece of the patch (d_build 0 while computed), laid into d_build by tools/duelpatch.py (`the network's build id` in the build's output): two different disks are refused at JOIN (OTHER VERSION). The pico_rd disk (make picord) takes the MZ-1R18 disk's id (DUEL_ID_FROM): the two differ only in the RAM disk's ports, so they duel each other |
 | slots, bytes a slot | 2, 1 (the input byte; no delay byte: the delay stays the lobby's) |
 | settings | 1 byte: the input delay D (the host's NET_DELAY = 1; the joiner takes it) |
 
