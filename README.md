@@ -19,7 +19,9 @@ affiliated with or endorsed by the owners of Prince of Persia.
 - **A RAM disk of 512 KB or more**, either
   - a chip-based RAM disk card: real RAM chips, such as an MZ-1R18-style card, with close to zero wait states, or
   - an **MZPico card** with firmware v0.5.0 or later, set up as in [Running on an MZPico](#running-on-an-mzpico)
-    (its copy-on-write RAM disk; a plain file-backed one is too slow).
+    (its copy-on-write RAM disk; a plain file-backed one is too slow), or
+  - a **Unicard mk3b** with an STM32F429 and firmware 0.35 or later, set up as in
+    [Running on a Unicard](#running-on-a-unicard).
 
   The game keeps its graphics there; a bigger RAM disk only makes it faster, the game is the same:
 
@@ -31,8 +33,8 @@ affiliated with or endorsed by the owners of Prince of Persia.
 
   The loading screen measures the RAM disk's speed in wait states (`WS`: 0 is a card without waits); one slower than
   15 WS stops the start with `RAM DISK TOO SLOW: ... WS`.
-- **A floppy drive or the MZPico's floppy emulation** for the disk image (one 320 KB disk). The game also saves your
-  progress to it.
+- **A floppy drive, or the MZPico's or the Unicard's floppy emulation,** for the disk image (one 320 KB disk). The
+  game also saves your progress to it.
 - **Optional: an MZPico card**, for the duel over the network, as the floppy drive and as the RAM disk.
 - A joystick is optional: the keyboard plays everything.
 
@@ -40,8 +42,8 @@ affiliated with or endorsed by the owners of Prince of Persia.
 
 Download a disk image from the **[Releases page](https://github.com/MZPico/mz800pop/releases)**:
 
-- `pop800-X.Y.Z.dsk` for an MZ-1R18-style RAM disk: a chip-based card, the MZPico Deluxe's `[ramdisk]`, or an
-  emulator;
+- `pop800-X.Y.Z.dsk` for an MZ-1R18-style RAM disk: a chip-based card, the MZPico Deluxe's `[ramdisk]`, a Unicard,
+  or an emulator;
 - `pop800-picord-X.Y.Z.dsk` for the MZPico's own `[pico_rd]` RAM disk (every MZPico board, the Frugal one too; real
   cards only, the emulators have no pico_rd).
 
@@ -52,8 +54,8 @@ The game is the same on both, and the two duel each other over the network. Each
 
 ## Starting it
 
-1. Put the disk image in the first floppy drive: write it to a real disk, or select it in the MZPico's floppy
-   emulation.
+1. Put the disk image in the first floppy drive: write it to a real disk, or select it in the MZPico's or the
+   Unicard's floppy emulation.
 2. Switch on (or reset) the MZ-800 and let it boot from the floppy. Keep the disk writable if you want to save games.
 3. The **loading screen** shows:
    - the game's version under the title (`V0.2.0`);
@@ -93,6 +95,22 @@ in flash, so the first one or two starts pause for a few seconds while loading; 
 3 to 4 wait states (`RAM DISK 512K, 3 WS`), close to a chip card. A card has one copy-on-write RAM disk: use one of the
 two sections, not both. On a 2 MB board 512K is the size that fits the flash; the Frugal 16 MB board takes
 `size=4M` (the fastest tier). The firmware's README has every option.
+
+## Running on a Unicard
+
+A **Unicard mk3b** can be the game's RAM disk and floppy drive, with **firmware 0.35 or later**
+([download](https://www.sharpwiki.cz/lib/exe/fetch.php?media=unicard:firmware:unicard800_fw035.zip)): it keeps
+a cache of the RAM disk in the card's RAM. The cache needs the card's **STM32F429** (most mk3b cards have one;
+check the chip); on an STM32F407 the RAM disk is too slow and the start stops with `RAM DISK TOO SLOW`.
+
+- **RAM disk:** a file on the card's SD card, selected in the Unicard Manager (`/unicard/ramdisc.cfg`); the file's
+  size is the RAM disk's size. Use a **1 MB** file and keep it writable. The cache is on by default
+  (`RAMDISC_CACHE = WB` in the `[MZ800]` section of `/unicard/unicard.cfg`); with `OFF` the game is too slow to
+  start.
+- **Floppy:** `pop800-X.Y.Z.dsk` in the Unicard's floppy emulation, drive A.
+
+The loading screen then shows about `RAM DISK 1M, 3 WS`; while playing, the game waits for the SD card about 0.5 %
+of the time.
 
 ## Playing in an emulator
 

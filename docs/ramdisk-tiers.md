@@ -100,10 +100,10 @@ rd_top / 2 + 1 and of the last page; 3 areas on 512 KB, 4 on more), every routin
   page (0x0123 + k * 0x0753); the average. This is what the game's speed depends on. The 32 runs are read once
   untimed first and then timed (2026-11-17): a RAM disk with a cache misses on its first touch of a run, while the
   game's own reads come back to blocks they read before, so the cold pass measured the cache's misses and not what
-  the game sees. The Unicard (mk3b, mk4) keeps the RAM disk in a file on SD behind a 64 KB cache of 512-byte blocks
-  (its firmware of 2026-11-17): cold 41-43 WS on a Unicard mk3b (the boot stopped), warm 3 WS; in play there 99.95 %
-  of the reads come from the cache and the Z80 waits for the SD card ~0.5 % of the time (~2 % briefly at a room
-  change). A RAM disk without a cache (a chip-based card, mz800emu, the MZPico with the image in flash) costs the
+  the game sees. The Unicard mk3b (firmware 0.35, on an STM32F429; README "Running on a Unicard") keeps the RAM disk
+  in a file on SD behind a 55 KB cache of 512-byte blocks: cold 41-43 WS (the boot stopped), warm 3 WS; in play
+  there 99.95 % of the reads come from the cache and the Z80 waits for the SD card ~0.5 % of the time (~2 % briefly
+  at a room change). A RAM disk without a cache (a chip-based card, mz800emu, the MZPico with the image in flash) costs the
   same in both passes: every value below is as before.
 
 Precision: a count is 3.2 clocks, so one 128-byte chunk is good to +-0.03 clocks/byte, one 32-byte run to +-0.1,
