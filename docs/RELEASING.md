@@ -14,7 +14,7 @@ https://github.com/MZPico/mz800pop/releases (the README points there).
 - `pop800-picord-X.Y.Z.dsk` and its `.sha256` (since 0.2.0): the disk for the MZPico's own pico_rd RAM disk, as
   `make picord` builds `build/pop800-picord.dsk` (the same sources with PICORD=1; the same EDSK check). The workflow
   also runs `make mz1r18-check` (the pico_rd lines leave the MZ-1R18 disk byte for byte as it is). The emulator has
-  no pico_rd, so this disk is tested on a card: before tagging, boot it on an MZPico (firmware v0.5.0 or later,
+  no pico_rd, so this disk is tested on a card: before tagging, boot it on an MZPico (firmware v0.6.0 or later,
   `[pico_rd] mode=cow`) and check the loading screen's speed line and a level or two, and the pool (peak at most 72
   KB, no drops) for both disks.
 - The notes: a short user-facing paragraph (what the file is, what the machine needs, a link to the README at that

@@ -18,7 +18,7 @@ affiliated with or endorsed by the owners of Prince of Persia.
   the extension; without it the loading screen says so and stops.
 - **A RAM disk of 512 KB or more**, either
   - a chip-based RAM disk card: real RAM chips, such as an MZ-1R18-style card, with close to zero wait states, or
-  - an **MZPico card** with firmware v0.5.0 or later, set up as in [Running on an MZPico](#running-on-an-mzpico)
+  - an **MZPico card** with firmware v0.6.0 or later, set up as in [Running on an MZPico](#running-on-an-mzpico)
     (its copy-on-write RAM disk; a plain file-backed one is too slow), or
   - a **Unicard mk3b** with an STM32F429 and firmware 0.35 or later, set up as in
     [Running on a Unicard](#running-on-a-unicard).
@@ -72,30 +72,38 @@ To try it first without a machine, play it in the browser on
 
 ## Running on an MZPico
 
-An MZPico card can be the game's RAM disk, no RAM disk card needed, with **firmware v0.5.0 or later**
+An MZPico card can be the game's RAM disk, no RAM disk card needed, with **firmware v0.6.0 or later**
 ([MZPico/MZPico-firmware releases](https://github.com/MZPico/MZPico-firmware/releases)). The RAM disk runs in
-copy-on-write mode: an image in the card's flash, the changes in a RAM pool. Add one of these to `mzpico.ini`:
+copy-on-write mode: an image in the card's flash, the changes in a RAM pool.
+
+**Updating a 2 MB board** (every genuine Pico and Pico W) to v0.6.0 erases its `flash:` volume, which grows to make
+room for a 1 MB RAM disk: copy your files off over USB first, flash `mzpico_format_2m_v0.6.0.uf2`, then the
+firmware, and copy them back ([the v0.6.0 release notes](https://github.com/MZPico/MZPico-firmware/releases/tag/v0.6.0)
+have the steps). Do not use v0.5.0's Pico W images: they overwrite the flash volume.
+
+Add one of these to `mzpico.ini`:
 
 - **Deluxe board**, with `pop800-X.Y.Z.dsk`:
   ```ini
   [ramdisk]
   image=flash:/POP800RD.IMG
   mode=cow
-  size=512K
+  size=1M
   ```
 - **Any board** (Frugal too), with `pop800-picord-X.Y.Z.dsk`:
   ```ini
   [pico_rd]
   image=flash:/POP800RD.IMG
   mode=cow
-  size=512K
+  size=1M
   ```
 
-Let the card create the image (do not copy one in): on the first boots it learns which parts of the RAM disk to keep
+Let the card create the image (do not copy one in, and delete `POP800RD.IMG` when you change the size): on the first boots it learns which parts of the RAM disk to keep
 in flash, so the first one or two starts pause for a few seconds while loading; after that the card runs at about
-3 to 4 wait states (`RAM DISK 512K, 3 WS`), close to a chip card. A card has one copy-on-write RAM disk: use one of the
-two sections, not both. On a 2 MB board 512K is the size that fits the flash; the Frugal 16 MB board takes
-`size=4M` (the fastest tier). The firmware's README has every option.
+3 to 4 wait states (`RAM DISK 1M, 3 WS`), close to a chip card. A card has one copy-on-write RAM disk: use one of the
+two sections, not both. The size: `1M` on a 2 MB board (the recommended tier, as for a chip card; `512K` also works
+and leaves more of `flash:` free), `4M` on the Frugal 16 MB board (the fastest tier). The firmware's README has every
+option.
 
 ## Running on a Unicard
 
