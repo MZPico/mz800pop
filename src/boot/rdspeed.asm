@@ -19,11 +19,15 @@
 ;     an address no other chunk touched: a RAM disk with a 128-byte window (MZPico: a file behind an SD window) misses
 ;     once on an aligned chunk and twice on a misaligned one; MIN / MAX / AVG over all 32, ALIGN / MISAL the averages;
 ;   - GAME: 32 runs of the game's pattern, the address set and a 32-byte INIR, at scattered addresses (0x0123 + k *
-;     0x0753, all over the page); the average.
+;     0x0753, all over the page); the average. The 32 runs are read once untimed first: a RAM disk with a cache
+;     (the Unicard's: 512-byte blocks of a file on SD) misses on its first touch of a run, while the game's own reads
+;     come back to blocks they read before (on a Unicard mk3b 41-43 wait states cold, 3 warm, 2026-11-17); a RAM disk
+;     without a cache costs the same in both passes.
 ; Areas: page 0 (base 0x0000), the last 8 KB (base 0xE000) of page 7 (the end of the 512 KB layout), of the middle page
 ; (rd_top / 2 + 1) and of the last page (rd_top), in page order, each once. Reads only (to TRKBUF): nothing changes.
 ; Precision: a count is 3.2 clocks; a single chunk is good to +-0.03 clocks/byte, the averages better (the 16 counts of
-; the calibration: +-0.2 clocks of the fixed cost). Time: 5 KB an area, ~0.04 s an area without waits (0.15 s for 4).
+; the calibration: +-0.2 clocks of the fixed cost). Time: 6 KB an area (the untimed pass 1 KB), ~0.05 s an area without
+; waits (0.2 s for 4).
 ;
 ; The stop: the GAME average over the areas above RD_SPEED_MAX or below RD_SPEED_MIN (faster than an INIR can be: the
 ; timer is wrong) shows the message and halts (rs_stop): no launch, nothing more loaded. Both are words of the boot's
@@ -305,7 +309,24 @@ ra_1:           ld      a, (rs_k)               ; aligned: base + k * 512
                 ld      a, (hl)
                 cp      16
                 jr      c, ra_1
-                ld      ix, op_run              ; the game's pattern
+                ld      hl, 0x0123              ; the game's pattern, first once untimed (a RAM disk with a cache misses on
+                ld      (rs_ga), hl             ; its first touch of a run; the game's own reads come back to blocks they
+                xor     a                       ; read before), then timed; without a cache both passes cost the same
+                ld      (rs_k), a
+ra_w:           ld      a, (rs_pa)
+                out     (RD_PAGE), a
+                ld      de, (rs_ga)
+                call    op_run
+                ld      hl, (rs_ga)
+                ld      de, 0x0753
+                add     hl, de
+                ld      (rs_ga), hl
+                ld      hl, rs_k
+                inc     (hl)
+                ld      a, (hl)
+                cp      32
+                jr      c, ra_w
+                ld      ix, op_run              ; the timed pass
                 ld      hl, 0x0123
                 ld      (rs_ga), hl
                 xor     a
