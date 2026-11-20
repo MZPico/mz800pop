@@ -50,7 +50,8 @@ Download a disk image from the **[Releases page](https://github.com/MZPico/mz800
 The game is the same on both, and the two duel each other over the network. Each disk comes with its checksum file
 (`.sha256`); `sha256sum -c pop800-X.Y.Z.dsk.sha256` checks your download.
 
-<!-- TODO: link the title's page on mzpico.com (play in the browser) once it is public there; today it is on staging only. -->
+To try it first without a machine, play it in the browser on
+**[mzpico.com](https://mzpico.com/titles/prince-of-persia/)** (an emulated MZ-800 with a 4 MB RAM disk).
 
 ## Starting it
 
@@ -181,7 +182,8 @@ The rules in short:
   the game. Careful steps over raised spikes are safe, and so is everything with the sword drawn; only other moves onto
   raised spikes with the sword sheathed (a turn, a hop) cost a hit point.
 
-**Over the network** (MZPico, through the MZPico NET service; each MZ-800 still needs its own RAM disk card): one player picks `2 HOST` and gets a four-letter
+**Over the network** (MZPico, through the MZPico NET service; each MZ-800 needs its own RAM disk: a card, or the MZPico's own as in
+[Running on an MZPico](#running-on-an-mzpico)): one player picks `2 HOST` and gets a four-letter
 `ROOM CODE`; the other picks `3 JOIN`, types the code (DEL deletes) and presses ENTER. The match starts when both are
 in. Each machine plays its own fighter with either set of keys (SHIFT fires too); the host is the prince. Both
 machines must boot the same release (either of its disks: the MZ-1R18 one and the MZPico pico_rd one duel each other; `OTHER VERSION` otherwise). Other messages: `NO SUCH ROOM` (a wrong
@@ -196,9 +198,10 @@ report it). In emulators the network duel needs a relay running on your PC: see
 - The game runs slower than the PC original in general, and a smaller RAM disk is slower again (see above).
 - Not in this port: the original's attract-mode demo and the hall of fame.
 - **The RAM disk must be fast**, with few wait states: the game reads its graphics from it all the time. A
-  file-backed RAM disk (an image on the SD card without copy-on-write) is too slow. The boot measures the RAM disk's
+  file-backed RAM disk without copy-on-write or a cache (the MZPico's plain file mode, a Unicard with
+  `RAMDISC_CACHE = OFF` or an STM32F407) is too slow. The boot measures the RAM disk's
   speed and stops with `RAM DISK TOO SLOW: ... WS` (and the measured figures) when it is slower than 15 wait states.
-- A 256 KB RAM disk card is not enough.
+- A 256 KB RAM disk is not enough.
 
 ## For developers
 
