@@ -216,8 +216,9 @@ jobs:
             Unicard mk3b, or mz800emu;
           - \`pop800-picord-$VERSION.dsk\` for the MZPico's own \`[pico_rd]\` RAM disk (every MZPico board).
 
-          An MZPico RAM disk needs MZPico firmware v0.5.0 or later in copy-on-write mode; a Unicard mk3b needs firmware
-          0.35 or later on an STM32F429 (its RAM-disk cache). See "Running on an MZPico" and "Running on a Unicard" in
+          An MZPico RAM disk needs MZPico firmware v0.6.0 or later in copy-on-write mode (1 MB on a 2 MB board, 4 MB on a
+          16 MB one); a Unicard mk3b needs firmware 0.35 or later on an STM32F429 (its RAM-disk cache). See "Running on an
+          MZPico" and "Running on a Unicard" in
           [the README](https://github.com/$GH_REPO/blob/$TAG/README.md), which also tells how to start and play. The
           \`.sha256\` files are the SHA-256 checksums (\`sha256sum -c pop800-$VERSION.dsk.sha256\`).
 

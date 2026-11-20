@@ -171,7 +171,9 @@ The MZPico card's own RAM disk, `[pico_rd]` (MZPico-firmware src/mz_devices/pico
 the Frugal one included. Its MZ-1R18 emulation `[ramdisk]` is Deluxe-only: the MZ-1R18's address OUT carries the
 address's high byte on the high address lines (B of `out (c), r`), and only the Deluxe board captures them.
 
-**The firmware it needs:** MZPico firmware main cf6b79f (MZPico/MZPico-firmware PR #9) or later. That version fixes
+**The firmware it needs:** MZPico firmware main cf6b79f (MZPico/MZPico-firmware PR #9) or later; for players the
+release v0.6.0 or later (v0.5.0's Pico W images overwrite the flash volume; v0.6.0 also grows a 2 MB board's `flash:`
+to 1152 KB, enough for a 1 MB image). That version fixes
 the address ports (below) and adds pico_rd `mode=cow` (copy-on-write with learn, every board), `size` in bytes or
 with K / M, and a file-backed pico_rd without `size=` taking the file's length. pico_rd's ports, from its base (45h by
 default, the card's `base_port`), as fixed:
