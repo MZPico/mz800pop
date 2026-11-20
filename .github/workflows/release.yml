@@ -209,13 +209,15 @@ jobs:
           Prince of Persia for the Sharp MZ-800, version $VERSION.
 
           **Download** the game's floppy disk image and boot it on an MZ-800 with the 32 KB VRAM extension (MZ-1R25) and a
-          RAM disk of 512 KB or more (1 MB recommended), from a floppy drive or the MZPico's floppy emulation:
+          RAM disk of 512 KB or more (1 MB recommended), from a floppy drive or the MZPico's or the Unicard's floppy
+          emulation:
 
-          - \`pop800-$VERSION.dsk\` for an MZ-1R18-style RAM disk: a chip-based card, the MZPico Deluxe's \`[ramdisk]\`, or
-            mz800emu;
+          - \`pop800-$VERSION.dsk\` for an MZ-1R18-style RAM disk: a chip-based card, the MZPico Deluxe's \`[ramdisk]\`, a
+            Unicard mk3b, or mz800emu;
           - \`pop800-picord-$VERSION.dsk\` for the MZPico's own \`[pico_rd]\` RAM disk (every MZPico board).
 
-          An MZPico RAM disk needs MZPico firmware v0.5.0 or later in copy-on-write mode: see "Running on an MZPico" in
+          An MZPico RAM disk needs MZPico firmware v0.5.0 or later in copy-on-write mode; a Unicard mk3b needs firmware
+          0.35 or later on an STM32F429 (its RAM-disk cache). See "Running on an MZPico" and "Running on a Unicard" in
           [the README](https://github.com/$GH_REPO/blob/$TAG/README.md), which also tells how to start and play. The
           \`.sha256\` files are the SHA-256 checksums (\`sha256sum -c pop800-$VERSION.dsk.sha256\`).
 
